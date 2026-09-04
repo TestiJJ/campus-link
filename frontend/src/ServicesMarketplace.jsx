@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Star } from 'lucide-react';
 import API from './api';
 
 export default function ServicesMarketplace({ user }) {
@@ -85,7 +86,10 @@ export default function ServicesMarketplace({ user }) {
                     </h3>
                     
                     <div className="flex items-center space-x-1 mt-2 text-amber-500 text-xs font-bold">
-                      <span>★ {gig.rating || '5.0'}</span>
+                      <span className="flex items-center space-x-0.5">
+                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                        <span>{gig.rating || '5.0'}</span>
+                      </span>
                       <span className="text-slate-400 font-normal">({gig.reviews_count || 0})</span>
                     </div>
                   </div>

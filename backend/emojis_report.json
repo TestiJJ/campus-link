@@ -1,0 +1,556 @@
+[
+  {
+    "file": "../backend/models.py",
+    "line": 99,
+    "matches": [
+      "'🍔'",
+      "'👗'",
+      "'💻'"
+    ],
+    "snippet": "icon = Column(String(50), nullable=True)  # e.g. 🍔, 👗, 💻"
+  },
+  {
+    "file": "../backend/scan_emojis.py",
+    "line": 11,
+    "matches": [
+      "'✓'",
+      "'🛒'",
+      "'🎉'",
+      "'★'",
+      "'💡'",
+      "'😊'",
+      "'👟'",
+      "'💄'",
+      "'●'",
+      "'❤'",
+      "'🍔'",
+      "'💯'",
+      "'🛠'",
+      "'⏱'",
+      "'✕'",
+      "'✨'",
+      "'📚'",
+      "'👗'",
+      "'🔥'",
+      "'💬'",
+      "'📸'",
+      "'👍'",
+      "'📍'"
+    ],
+    "snippet": "'|[★✓✕●⏱📍💬📸🍔👗📚💄👟🛠🛒😊🔥✨🎉💡👍❤💯]',"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 65,
+    "matches": [
+      "'🍔'"
+    ],
+    "snippet": "{\"name\": \"Food & Snacks\", \"icon\": \"🍔\", \"description\": \"Meals, pastries, drinks, and snacks on campus"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 66,
+    "matches": [
+      "'👗'"
+    ],
+    "snippet": "{\"name\": \"Fashion & Apparel\", \"icon\": \"👗\", \"description\": \"Clothing, footwear, bags, and accessories"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 67,
+    "matches": [
+      "'💻'"
+    ],
+    "snippet": "{\"name\": \"Electronics & Gadgets\", \"icon\": \"💻\", \"description\": \"Phones, laptops, accessories, and rep"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 68,
+    "matches": [
+      "'🛠'"
+    ],
+    "snippet": "{\"name\": \"Services & Skills\", \"icon\": \"🛠️\", \"description\": \"Graphics design, typing, laundry, hair s"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 69,
+    "matches": [
+      "'📚'"
+    ],
+    "snippet": "{\"name\": \"Books & Stationery\", \"icon\": \"📚\", \"description\": \"Textbooks, notebooks, and academic mater"
+  },
+  {
+    "file": "../backend/seed_universities.py",
+    "line": 70,
+    "matches": [
+      "'💄'"
+    ],
+    "snippet": "{\"name\": \"Beauty & Personal Care\", \"icon\": \"💄\", \"description\": \"Skincare, cosmetics, and grooming pr"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 29,
+    "matches": [
+      "'🍔'"
+    ],
+    "snippet": "{\"name\": \"Food & Meals\", \"icon\": \"🍔\", \"description\": \"Hostel meals, fast food, snacks & drinks\"},"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 30,
+    "matches": [
+      "'👟'"
+    ],
+    "snippet": "{\"name\": \"Fashion & Shoes\", \"icon\": \"👟\", \"description\": \"Sneakers, vintage thrift, hoodies & accesso"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 31,
+    "matches": [
+      "'💻'"
+    ],
+    "snippet": "{\"name\": \"Laptops & Gadgets\", \"icon\": \"💻\", \"description\": \"Chargers, powerbanks, laptops & phones\"},"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 32,
+    "matches": [
+      "'📚'"
+    ],
+    "snippet": "{\"name\": \"Academic Services\", \"icon\": \"📚\", \"description\": \"Textbooks, printing, binding & tutorials\""
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 33,
+    "matches": [
+      "'🧺'"
+    ],
+    "snippet": "{\"name\": \"Laundry & Cleaning\", \"icon\": \"🧺\", \"description\": \"Hostel pickup & fold express services\"},"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 34,
+    "matches": [
+      "'📸'"
+    ],
+    "snippet": "{\"name\": \"Photography & Media\", \"icon\": \"📸\", \"description\": \"Graduation, birthday & event shoots\"},"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 35,
+    "matches": [
+      "'🔧'"
+    ],
+    "snippet": "{\"name\": \"Phone & PC Repairs\", \"icon\": \"🔧\", \"description\": \"Screen replacement, software flashing\"},"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 36,
+    "matches": [
+      "'✂'"
+    ],
+    "snippet": "{\"name\": \"Hair Styling & Beauty\", \"icon\": \"✂️\", \"description\": \"Hostel barbers, braided styles & nai"
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 302,
+    "matches": [
+      "'🔥'"
+    ],
+    "snippet": "title=\"New Sneaker Drop at SUB! 🔥\","
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 312,
+    "matches": [
+      "'🍛'"
+    ],
+    "snippet": "title=\"Smokey Jollof Ready for Lunch! 🍛\","
+  },
+  {
+    "file": "../backend/seed_v1_data.py",
+    "line": 322,
+    "matches": [
+      "'✨'",
+      "'📚'"
+    ],
+    "snippet": "title=\"Night Study Vibes at Main Library 📚✨\","
+  },
+  {
+    "file": "../frontend/src/AdminDashboard.jsx",
+    "line": 74,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToastMessage({ type: 'success', text: `✓ ${businessName} is now verified!` });"
+  },
+  {
+    "file": "../frontend/src/AdminDashboard.jsx",
+    "line": 419,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "✓ Verified"
+  },
+  {
+    "file": "../frontend/src/AdminDashboard.jsx",
+    "line": 437,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setSelectedVendorForId(null)} className=\"absolute top-5 right-5 text-slate-40"
+  },
+  {
+    "file": "../frontend/src/AdminDashboard.jsx",
+    "line": 461,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "✓ Approve Vendor"
+  },
+  {
+    "file": "../frontend/src/AdminDashboard.jsx",
+    "line": 474,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setRejectModalVendor(null)} className=\"absolute top-5 right-5 text-slate-400 "
+  },
+  {
+    "file": "../frontend/src/Auth.jsx",
+    "line": 756,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "✕"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 40,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 51,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 62,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 73,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 84,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 95,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "badge: '✓ Verified Vendor'"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 102,
+    "matches": [
+      "'🔥'"
+    ],
+    "snippet": "title: \"New Sneaker Drop at SUB! 🔥\","
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 111,
+    "matches": [
+      "'🍛'"
+    ],
+    "snippet": "title: \"Hot Jollof Rice Ready for Lunch! 🍛\","
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 120,
+    "matches": [
+      "'✨'",
+      "'📚'"
+    ],
+    "snippet": "title: \"Night Study Vibes at Main Library 📚✨\","
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 257,
+    "matches": [
+      "'🔥'"
+    ],
+    "snippet": "Watch Campus Reels 🔥"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 344,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "📍 {item.campus}"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 510,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "✓"
+  },
+  {
+    "file": "../frontend/src/LandingPage.jsx",
+    "line": 514,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "Approved merchants display the `✓ Verified Vendor` badge. Transactions and pickups happen at designa"
+  },
+  {
+    "file": "../frontend/src/ServicesMarketplace.jsx",
+    "line": 88,
+    "matches": [
+      "'★'"
+    ],
+    "snippet": "<span>★ {gig.rating || '5.0'}</span>"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 237,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: `✓ ${res.data.message}`, type: 'success' });"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 255,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: `✓ ${res.data.message}`, type: 'success' });"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 385,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: '✓ Campus Reel posted successfully to the student feed!', type: 'success' });"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 406,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: '✓ Profile picture updated successfully!', type: 'success' });"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 421,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: `✓ ${res.data.ride_type} booked! Driver ${res.data.driver_name} dispatched.`, type:"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 445,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setToast({ text: `✓ Order placed for ${orderModalItem.name}! Delivery arriving at ${orderDeliveryLoc"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 594,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setToast({ text: '', type: '' })} className=\"font-bold text-slate-500 cursor-"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 680,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "📍 {p.vendor_location || 'Campus Stall'}"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 689,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "✓ Verified Vendor"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 742,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "📍 {s.location || 'On Campus'}"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 964,
+    "matches": [
+      "'●'"
+    ],
+    "snippet": "● Dispatched: {activeRide.ride_type}"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 996,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "📍 {eat.location}"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1002,
+    "matches": [
+      "'★'"
+    ],
+    "snippet": "<span className=\"text-xs font-bold text-amber-500\">★ {eat.rating}</span>"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1006,
+    "matches": [
+      "'⏱'"
+    ],
+    "snippet": "<span>⏱ {eat.delivery_time}</span>"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1248,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "<span className=\"text-[10px] text-slate-400 block truncate\">📍 {stud.hostel || 'Campus Quad'}</span>"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1264,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "<span className=\"text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md\">✓ Friend"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1325,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "<p className=\"text-[10px] text-slate-400\">📍 {req.sender_hostel}</p>"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1736,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setShowRideModal(false)} className=\"absolute top-5 right-5 text-slate-400 hov"
+  },
+  {
+    "file": "../frontend/src/StudentDashboard.jsx",
+    "line": 1801,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setOrderModalItem(null)} className=\"absolute top-5 right-5 text-slate-400 hov"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 155,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "setFeedbackMsg({ type: 'success', text: '✓ ID verification details submitted! Campus Admins will rev"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 438,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setFeedbackMsg({ type: '', text: '' })} className=\"font-bold text-slate-500\">"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 483,
+    "matches": [
+      "'✓'"
+    ],
+    "snippet": "<span className=\"text-[11px] font-bold text-emerald-600\">✓ In Stock</span>"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 550,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "<span className=\"text-[11px] text-slate-400\">📍 {svc.location || 'On Campus'}</span>"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 592,
+    "matches": [
+      "'📍'"
+    ],
+    "snippet": "<td className=\"p-4 text-slate-500\">📍 {o.delivery_location}</td>"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 912,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setShowProductModal(false)} className=\"absolute top-5 right-5 text-slate-400 "
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 979,
+    "matches": [
+      "'✕'"
+    ],
+    "snippet": "<button onClick={() => setShowReelModal(false)} className=\"absolute top-5 right-5 text-slate-400 hov"
+  },
+  {
+    "file": "../frontend/src/VendorDashboard.jsx",
+    "line": 986,
+    "matches": [
+      "'🔥'"
+    ],
+    "snippet": "<input type=\"text\" required placeholder=\"e.g. New Sneaker Drop at SUB! 🔥\" value={reelForm.title} onC"
+  }
+]

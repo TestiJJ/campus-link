@@ -2,11 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CampusLink</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+    <title>CampusLink - Nigeria's Campus Student & Vendor Marketplace</title>
+    <meta name="description" content="CampusLink connects university students with trusted campus vendors for meals, dorm essentials, fashion, gadgets and student services across Nigeria." />
+    
+    <!-- PWA & Mobile Web App Capabilities -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CampusLink" />
+    <meta name="application-name" content="CampusLink" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
+    <link rel="alternate icon" type="image/png" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   </head>
-  <body>
+  <body class="bg-slate-50 text-slate-900 selection:bg-blue-500 selection:text-white antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

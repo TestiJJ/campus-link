@@ -1,1 +1,29 @@
 @import "tailwindcss";
+@import "lenis/dist/lenis.css";
+
+@layer utilities {
+  @keyframes marquee {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-marquee {
+    display: flex;
+    width: max-content;
+    animation: marquee 40s linear infinite;
+  }
+
+  .animate-marquee:hover {
+    animation-play-state: paused;
+  }
+
+  /* GPU / Render optimization for heavy off-screen sections */
+  .content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 650px;
+  }
+}
