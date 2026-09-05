@@ -16,6 +16,10 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: SMTP_EMAIL
+        value: testimonyjokotoye65@gmail.com
+      - key: SMTP_PASSWORD
+        value: ilon yrpn hlwa fdgs
 
   # 2. CampusLink Vite Frontend SPA
   - type: static-site

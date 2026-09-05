@@ -247,29 +247,6 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner]);
 
-  // Mobile back button & Escape key support for notification slide-over drawer
-  useEffect(() => {
-    if (!notificationsOpen) return;
-    const handlePopState = () => {
-      setNotificationsOpen(false);
-    };
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        setNotificationsOpen(false);
-      }
-    };
-    try {
-      window.history.pushState({ notifDrawerOpen: true }, '', window.location.href);
-    } catch {}
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [notificationsOpen]);
-
-  
   // My AI & Memory Vault State
   const [aiMessages, setAiMessages] = useState([]);
   const [aiMemories, setAiMemories] = useState([]);
@@ -318,11 +295,33 @@ export default function StudentDashboard() {
   });
   const avatarInputRef = useRef(null);
 
-  // Live Notifications State
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
+
+  // Mobile back button & Escape key support for notification slide-over drawer
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handlePopState = () => {
+      setNotificationsOpen(false);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setNotificationsOpen(false);
+      }
+    };
+    try {
+      window.history.pushState({ notifDrawerOpen: true }, '', window.location.href);
+    } catch {}
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [notificationsOpen]);
+
   // New User Profile Completion Prompt State (only shows for new accounts)
   const [showNewUserModal, setShowNewUserModal] = useState(() => {
     try {

@@ -197,7 +197,30 @@ def send_otp_email(to_email: str, otp_code: str):
 
     print(f"[CAMPUSLINK OTP for {to_email}]: {otp_code}")
 
-    # 0. Check if Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com) is configured
+    # 1. PRIMARY: Direct Gmail SMTP SSL (Port 465) using testimonyjokotoye65@gmail.com
+    try:
+        ssl_context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl_context, timeout=10) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, to_email, msg.as_string())
+            print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via Direct Gmail SSL 465 from {sender_email}")
+            return True
+    except Exception as e_ssl:
+        print(f"[CAMPUSLINK] Direct Gmail SSL 465 warning: {e_ssl}. Trying STARTTLS Port 587...")
+
+    # 2. Direct Gmail SMTP STARTTLS (Port 587) using testimonyjokotoye65@gmail.com
+    try:
+        ssl_context = ssl.create_default_context()
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls(context=ssl_context)
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, to_email, msg.as_string())
+            print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via Direct Gmail STARTTLS 587 from {sender_email}")
+            return True
+    except Exception as e_tls:
+        print(f"[CAMPUSLINK] Direct Gmail STARTTLS 587 warning: {e_tls}")
+
+    # 3. Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com) if configured
     google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK")
     if google_webhook:
         try:
@@ -219,7 +242,7 @@ def send_otp_email(to_email: str, otp_code: str):
         except Exception as e_google:
             print(f"[CAMPUSLINK] Google Gmail Webhook warning: {e_google}")
 
-    # 1. Check if Resend HTTP API is configured (HTTPS port 443 - bypasses all cloud SMTP port blocks on Render)
+    # 4. Fallback: Resend HTTP API (HTTPS port 443 - bypasses cloud SMTP port blocks if any)
     resend_key = os.getenv("RESEND_API_KEY")
     if resend_key:
         try:
@@ -243,7 +266,7 @@ def send_otp_email(to_email: str, otp_code: str):
             )
             with urllib.request.urlopen(req, timeout=12) as res:
                 if res.status in (200, 201):
-                    print(f"[CAMPUSLINK] OTP successfully sent via Resend API to {to_email}")
+                    print(f"[CAMPUSLINK] OTP successfully sent via Resend fallback to {to_email}")
                     return True
         except urllib.error.HTTPError as e_http:
             err_text = e_http.read().decode("utf-8")
@@ -251,7 +274,7 @@ def send_otp_email(to_email: str, otp_code: str):
         except Exception as e_resend:
             print(f"[CAMPUSLINK] Resend API dispatch warning: {e_resend}")
 
-    # 2. Check if Brevo HTTP API is configured (HTTPS port 443)
+    # 5. Fallback: Brevo HTTP API (HTTPS port 443)
     brevo_key = os.getenv("BREVO_API_KEY")
     if brevo_key:
         try:
@@ -280,29 +303,6 @@ def send_otp_email(to_email: str, otp_code: str):
         except Exception as e_brevo:
             print(f"[CAMPUSLINK] Brevo API dispatch warning: {e_brevo}")
 
-    # 3. Try SMTP SSL (Port 465) with explicit SSL context
-    try:
-        ssl_context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl_context, timeout=8) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, to_email, msg.as_string())
-            print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via SSL 465")
-            return True
-    except Exception as e_ssl:
-        print(f"[CAMPUSLINK] SMTP SSL 465 failed: {e_ssl}. Attempting Port 587 STARTTLS...")
-
-    # 4. Try SMTP STARTTLS (Port 587) with explicit SSL context
-    try:
-        ssl_context = ssl.create_default_context()
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=8) as server:
-            server.starttls(context=ssl_context)
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, to_email, msg.as_string())
-            print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via STARTTLS 587")
-            return True
-    except Exception as e_tls:
-        print(f"[CAMPUSLINK] SMTP STARTTLS 587 also failed: {e_tls}")
-
     return False
 
 @app.get("/")
@@ -315,16 +315,68 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """Diagnostic endpoint to test live email delivery and confirm provider status."""
     clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
     test_otp = str(random.randint(100000, 999999))
+    sender_email = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com")
+    raw_password = os.getenv("SMTP_PASSWORD", "ilon yrpn hlwa fdgs")
+    sender_password = raw_password.replace(" ", "").strip()
     
-    # 0. Check Google Webhook if present
+    subject = f"CampusLink Verification Code [{test_otp}]"
+    body = (
+        f"Hello Testimony!\n\n"
+        f"This is a live verification email sent directly from your Gmail: {sender_email}.\n"
+        f"Your verification code is: {test_otp}\n\n"
+        f"CampusLink Email Verification System is live and active!\n\n"
+        f"Best regards,\nCampusLink Team"
+    )
+    
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = f"CampusLink <{sender_email}>"
+    msg["To"] = clean_email
+
+    # 1. PRIMARY: Direct Gmail SMTP SSL (Port 465)
+    try:
+        ssl_context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl_context, timeout=10) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, clean_email, msg.as_string())
+            return {
+                "success": True,
+                "provider": "Direct Gmail SMTP (SSL Port 465)",
+                "sender": sender_email,
+                "recipient": clean_email,
+                "otp_sent": test_otp,
+                "message": f"Verification email successfully sent directly from {sender_email} to {clean_email} via Gmail SSL 465!"
+            }
+    except Exception as e_ssl:
+        print(f"Test email SSL 465 warning: {e_ssl}")
+
+    # 2. Direct Gmail SMTP STARTTLS (Port 587)
+    try:
+        ssl_context = ssl.create_default_context()
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+            server.starttls(context=ssl_context)
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, clean_email, msg.as_string())
+            return {
+                "success": True,
+                "provider": "Direct Gmail SMTP (STARTTLS Port 587)",
+                "sender": sender_email,
+                "recipient": clean_email,
+                "otp_sent": test_otp,
+                "message": f"Verification email successfully sent directly from {sender_email} to {clean_email} via Gmail STARTTLS 587!"
+            }
+    except Exception as e_tls:
+        print(f"Test email STARTTLS 587 warning: {e_tls}")
+
+    # 3. Check Google Webhook if present
     google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK")
     if google_webhook:
         try:
             import urllib.request
             payload = json.dumps({
                 "to": clean_email,
-                "subject": f"CampusLink Test Email [{test_otp}]",
-                "body": f"Hello Testimony!\n\nThis is a verified live test email from CampusLink.\nYour verification code is: {test_otp}\n\nEmail dispatch is live and working!"
+                "subject": subject,
+                "body": body
             }).encode("utf-8")
             req = urllib.request.Request(
                 google_webhook.strip(),
@@ -335,6 +387,7 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
                 return {
                     "success": True,
                     "provider": "Google Apps Script Webhook (Gmail)",
+                    "sender": sender_email,
                     "recipient": clean_email,
                     "otp_sent": test_otp,
                     "message": f"Test email successfully dispatched to {clean_email} via Google Gmail!"
@@ -342,7 +395,7 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
         except Exception as eg:
             print(f"Test email Google error: {eg}")
 
-    # 1. Resend API
+    # 4. Fallback: Resend API
     resend_key = os.getenv("RESEND_API_KEY")
     from_addr = os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>")
     try:
@@ -351,8 +404,8 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
         payload = json.dumps({
             "from": from_addr,
             "to": [clean_email],
-            "subject": f"CampusLink Test Verification Code [{test_otp}]",
-            "text": f"Hello Testimony!\n\nThis is a live test email from your CampusLink application.\nYour verification code is: {test_otp}\n\nLive email delivery confirmed!"
+            "subject": subject,
+            "text": body
         }).encode("utf-8")
         req = urllib.request.Request(
             resend_url,
@@ -367,13 +420,13 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
             res_body = res.read().decode("utf-8")
             return {
                 "success": True,
-                "provider": "Resend API (HTTPS Port 443)",
+                "provider": "Resend API (Fallback)",
                 "recipient": clean_email,
                 "from": from_addr,
                 "status_code": res.status,
                 "resend_response": json.loads(res_body),
                 "otp_sent": test_otp,
-                "message": f"Verification email successfully sent to {clean_email}!"
+                "message": f"Verification email sent to {clean_email} via Resend fallback."
             }
     except urllib.error.HTTPError as he:
         err_detail = he.read().decode("utf-8")
@@ -387,7 +440,7 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     except Exception as e:
         return {
             "success": False,
-            "provider": "Resend API",
+            "provider": "Email Dispatch",
             "recipient": clean_email,
             "error": str(e)
         }
