@@ -56,6 +56,15 @@ except Exception:
 
 app = FastAPI(title="CampusLink API")
 
+@app.get("/")
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "CampusLink API",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
