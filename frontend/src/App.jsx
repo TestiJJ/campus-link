@@ -41,11 +41,56 @@ function PageLoading() {
   );
 }
 
+// Error boundary to prevent white blank screens
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('CampusLink App Error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 text-center font-sans">
+          <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 font-black text-2xl shadow-sm">
+            !
+          </div>
+          <h2 className="text-xl font-black text-slate-900 mb-2">Something went wrong</h2>
+          <p className="text-xs text-slate-500 max-w-sm mb-6 leading-relaxed">
+            CampusLink encountered an unexpected error. Please try reloading or returning home.
+          </p>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => { this.setState({ hasError: false }); window.location.href = '/'; }}
+              className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer"
+            >
+              Go to Home
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <ReactLenis
-      root
-      options={{
+    <ErrorBoundary>
+      <ReactLenis
+        root
+        options={{
         lerp: 0.09,
         duration: 1.2,
         smoothWheel: true,
@@ -106,5 +151,6 @@ export default function App() {
         </div>
       </Router>
     </ReactLenis>
-  );
+  </ErrorBoundary>
+);
 }
