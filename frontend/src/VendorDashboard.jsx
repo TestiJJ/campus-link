@@ -1082,21 +1082,6 @@ export default function VendorDashboard() {
             </button>
 
             <button
-              onClick={handleSelectAiChat}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'messages' && selectedPartner?.is_ai ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Sparkles className={`w-4 h-4 ${activeTab === 'messages' && selectedPartner?.is_ai ? 'text-white' : 'text-blue-600'}`} />
-              <span>CampusLink AI</span>
-              <span className={`ml-auto text-[9px] font-black px-1.5 py-0.2 rounded-md ${
-                activeTab === 'messages' && selectedPartner?.is_ai ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
-              }`}>
-                AI
-              </span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('hub')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'hub' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -1162,13 +1147,6 @@ export default function VendorDashboard() {
         </div>
 
         <div className="flex items-center space-x-1 shrink-0">
-          <button
-            onClick={handleSelectAiChat}
-            className={`p-1.5 rounded-xl cursor-pointer transition-colors ${activeTab === 'messages' && selectedPartner?.is_ai ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
-            title="CampusLink AI Copilot"
-          >
-            <Sparkles className="w-4 h-4" />
-          </button>
           <button
             onClick={() => setActiveTab('settings')}
             className={`p-1.5 rounded-xl cursor-pointer transition-colors ${activeTab === 'settings' ? 'bg-sky-50 text-sky-600 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}
@@ -3336,7 +3314,7 @@ export default function VendorDashboard() {
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
       {/* ========================================================================= */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 shadow-lg safe-bottom ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
-        <div className="grid grid-cols-7 w-full max-w-lg mx-auto items-center">
+        <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
           {/* Tab 1: Products */}
           <button
             onClick={() => setActiveTab('inventory')}
@@ -3402,7 +3380,7 @@ export default function VendorDashboard() {
               )}
             </div>
             <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Chats</span>
-            {activeTab === 'messages' && !selectedPartner?.is_ai && (
+            {activeTab === 'messages' && (
               <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
             )}
           </button>
@@ -3418,20 +3396,6 @@ export default function VendorDashboard() {
             <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Reels</span>
             {activeTab === 'reels' && (
               <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab: CampusLink AI Chat */}
-          <button
-            onClick={handleSelectAiChat}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'messages' && selectedPartner?.is_ai ? 'text-blue-600 font-black' : 'text-blue-500/80 hover:text-blue-600 font-medium'
-            }`}
-          >
-            <Sparkles className={`w-5 h-5 shrink-0 ${activeTab === 'messages' && selectedPartner?.is_ai ? 'stroke-[2.5] text-blue-600' : 'stroke-2 text-blue-500'}`} />
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full font-bold">AI Chat</span>
-            {activeTab === 'messages' && selectedPartner?.is_ai && (
-              <span className="absolute top-0 w-6 h-0.5 bg-blue-600 rounded-full" />
             )}
           </button>
 

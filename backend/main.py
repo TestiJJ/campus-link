@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-import random, smtplib, os, shutil, uuid, urllib.parse, json, sys
+import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
 sys.path.append(os.path.dirname(__file__))
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
@@ -80,31 +80,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- CLOUDINARY MEDIA STORAGE INTEGRATION ---
+try:
+    import cloudinary
+    import cloudinary.uploader
+    cloudinary_url = os.getenv("CLOUDINARY_URL")
+    cld_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    cld_key = os.getenv("CLOUDINARY_API_KEY")
+    cld_secret = os.getenv("CLOUDINARY_API_SECRET")
+
+    if cloudinary_url:
+        cloudinary.config(cloudinary_url=cloudinary_url, secure=True)
+    elif cld_name and cld_key and cld_secret:
+        cloudinary.config(
+            cloud_name=cld_name,
+            api_key=cld_key,
+            api_secret=cld_secret,
+            secure=True
+        )
+    CLOUDINARY_AVAILABLE = True
+    print("[CAMPUSLINK] Cloudinary module loaded successfully.")
+except Exception as _cld_err:
+    print(f"[CAMPUSLINK] Cloudinary initialization notice: {_cld_err}")
+    CLOUDINARY_AVAILABLE = False
+
+# --- RENDER KEEP-ALIVE BACKGROUND TASK (Never Sleep) ---
+async def keep_render_awake_loop():
+    """Periodically pings the live Render web service so it never sleeps due to 15-min inactivity."""
+    await asyncio.sleep(45)  # Initial boot grace period
+    ping_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("BACKEND_URL") or "https://campuslink-backend.onrender.com"
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.get(f"{ping_url.rstrip('/')}/")
+                print(f"[CampusLink Pulse] Keep-alive ping status: {res.status_code}")
+        except Exception as _ping_err:
+            print(f"[CampusLink Pulse] Ping check warning: {_ping_err}")
+        await asyncio.sleep(12 * 60)  # Ping every 12 minutes (Render sleeps at 15m)
+
+@app.on_event("startup")
+async def on_app_startup():
+    # Only launch on production Render cloud instances
+    if os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL"):
+        asyncio.create_task(keep_render_awake_loop())
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 # --- AUTH DEPENDENCIES & ROLE CONTROL ---
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    payload = auth.decode_access_token(token)
-    if not payload:
-        raise credentials_exception
-    
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise credentials_exception
-        
-    user = db.query(models.User).filter(models.User.user_id == user_id).first()
-    if user is None:
-        raise credentials_exception
-    if getattr(user, "status", "active") == "suspended":
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)) -> models.User:
+    token_data = auth.verify_token(token)
+    if not token_data:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account has been suspended by administration. Access revoked."
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has expired or invalid credentials provided. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = db.query(models.User).filter(models.User.user_id == token_data.user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User account associated with this session does not exist.",
         )
     return user
 
@@ -127,7 +163,14 @@ def send_otp_email(to_email: str, otp_code: str):
     sender_password = raw_password.replace(" ", "").strip()
     
     subject = "CampusLink - Verify Your Email"
-    body = f"Hello,\n\nYour CampusLink email verification code is: {otp_code}\n\nThis code will expire in 15 minutes.\n\nBest regards,\nCampusLink Team"
+    body = (
+        f"Hello,\n\n"
+        f"Your CampusLink email verification code is: {otp_code}\n\n"
+        f"Enter this code on the registration page to activate your campus account.\n"
+        f"This code will expire in 15 minutes.\n\n"
+        f"If you did not request this, please ignore this message.\n\n"
+        f"Best regards,\nCampusLink Team"
+    )
     
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -136,14 +179,15 @@ def send_otp_email(to_email: str, otp_code: str):
 
     print(f"[CAMPUSLINK OTP for {to_email}]: {otp_code}")
 
-    # 1. Check if Resend HTTP API is configured (bypasses all cloud SMTP port blocks)
+    # 1. Check if Resend HTTP API is configured (HTTPS port 443 - bypasses all cloud SMTP port blocks on Render)
     resend_key = os.getenv("RESEND_API_KEY")
     if resend_key:
         try:
             import urllib.request
             resend_url = "https://api.resend.com/emails"
+            from_addr = os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>")
             payload = json.dumps({
-                "from": "CampusLink <onboarding@resend.dev>",
+                "from": from_addr,
                 "to": [to_email],
                 "subject": subject,
                 "text": body
@@ -152,7 +196,7 @@ def send_otp_email(to_email: str, otp_code: str):
                 resend_url,
                 data=payload,
                 headers={
-                    "Authorization": f"Bearer {resend_key}",
+                    "Authorization": f"Bearer {resend_key.strip()}",
                     "Content-Type": "application/json"
                 }
             )
@@ -163,9 +207,38 @@ def send_otp_email(to_email: str, otp_code: str):
         except Exception as e_resend:
             print(f"[CAMPUSLINK] Resend API dispatch warning: {e_resend}")
 
-    # 2. Try SMTP SSL (Port 465)
+    # 2. Check if Brevo HTTP API is configured (HTTPS port 443)
+    brevo_key = os.getenv("BREVO_API_KEY")
+    if brevo_key:
+        try:
+            import urllib.request
+            brevo_url = "https://api.brevo.com/v3/smtp/email"
+            payload = json.dumps({
+                "sender": {"name": "CampusLink", "email": sender_email},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "textContent": body
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                brevo_url,
+                data=payload,
+                headers={
+                    "api-key": brevo_key.strip(),
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=10) as res:
+                if res.status in (200, 201, 202):
+                    print(f"[CAMPUSLINK] OTP successfully sent via Brevo API to {to_email}")
+                    return True
+        except Exception as e_brevo:
+            print(f"[CAMPUSLINK] Brevo API dispatch warning: {e_brevo}")
+
+    # 3. Try SMTP SSL (Port 465) with explicit SSL context
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=8) as server:
+        ssl_context = ssl.create_default_context()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl_context, timeout=8) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_email, msg.as_string())
             print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via SSL 465")
@@ -173,10 +246,11 @@ def send_otp_email(to_email: str, otp_code: str):
     except Exception as e_ssl:
         print(f"[CAMPUSLINK] SMTP SSL 465 failed: {e_ssl}. Attempting Port 587 STARTTLS...")
 
-    # 3. Try SMTP STARTTLS (Port 587)
+    # 4. Try SMTP STARTTLS (Port 587) with explicit SSL context
     try:
+        ssl_context = ssl.create_default_context()
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=8) as server:
-            server.starttls()
+            server.starttls(context=ssl_context)
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_email, msg.as_string())
             print(f"[CAMPUSLINK] OTP successfully emailed to {to_email} via STARTTLS 587")
@@ -436,8 +510,8 @@ def delete_own_profile(
 @app.post("/api/upload")
 async def upload_file(request: Request, file: UploadFile = File(...)):
     ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+    content_type = (file.content_type or "").lower()
     if not ext:
-        content_type = file.content_type or ""
         if "audio" in content_type:
             ext = ".webm"
         elif "video" in content_type:
@@ -447,7 +521,42 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         else:
             ext = ".jpg"
     unique_filename = f"{uuid.uuid4().hex}{ext}"
+
+    # 1. Cloudinary upload (Permanent cloud storage for Render - images, reels, status stories, voice notes)
+    if CLOUDINARY_AVAILABLE:
+        cld_ready = bool(
+            os.getenv("CLOUDINARY_URL") or 
+            (os.getenv("CLOUDINARY_CLOUD_NAME") and os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET"))
+        )
+        if cld_ready:
+            try:
+                await file.seek(0)
+                file_bytes = await file.read()
+                
+                # In Cloudinary, audio and video both use resource_type='video'
+                is_video_or_audio = (
+                    "video" in content_type or 
+                    "audio" in content_type or 
+                    ext in [".mp4", ".mov", ".avi", ".webm", ".mkv", ".mp3", ".wav", ".ogg", ".m4a"]
+                )
+                resource_type = "video" if is_video_or_audio else "image"
+                
+                upload_res = cloudinary.uploader.upload(
+                    file_bytes,
+                    resource_type=resource_type,
+                    folder="campuslink",
+                    public_id=f"{uuid.uuid4().hex}"
+                )
+                secure_url = upload_res.get("secure_url") or upload_res.get("url")
+                if secure_url:
+                    print(f"[CAMPUSLINK CLOUDINARY] Uploaded successfully ({resource_type}): {secure_url}")
+                    return {"url": secure_url, "filename": upload_res.get("public_id")}
+            except Exception as e_cld:
+                print(f"[CAMPUSLINK] Cloudinary upload error: {e_cld}. Using local fallback.")
+
+    # 2. Local filesystem storage fallback
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    await file.seek(0)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 

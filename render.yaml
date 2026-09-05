@@ -12,6 +12,10 @@ services:
         value: 3.11.8
       - key: SECRET_KEY
         generateValue: true
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
 
   # 2. CampusLink Vite Frontend SPA
   - type: static-site

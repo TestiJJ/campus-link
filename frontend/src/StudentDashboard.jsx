@@ -1363,21 +1363,6 @@ export default function StudentDashboard() {
             </button>
 
             <button
-              onClick={handleSelectAiChat}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'messages' && selectedPartner?.is_ai ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Sparkles className={`w-4 h-4 ${activeTab === 'messages' && selectedPartner?.is_ai ? 'text-white' : 'text-blue-600'}`} />
-              <span>CampusLink AI</span>
-              <span className={`ml-auto text-[9px] font-black px-1.5 py-0.2 rounded-md ${
-                activeTab === 'messages' && selectedPartner?.is_ai ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
-              }`}>
-                AI
-              </span>
-            </button>
-
-            <button
               onClick={() => setActiveTab('messages')}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer relative ${
                 activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -1416,7 +1401,7 @@ export default function StudentDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-w-7xl pb-24 md:pb-8">
+      <main className={`flex-1 overflow-y-auto max-w-7xl w-full min-w-0 ${selectedPartner && activeTab === 'messages' ? 'p-0 md:p-6 lg:p-8 pb-0 md:pb-8' : 'p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         
         {/* Mobile Top Header (Facebook style top bar for small screens) */}
         <div className={`items-center justify-between pb-3 mb-4 border-b border-slate-200 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
@@ -2677,7 +2662,7 @@ export default function StudentDashboard() {
             </div>
 
             {/* Chat Box Container */}
-            <div className={`flex flex-col bg-white border border-slate-200 overflow-hidden shadow-xs ${selectedPartner && messageSubtab === 'chats' ? 'h-[calc(100dvh-2rem)] md:h-[calc(100vh-17rem)] rounded-2xl md:rounded-3xl' : 'h-[calc(100vh-17rem)] min-h-[500px] rounded-3xl'}`}>
+            <div className={`flex flex-col bg-white overflow-hidden ${selectedPartner && messageSubtab === 'chats' ? 'h-[100dvh] md:h-[calc(100vh-17rem)] rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'h-[calc(100vh-17rem)] min-h-[500px] rounded-3xl border border-slate-200 shadow-xs'}`}>
               
               {/* Top Sub-Switcher */}
               <div className={`p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
@@ -2728,15 +2713,7 @@ export default function StudentDashboard() {
                 <div className="flex items-center space-x-2 text-xs">
                   {selectedPartner.is_ai ? (
                     <div className="flex items-center space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setMemoryModalOpen(true)}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs flex items-center space-x-1.5 cursor-pointer text-[11px] transition-all"
-                        title="View stored memories & notes"
-                      >
-                        <Brain className="w-3.5 h-3.5" />
-                        <span>Saved Info ({aiMemories.length})</span>
-                      </button>
+                      <span className="font-bold text-slate-800">CampusLink AI</span>
                       <button
                         type="button"
                         onClick={handleClearAiChat}
@@ -2820,19 +2797,19 @@ export default function StudentDashboard() {
                                   AI
                                 </span>
                               </span>
-                              <span className={`text-[10px] font-semibold flex items-center space-x-0.5 ${
+                              <span className={`text-[10px] font-semibold flex items-center space-x-1 ${
                                 selectedPartner?.is_ai ? 'text-blue-100' : 'text-blue-600'
                               }`}>
-                                <Brain className="w-3 h-3" />
-                                <span>{aiMemories.length} notes</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                                <span>Online 24/7</span>
                               </span>
                             </div>
                             <p className={`text-[11px] truncate mt-0.5 ${
                               selectedPartner?.is_ai ? 'text-blue-100' : 'text-slate-500'
                             }`}>
                               {aiMessages.length > 0
-                                ? (aiMessages[aiMessages.length - 1].content || 'Chat & store information')
-                                : 'Chat with AI & store info'}
+                                ? (aiMessages[aiMessages.length - 1].content || 'Ask anything about academics & campus')
+                                : 'Academics, CGPA, questions & advice'}
                             </p>
                           </div>
                         </button>
@@ -2897,7 +2874,7 @@ export default function StudentDashboard() {
                       selectedPartner.is_ai ? (
                         <>
                           {/* AI Chat Mobile/Desktop WhatsApp-style Header */}
-                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
                             <div className="flex items-center space-x-2.5 min-w-0">
                               <button
                                 type="button"
@@ -2915,27 +2892,29 @@ export default function StudentDashboard() {
                                   <h4 className="text-xs font-bold text-slate-900 truncate">CampusLink AI Assistant</h4>
                                   <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-full font-bold shrink-0">24/7 AI</span>
                                 </div>
-                                <p className="text-[10px] text-slate-400 truncate">Academics, CGPA, hostel notes & advice</p>
+                                <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                                  <span>Online • Always available</span>
+                                </p>
                               </div>
                             </div>
 
                             <div className="flex items-center space-x-2 shrink-0">
                               <button
                                 type="button"
-                                onClick={() => setMemoryModalOpen(true)}
-                                className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                title="View stored memories & notes"
-                              >
-                                <Brain className="w-3.5 h-3.5 text-blue-600" />
-                                <span className="hidden sm:inline">Memory ({aiMemories.length})</span>
-                              </button>
-                              <button
-                                type="button"
                                 onClick={handleClearAiChat}
                                 className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors"
                                 title="Clear conversation"
                               >
-                                Clear
+                                Clear Chat
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPartner(null)}
+                                className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                                title="Close chat"
+                              >
+                                <X className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
@@ -2963,21 +2942,6 @@ export default function StudentDashboard() {
                                     }`}
                                   >
                                     <p className="whitespace-pre-wrap">{msg.content}</p>
-                                    {msg.is_memory_trigger && (
-                                      <div className="mt-2 pt-2 border-t border-blue-100 flex items-center justify-between text-[10px] text-blue-600 font-bold">
-                                        <span className="flex items-center space-x-1">
-                                          <Brain className="w-3 h-3 text-blue-500" />
-                                          <span>Saved to your personal Memory Vault</span>
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => setMemoryModalOpen(true)}
-                                          className="underline hover:text-blue-800 cursor-pointer"
-                                        >
-                                          View notes
-                                        </button>
-                                      </div>
-                                    )}
                                     <span className={`block text-[9px] mt-1.5 text-right ${
                                       msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
                                     }`}>
@@ -2991,9 +2955,9 @@ export default function StudentDashboard() {
                                 <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
                                   <Bot className="w-8 h-8" />
                                 </div>
-                                <h3 className="text-base font-black text-slate-800">CampusLink AI — Your Campus Assistant & Memory Vault</h3>
+                                <h3 className="text-base font-black text-slate-800">CampusLink AI Assistant</h3>
                                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                  Ask me anything about academics, definitions (like grammar & science), reply suggestions, CGPA, math, or hostel reminders. Tell me anything you want remembered, and I will securely store it for you!
+                                  Ask me anything about academics, definitions, reply suggestions, CGPA, math, or campus life!
                                 </p>
 
                                 <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
@@ -3026,56 +2990,18 @@ export default function StudentDashboard() {
                                   <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
                                   <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse delay-75" />
                                   <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150" />
-                                  <span className="font-medium text-slate-600 ml-1">CampusLink AI is thinking & recalling your info...</span>
+                                  <span className="font-medium text-slate-600 ml-1">CampusLink AI is formulating a response...</span>
                                 </div>
                               </div>
                             )}
                           </div>
 
-                          {/* AI Chat Input Bar with Memory Store Toggle */}
-                          <div className="p-3 bg-white border-t border-slate-200 space-y-2">
-                            {/* Action Bar */}
-                            <div className="flex items-center justify-between text-[11px]">
-                              <button
-                                type="button"
-                                onClick={() => setStoreInfoToggled(!storeInfoToggled)}
-                                className={`px-2.5 py-1 rounded-lg font-bold flex items-center space-x-1.5 transition-all cursor-pointer ${
-                                  storeInfoToggled
-                                    ? 'bg-blue-600 text-white shadow-xs'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                                }`}
-                                title="Toggle explicit storage of this prompt as personal information"
-                              >
-                                <Brain className="w-3.5 h-3.5" />
-                                <span>{storeInfoToggled ? '🧠 Store Mode: ACTIVE' : 'Store as Info'}</span>
-                              </button>
-
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleSendAiMessage("What notes and information do you have stored for me?")}
-                                  className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer hidden sm:inline"
-                                >
-                                  Recall My Notes
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setMemoryModalOpen(true)}
-                                  className="text-slate-500 hover:text-slate-900 font-medium cursor-pointer"
-                                >
-                                  Open Vault ({aiMemories.length})
-                                </button>
-                              </div>
-                            </div>
-
+                          {/* AI Chat Input Bar */}
+                          <div className="p-3 bg-white border-t border-slate-200">
                             <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
                               <input
                                 type="text"
-                                placeholder={
-                                  storeInfoToggled
-                                    ? "Type information you want My AI to remember..."
-                                    : "Ask CampusLink AI anything, or type 'Remember that...' to store info..."
-                                }
+                                placeholder="Ask CampusLink AI anything (academics, definitions, reply ideas, math)..."
                                 value={newMsgText}
                                 onChange={(e) => setNewMsgText(e.target.value)}
                                 className="flex-1 p-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-800 focus:outline-none"
@@ -5279,213 +5205,6 @@ export default function StudentDashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- PERSONAL MEMORY VAULT & SAVED INFO MODAL --- */}
-      <AnimatePresence>
-        {memoryModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setMemoryModalOpen(false)}
-              className="absolute inset-0 bg-slate-950/50 backdrop-blur-xs"
-            />
-            
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 15 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden z-10 flex flex-col max-h-[88vh]"
-            >
-              {/* Header */}
-              <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-blue-600 text-white">
-                <div className="flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center shadow-inner">
-                    <Brain className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h3 className="text-base font-black tracking-tight">Personal Memory Vault</h3>
-                      <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-bold">
-                        {aiMemories.length} item{aiMemories.length === 1 ? '' : 's'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-blue-100">
-                      Information & notes remembered by CampusLink AI or saved manually
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setMemoryModalOpen(false)}
-                  className="p-2 hover:bg-white/20 rounded-xl transition-colors cursor-pointer text-white/80 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-slate-50/50">
-                {/* Add New Note Section */}
-                <form onSubmit={handleCreateMemory} className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-slate-800 flex items-center space-x-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Store New Information / Note</span>
-                    </span>
-                    <select
-                      value={newMemoryForm.category}
-                      onChange={(e) => setNewMemoryForm({ ...newMemoryForm, category: e.target.value })}
-                      className="text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none"
-                    >
-                      <option value="academic">Academic & Study</option>
-                      <option value="schedule">Exam & Timetable</option>
-                      <option value="hostel">Hostel & Accommodation</option>
-                      <option value="financial">Fees & Financial</option>
-                      <option value="personal">Personal / Passwords</option>
-                      <option value="general">General</option>
-                    </select>
-                  </div>
-
-                  <input
-                    type="text"
-                    placeholder="Title / Topic (e.g., CSC 301 Test Date, My Matric No, Hostel Room)"
-                    value={newMemoryForm.title}
-                    onChange={(e) => setNewMemoryForm({ ...newMemoryForm, title: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-                  />
-
-                  <textarea
-                    rows={2}
-                    placeholder="Information to store (e.g. My matric number is 2022/CSC/042, Room B12 Hall 4...)"
-                    value={newMemoryForm.content}
-                    onChange={(e) => setNewMemoryForm({ ...newMemoryForm, content: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500 resize-none"
-                  />
-
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={isSavingMemory || !newMemoryForm.content.trim()}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-xs cursor-pointer transition-all disabled:opacity-50 flex items-center space-x-1.5"
-                    >
-                      <Brain className="w-3.5 h-3.5" />
-                      <span>{isSavingMemory ? 'Saving...' : 'Save to Vault'}</span>
-                    </button>
-                  </div>
-                </form>
-
-                {/* Filter and Search */}
-                <div className="flex items-center space-x-2">
-                  <div className="relative flex-1">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                    <input
-                      type="text"
-                      placeholder="Search stored information..."
-                      value={memorySearch}
-                      onChange={(e) => setMemorySearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Stored Notes List */}
-                <div className="space-y-2.5">
-                  {(() => {
-                    const filtered = aiMemories.filter(m => {
-                      if (!memorySearch.trim()) return true;
-                      const q = memorySearch.toLowerCase();
-                      return (m.title && m.title.toLowerCase().includes(q)) ||
-                             (m.content && m.content.toLowerCase().includes(q)) ||
-                             (m.category && m.category.toLowerCase().includes(q));
-                    });
-
-                    if (filtered.length === 0) {
-                      return (
-                        <div className="p-8 text-center bg-white rounded-2xl border border-slate-200">
-                          <Brain className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                          <p className="font-bold text-xs text-slate-700">No stored information found</p>
-                          <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
-                            In your chat with CampusLink AI, say "Remember that..." or "Store note:", or use the quick form above to save anything important!
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    return filtered.map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-blue-300 transition-all flex items-start justify-between gap-3 group"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center space-x-2 mb-1">
-                            <span className="text-xs font-black text-slate-900 truncate">
-                              {item.title || 'Saved Note'}
-                            </span>
-                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                              item.category === 'academic' ? 'bg-blue-100 text-blue-700' :
-                              item.category === 'schedule' ? 'bg-amber-100 text-amber-800' :
-                              item.category === 'hostel' ? 'bg-emerald-100 text-emerald-800' :
-                              item.category === 'financial' ? 'bg-purple-100 text-purple-800' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
-                              {item.category || 'General'}
-                            </span>
-                            <span className="text-[10px] text-slate-400">
-                              {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent'}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
-                            {item.content}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center space-x-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              navigator.clipboard.writeText(`${item.title ? item.title + ': ' : ''}${item.content}`);
-                              alert('Copied to clipboard!');
-                            }}
-                            title="Copy to clipboard"
-                            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMemory(item.id)}
-                            title="Delete note"
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ));
-                  })()}
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="p-4 border-t border-slate-200 bg-white flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">
-                  Tip: Tell My AI <em>"Remember that..."</em> in chat to auto-save info.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setMemoryModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                >
-                  Close Vault
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Compact Icons for Small Screens) --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
@@ -5553,36 +5272,17 @@ export default function StudentDashboard() {
           )}
         </button>
 
-        {/* CampusLink AI Assistant */}
-        <button
-          onClick={handleSelectAiChat}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
-            activeTab === 'messages' && selectedPartner?.is_ai
-              ? 'text-blue-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-        >
-          <Sparkles className={`w-5 h-5 ${activeTab === 'messages' && selectedPartner?.is_ai ? 'stroke-[2.5] text-blue-600' : 'stroke-2'}`} />
-          <span className="text-[10px] tracking-tight mt-0.5">AI</span>
-          {activeTab === 'messages' && selectedPartner?.is_ai && (
-            <span className="absolute top-0 w-6 h-0.5 bg-blue-600 rounded-full" />
-          )}
-        </button>
-
         {/* Chats & Friends */}
         <button
-          onClick={() => {
-            setActiveTab('messages');
-            if (selectedPartner?.is_ai) setSelectedPartner(null);
-          }}
+          onClick={() => setActiveTab('messages')}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
-            activeTab === 'messages' && !selectedPartner?.is_ai
+            activeTab === 'messages'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
         >
           <div className="relative">
-            <MessageSquare className={`w-5 h-5 ${activeTab === 'messages' && !selectedPartner?.is_ai ? 'stroke-[2.5]' : 'stroke-2'}`} />
+            <MessageSquare className={`w-5 h-5 ${activeTab === 'messages' ? 'stroke-[2.5]' : 'stroke-2'}`} />
             {(pendingRequests || []).length > 0 && (
               <span className="absolute -top-1 -right-1.5 bg-rose-500 text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
                 {(pendingRequests || []).length}
@@ -5590,7 +5290,7 @@ export default function StudentDashboard() {
             )}
           </div>
           <span className="text-[10px] tracking-tight mt-0.5">Chats</span>
-          {activeTab === 'messages' && !selectedPartner?.is_ai && (
+          {activeTab === 'messages' && (
             <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
           )}
         </button>
