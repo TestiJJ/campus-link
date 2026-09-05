@@ -12,13 +12,54 @@ import {
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone
 } from 'lucide-react';
-import API, { uploadFile } from './api';
+import API, { uploadFile, getMediaUrl } from './api';
+import SafeImage from './components/SafeImage';
+
+
+// Stale-While-Revalidate Caching Utilities for Vendor
+const getCachedData = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(`cl_cache_vendor_${key}`);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const setCachedData = (key, value) => {
+  try {
+    localStorage.setItem(`cl_cache_vendor_${key}`, JSON.stringify(value));
+  } catch {}
+};
+
+// URL and localStorage tab persistence for Vendor
+const getInitialVendorTab = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('campuslink_vendor_tab');
+    if (saved && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(saved)) {
+      return saved;
+    }
+  } catch {}
+  return 'inventory';
+};
 
 export default function VendorDashboard() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-  const [vendorStore, setVendorStore] = useState(null);
-  const [activeTab, setActiveTab] = useState('inventory'); // 'inventory' | 'services' | 'orders' | 'messages' | 'reels' | 'hub' | 'settings' | 'verification'
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
+  const [activeTab, setActiveTab] = useState(getInitialVendorTab);
 
   // Operational & Store Status States
   const [storeStatus, setStoreStatus] = useState(() => localStorage.getItem('vendor_store_status') || 'open'); // 'open' | 'break' | 'closed'
@@ -40,10 +81,10 @@ export default function VendorDashboard() {
   const [bankForm, setBankForm] = useState({ ...bankInfo });
   const [copiedBank, setCopiedBank] = useState(false);
 
-  // Data States
-  const [products, setProducts] = useState([]);
-  const [services, setServices] = useState([]);
-  const [vendorOrders, setVendorOrders] = useState([]);
+  // Data States (with SWR Instant-Load Cache)
+  const [products, setProducts] = useState(() => getCachedData('products', []));
+  const [services, setServices] = useState(() => getCachedData('services', []));
+  const [vendorOrders, setVendorOrders] = useState(() => getCachedData('orders', []));
   const [vendorReviews, setVendorReviews] = useState([]);
   
   // Messaging & Friends States
@@ -59,6 +100,34 @@ export default function VendorDashboard() {
   const [friendsList, setFriendsList] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
   const chatBottomRef = useRef(null);
+
+  // Synchronize activeTab with URL query params and localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('campuslink_vendor_tab', activeTab);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== activeTab) {
+        url.searchParams.set('tab', activeTab);
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {}
+  }, [activeTab]);
+
+  // Support browser Back/Forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tab)) {
+          setActiveTab(tab);
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
 
   // CampusLink AI Chat States
   const [aiMessages, setAiMessages] = useState([]);
@@ -219,6 +288,7 @@ export default function VendorDashboard() {
         const storeRes = await API.get('/vendor/my-store');
         storeData = storeRes.data;
         setVendorStore(storeData);
+        setCachedData('store', storeData);
         setVerificationForm({
           id_card_type: storeData.id_card_type || 'national_id',
           id_card_number: storeData.id_card_number || '',
@@ -263,14 +333,20 @@ export default function VendorDashboard() {
 
       if (results[0].status === 'fulfilled') {
         const allProds = results[0].value.data || [];
-        setProducts(storeId ? allProds.filter(p => p.vendor_id === storeId) : allProds);
+        const filteredProds = storeId ? allProds.filter(p => p.vendor_id === storeId) : allProds;
+        setProducts(filteredProds);
+        setCachedData('products', filteredProds);
       }
       if (results[1].status === 'fulfilled') {
         const allSvcs = results[1].value.data || [];
-        setServices(storeId ? allSvcs.filter(s => s.vendor_id === storeId) : allSvcs);
+        const filteredSvcs = storeId ? allSvcs.filter(s => s.vendor_id === storeId) : allSvcs;
+        setServices(filteredSvcs);
+        setCachedData('services', filteredSvcs);
       }
       if (results[2].status === 'fulfilled') {
-        setVendorOrders(results[2].value.data);
+        const ordData = results[2].value.data || [];
+        setVendorOrders(ordData);
+        setCachedData('orders', ordData);
       }
       if (results[3].status === 'fulfilled') {
         setVendorReviews(results[3].value.data);
@@ -997,7 +1073,7 @@ export default function VendorDashboard() {
             <div className="flex items-center space-x-3 mb-2.5">
               <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 font-bold flex items-center justify-center text-sm shrink-0 overflow-hidden">
                 {vendorStore?.logo ? (
-                  <img src={vendorStore.logo} alt="Logo" className="w-full h-full object-cover" />
+                  <SafeImage src={vendorStore.logo} alt="Logo" fallbackType="store" className="w-full h-full object-cover" />
                 ) : (
                   <Store className="w-5 h-5" />
                 )}
@@ -1262,7 +1338,7 @@ export default function VendorDashboard() {
                   <div key={item.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
                     <div>
                       <div className="h-44 w-full rounded-2xl overflow-hidden bg-slate-100 mb-4 relative">
-                        <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                        <SafeImage src={item.image} alt={item.name} fallbackType="product" className="w-full h-full object-cover" />
                         <span className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-[10px] font-bold text-sky-700 shadow-xs flex items-center space-x-1">
                           <MapPin className="w-3 h-3 text-sky-600" />
                           <span>{item.university_abbr || item.university_name || vendorStore?.university_abbr || 'Campus'}</span>
@@ -1352,7 +1428,7 @@ export default function VendorDashboard() {
                   <div key={svc.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
                     <div>
                       <div className="h-40 w-full rounded-2xl overflow-hidden bg-slate-100 mb-4">
-                        <img src={svc.image} alt={svc.name} className="w-full h-full object-cover" />
+                        <SafeImage src={svc.image} alt={svc.name} fallbackType="product" className="w-full h-full object-cover" />
                       </div>
                       <span className="text-xs text-sky-600 font-bold block mb-1">Starting from ₦{Number(svc.price).toLocaleString()}</span>
                       <h4 className="font-bold text-sm text-slate-900">{svc.name}</h4>
@@ -1606,9 +1682,10 @@ export default function VendorDashboard() {
                 >
                   <div className="relative w-14 h-14 rounded-full p-0.5 border-2 border-dashed border-emerald-400 group-hover:border-emerald-600 transition-all flex items-center justify-center bg-slate-50 overflow-visible">
                     {user?.profile_picture_url || vendorStore?.logo ? (
-                      <img
+                      <SafeImage
                         src={user?.profile_picture_url || vendorStore?.logo}
                         alt="My Status"
+                        fallbackType="avatar"
                         className="w-full h-full rounded-full object-cover"
                       />
                     ) : (
@@ -1634,7 +1711,7 @@ export default function VendorDashboard() {
                     <div className="w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 via-teal-400 to-sky-500 shadow-xs group-hover:scale-105 transition-transform flex items-center justify-center">
                       <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
                         {group.user_avatar ? (
-                          <img src={group.user_avatar} alt={group.user_name} className="w-full h-full rounded-full object-cover" />
+                          <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
                         ) : (
                           <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
                             {group.user_name.charAt(0)}
@@ -1735,7 +1812,7 @@ export default function VendorDashboard() {
                             className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm hover:ring-2 hover:ring-sky-500 transition-all overflow-hidden"
                           >
                             {c.partner_avatar ? (
-                              <img src={c.partner_avatar} alt="Avatar" className="w-full h-full object-cover" />
+                              <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
                             ) : (
                               c.partner_name?.charAt(0) || 'S'
                             )}
@@ -1930,7 +2007,7 @@ export default function VendorDashboard() {
                             >
                               <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs overflow-hidden group-hover:ring-2 group-hover:ring-sky-500 transition-all shrink-0">
                                 {selectedPartner.partner_avatar ? (
-                                  <img src={selectedPartner.partner_avatar} alt="Avatar" className="w-full h-full object-cover" />
+                                  <SafeImage src={selectedPartner.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
                                 ) : (
                                   selectedPartner.partner_name?.charAt(0) || 'U'
                                 )}
@@ -2129,7 +2206,7 @@ export default function VendorDashboard() {
                           >
                             <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm overflow-hidden group-hover:ring-2 group-hover:ring-sky-500 transition-all">
                               {commUser.profile_picture_url ? (
-                                <img src={commUser.profile_picture_url} alt="Pic" className="w-full h-full object-cover" />
+                                <SafeImage src={commUser.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
                               ) : (
                                 commUser.full_name?.charAt(0) || 'C'
                               )}
@@ -2279,7 +2356,7 @@ export default function VendorDashboard() {
                           >
                             <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center shrink-0 overflow-hidden">
                               {f.profile_picture_url ? (
-                                <img src={f.profile_picture_url} alt="Pic" className="w-full h-full object-cover" />
+                                <SafeImage src={f.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
                               ) : (
                                 f.full_name?.charAt(0) || 'F'
                               )}
@@ -2428,9 +2505,10 @@ export default function VendorDashboard() {
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <img
+                          <SafeImage
                             src={reel.media_url}
                             alt={reel.title}
+                            fallbackType="product"
                             className="w-full h-full object-cover"
                           />
                         )}
@@ -2813,9 +2891,10 @@ export default function VendorDashboard() {
               <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
                 <div className="relative self-start group">
                   {user?.profile_picture_url || vendorStore?.logo ? (
-                    <img
+                    <SafeImage
                       src={user?.profile_picture_url || vendorStore?.logo}
                       alt={vendorStore?.business_name}
+                      fallbackType="avatar"
                       className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
                     />
                   ) : (
@@ -3249,7 +3328,7 @@ export default function VendorDashboard() {
                       />
                       {idFrontPreview && (
                         <div className="mt-2 h-44 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                          <img src={idFrontPreview} alt="Front ID Preview" className="max-h-44 w-full object-contain" />
+                          <SafeImage src={idFrontPreview} alt="Front ID Preview" fallbackType="product" className="max-h-44 w-full object-contain" />
                         </div>
                       )}
                     </div>
@@ -3273,7 +3352,7 @@ export default function VendorDashboard() {
                       />
                       {idBackPreview && (
                         <div className="mt-2 h-44 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                          <img src={idBackPreview} alt="Back ID Preview" className="max-h-44 w-full object-contain" />
+                          <SafeImage src={idBackPreview} alt="Back ID Preview" fallbackType="product" className="max-h-44 w-full object-contain" />
                         </div>
                       )}
                     </div>
@@ -3449,7 +3528,7 @@ export default function VendorDashboard() {
               {/* Profile Avatar */}
               <div className="w-20 h-20 rounded-2xl mx-auto mb-3 overflow-hidden bg-sky-100 text-sky-700 font-black text-2xl flex items-center justify-center border-2 border-sky-400 shadow-md">
                 {selectedProfile.profile_picture_url ? (
-                  <img src={selectedProfile.profile_picture_url} alt={selectedProfile.full_name} className="w-full h-full object-cover" />
+                  <SafeImage src={selectedProfile.profile_picture_url} alt={selectedProfile.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
                 ) : (
                   selectedProfile.full_name?.charAt(0) || 'U'
                 )}
@@ -3659,7 +3738,7 @@ export default function VendorDashboard() {
                       >
                         <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center overflow-hidden border border-white/40">
                           {group.user_avatar ? (
-                            <img src={group.user_avatar} alt={group.user_name} className="w-full h-full object-cover" />
+                            <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full object-cover" />
                           ) : (
                             <span>{group.user_name.charAt(0)}</span>
                           )}
@@ -3743,9 +3822,10 @@ export default function VendorDashboard() {
                           className="w-full h-full object-contain"
                         />
                       ) : currentItem.media_url ? (
-                        <img
+                        <SafeImage
                           src={currentItem.media_url}
                           alt="Story"
+                          fallbackType="product"
                           className="w-full h-full object-contain"
                         />
                       ) : (
@@ -3853,9 +3933,9 @@ export default function VendorDashboard() {
                     {statusMediaPreview && (
                       <div className="mt-2 h-36 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
                         {statusMediaFile?.type?.startsWith('video') ? (
-                          <video src={statusMediaPreview} className="h-36 w-full object-contain" controls />
+                          <video src={getMediaUrl(statusMediaPreview)} className="h-36 w-full object-contain" controls />
                         ) : (
-                          <img src={statusMediaPreview} alt="Preview" className="h-36 w-full object-contain" />
+                          <SafeImage src={statusMediaPreview} alt="Preview" fallbackType="product" className="h-36 w-full object-contain" />
                         )}
                       </div>
                     )}
@@ -4034,7 +4114,7 @@ export default function VendorDashboard() {
                   />
                   {prodPreview && (
                     <div className="mt-2 h-36 rounded-xl overflow-hidden border border-slate-200">
-                      <img src={prodPreview} alt="Preview" className="w-full h-full object-cover" />
+                      <SafeImage src={prodPreview} alt="Preview" fallbackType="product" className="w-full h-full object-cover" />
                     </div>
                   )}
                 </div>
@@ -4109,7 +4189,7 @@ export default function VendorDashboard() {
                   />
                   {svcPreview && (
                     <div className="mt-2 h-36 rounded-xl overflow-hidden border border-slate-200">
-                      <img src={svcPreview} alt="Preview" className="w-full h-full object-cover" />
+                      <SafeImage src={svcPreview} alt="Preview" fallbackType="product" className="w-full h-full object-cover" />
                     </div>
                   )}
                 </div>
@@ -4162,9 +4242,9 @@ export default function VendorDashboard() {
                   {reelMediaPreview && (
                     <div className="mt-2 h-40 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
                       {reelMediaFile?.type?.startsWith('video') ? (
-                        <video src={reelMediaPreview} controls className="h-40 w-full object-contain" />
+                        <video src={getMediaUrl(reelMediaPreview)} controls className="h-40 w-full object-contain" />
                       ) : (
-                        <img src={reelMediaPreview} alt="Preview" className="h-40 w-full object-contain" />
+                        <SafeImage src={reelMediaPreview} alt="Preview" fallbackType="product" className="h-40 w-full object-contain" />
                       )}
                     </div>
                   )}

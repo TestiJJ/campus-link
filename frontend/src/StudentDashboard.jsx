@@ -14,7 +14,8 @@ import {
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark
 } from 'lucide-react';
-import API, { uploadFile } from './api';
+import API, { uploadFile, getMediaUrl } from './api';
+import SafeImage from './components/SafeImage';
 
 const renderCategoryIcon = (name) => {
   const n = (name || '').toLowerCase();
@@ -29,22 +30,67 @@ const renderCategoryIcon = (name) => {
   return <ShoppingBag className="w-3.5 h-3.5" />;
 };
 
+
+// Stale-While-Revalidate Caching Utilities
+const getCachedData = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(`cl_cache_${key}`);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const setCachedData = (key, value) => {
+  try {
+    localStorage.setItem(`cl_cache_${key}`, JSON.stringify(value));
+  } catch {}
+};
+
+// URL and localStorage tab persistence
+const getInitialStudentTab = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('campuslink_student_tab');
+    if (saved && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(saved)) {
+      return saved;
+    }
+  } catch {}
+  return 'marketplace';
+};
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
-  const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('marketplace'); // 'marketplace' | 'reels' | 'community' | 'campus' | 'messages' | 'profile'
+  const [currentUser, setCurrentUser] = useState(() => getCachedData('student_user', null));
+  const [activeTab, setActiveTab] = useState(getInitialStudentTab);
   
   // Marketplace State
-  const [marketType, setMarketType] = useState('products'); // 'products' | 'services'
-  const [products, setProducts] = useState([]);
-  const [services, setServices] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [marketType, setMarketType] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get('marketType');
+      if (p === 'services' || p === 'products') return p;
+    } catch {}
+    return 'products';
+  });
+  const [products, setProducts] = useState(() => getCachedData('products', []));
+  const [services, setServices] = useState(() => getCachedData('services', []));
+  const [categories, setCategories] = useState(() => getCachedData('categories', []));
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  
+  // Instant render: zero-delay load if cached products/categories are already present
+  const [loading, setLoading] = useState(() => {
+    const cachedProds = getCachedData('products', []);
+    const cachedCats = getCachedData('categories', []);
+    return !(cachedProds.length > 0 || cachedCats.length > 0);
+  });
 
   // Reels State
-  const [reels, setReels] = useState([]);
+  const [reels, setReels] = useState(() => getCachedData('reels', []));
   const [reelText, setReelText] = useState('');
   const [reelLocation, setReelLocation] = useState('Campus Hub');
   const [detectingGps, setDetectingGps] = useState(false);
@@ -57,6 +103,43 @@ export default function StudentDashboard() {
   const [activePostMenuId, setActivePostMenuId] = useState(null);
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
   const reelFileInputRef = useRef(null);
+
+  // Synchronize activeTab and marketType with browser URL and localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('campuslink_student_tab', activeTab);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== activeTab) {
+        url.searchParams.set('tab', activeTab);
+        if (activeTab === 'marketplace' && marketType) {
+          url.searchParams.set('marketType', marketType);
+        } else {
+          url.searchParams.delete('marketType');
+        }
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {}
+  }, [activeTab, marketType]);
+
+  // Support browser Back/Forward navigation between tabs
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tab)) {
+          setActiveTab(tab);
+        }
+        const mt = params.get('marketType');
+        if (mt === 'products' || mt === 'services') {
+          setMarketType(mt);
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
 
   // Campus Notice Board & Lost/Found State
   const [notices, setNotices] = useState([]);
@@ -188,7 +271,10 @@ export default function StudentDashboard() {
   const [toast, setToast] = useState({ text: '', type: '' });
 
   const loadAllData = async () => {
-    setLoading(true);
+    // Only show full skeleton spinner if we don't already have cached items on screen
+    if (products.length === 0 && services.length === 0) {
+      setLoading(true);
+    }
     try {
       const [prodRes, svcRes, catRes, reelsRes, convRes, notRes, statRes, commRes, reqRes, friendsRes, studRes, notifRes, meRes, ordersRes, memsRes] = await Promise.all([
         API.get('/products').catch(err => { console.warn('Products fetch error:', err); return { data: [] }; }),
@@ -207,10 +293,21 @@ export default function StudentDashboard() {
         API.get('/orders/my').catch(() => ({ data: [] })),
         API.get('/ai/memories').catch(() => ({ data: [] }))
       ]);
-      setProducts(prodRes.data || []);
-      setServices(svcRes.data || []);
-      setCategories(catRes.data || []);
-      setReels(reelsRes.data || []);
+      const fetchedProds = prodRes.data || [];
+      const fetchedSvcs = svcRes.data || [];
+      const fetchedCats = catRes.data || [];
+      const fetchedReels = reelsRes.data || [];
+
+      setProducts(fetchedProds);
+      setServices(fetchedSvcs);
+      setCategories(fetchedCats);
+      setReels(fetchedReels);
+
+      // Persist to local cache for instant reload
+      setCachedData('products', fetchedProds);
+      setCachedData('services', fetchedSvcs);
+      setCachedData('categories', fetchedCats);
+      setCachedData('reels', fetchedReels);
       setConversations(convRes.data || []);
       setNotices(notRes.data || []);
       setStatusGroups(statRes.data || []);
@@ -1301,9 +1398,10 @@ export default function StudentDashboard() {
           <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-100 mb-6 flex items-center space-x-3">
             <div className="relative">
               {currentUser?.profile_picture_url ? (
-                <img
+                <SafeImage
                   src={currentUser.profile_picture_url}
                   alt={currentUser.full_name}
+                  fallbackType="avatar"
                   className="w-10 h-10 rounded-xl object-cover border border-sky-200"
                 />
               ) : (
@@ -1436,7 +1534,7 @@ export default function StudentDashboard() {
               title="Profile & Settings"
             >
               {currentUser?.profile_picture_url ? (
-                <img src={currentUser.profile_picture_url} alt="" className="w-7 h-7 rounded-lg object-cover" />
+                <SafeImage src={currentUser?.profile_picture_url} alt={currentUser?.full_name} fallbackType="avatar" className="w-7 h-7 rounded-lg object-cover" />
               ) : (
                 <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-xs">
                   {currentUser?.full_name?.charAt(0) || 'S'}
@@ -1482,7 +1580,7 @@ export default function StudentDashboard() {
               title="Edit Profile & Settings"
             >
               {currentUser?.profile_picture_url ? (
-                <img src={currentUser.profile_picture_url} alt="" className="w-8 h-8 rounded-xl object-cover border border-slate-200" />
+                <SafeImage src={currentUser?.profile_picture_url} alt={currentUser?.full_name} fallbackType="avatar" className="w-8 h-8 rounded-xl object-cover border border-slate-200" />
               ) : (
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-xs">
                   {currentUser?.full_name?.charAt(0) || 'S'}
@@ -1588,7 +1686,7 @@ export default function StudentDashboard() {
                     <div key={p.id} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group">
                       <div>
                         <div className="h-48 w-full bg-slate-100 relative overflow-hidden">
-                          <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <SafeImage src={p.image} alt={p.name} fallbackType="product" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                           <span className="absolute top-3 left-3 bg-white/95 backdrop-blur-xs px-2.5 py-1 rounded-full text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100">
                             <MapPin className="w-3 h-3 text-sky-600" />
                             <span>{p.university_abbr || p.university_name || p.vendor_location || 'Campus Stall'}</span>
@@ -1666,7 +1764,7 @@ export default function StudentDashboard() {
                     <div key={s.id} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
                       <div>
                         <div className="h-44 w-full bg-slate-100 relative">
-                          <img src={s.image} alt={s.name} className="w-full h-full object-cover" />
+                          <SafeImage src={s.image} alt={s.name} fallbackType="product" className="w-full h-full object-cover" />
                           <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-700 flex items-center space-x-1">
                             <MapPin className="w-3 h-3 text-slate-500" />
                             <span>{s.location || 'On Campus'}</span>
@@ -1738,7 +1836,7 @@ export default function StudentDashboard() {
             <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
               <div className="flex items-center space-x-3 mb-4">
                 {currentUser?.profile_picture_url ? (
-                  <img src={currentUser.profile_picture_url} alt="You" className="w-10 h-10 rounded-full object-cover border border-sky-200" />
+                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-10 h-10 rounded-full object-cover border border-sky-200" />
                 ) : (
                   <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
                     {currentUser?.full_name?.charAt(0) || 'U'}
@@ -1762,9 +1860,9 @@ export default function StudentDashboard() {
                 {reelPreview && (
                   <div className="relative rounded-2xl overflow-hidden border border-slate-200 max-h-72 bg-slate-900 flex items-center justify-center">
                     {reelFile?.type?.startsWith('video') ? (
-                      <video src={reelPreview} controls className="max-h-72 w-full object-contain" />
+                      <video src={getMediaUrl(reelPreview)} controls className="max-h-72 w-full object-contain" />
                     ) : (
-                      <img src={reelPreview} alt="Preview" className="max-h-72 w-full object-contain" />
+                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-72 w-full object-contain" />
                     )}
                     <button
                       type="button"
@@ -2003,9 +2101,9 @@ export default function StudentDashboard() {
 
                       <div className="w-full bg-slate-950 max-h-[520px] overflow-hidden flex items-center justify-center">
                         {reel.media_type === 'video' ? (
-                          <video src={reel.media_url} controls className="max-h-[520px] w-full object-contain" />
+                          <video src={getMediaUrl(reel.media_url)} controls className="max-h-[520px] w-full object-contain" />
                         ) : (
-                          <img src={reel.media_url} alt={reel.title} className="max-h-[520px] w-full object-contain" />
+                          <SafeImage src={reel.media_url} alt={reel.title} fallbackType="product" className="max-h-[520px] w-full object-contain" />
                         )}
                       </div>
                     </>
@@ -2305,9 +2403,10 @@ export default function StudentDashboard() {
                           {/* Image preview (if any) */}
                           {n.image_url && (
                             <div className="h-44 w-full bg-slate-100 relative overflow-hidden">
-                              <img
+                              <SafeImage
                                 src={n.image_url}
                                 alt={n.title}
+                                fallbackType="product"
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -2461,7 +2560,7 @@ export default function StudentDashboard() {
                             {/* Reporter Info */}
                             <div className="flex items-center space-x-2.5 pt-2 border-t border-slate-100">
                               {n.author_avatar ? (
-                                <img src={n.author_avatar} alt={n.author_name} className="w-7 h-7 rounded-full object-cover" />
+                                <SafeImage src={n.author_avatar} alt={n.author_name} fallbackType="avatar" className="w-7 h-7 rounded-full object-cover" />
                               ) : (
                                 <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">
                                   {n.author_name?.charAt(0) || 'U'}
@@ -2618,7 +2717,7 @@ export default function StudentDashboard() {
                 >
                   <div className="relative w-15 h-15 rounded-full p-0.5 border-2 border-dashed border-emerald-400 group-hover:border-emerald-600 transition-all flex items-center justify-center bg-slate-50">
                     {currentUser?.profile_picture_url ? (
-                      <img src={currentUser.profile_picture_url} alt="My Status" className="w-full h-full rounded-full object-cover" />
+                      <SafeImage src={currentUser?.profile_picture_url} alt="My Status" fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
                     ) : (
                       <div className="w-full h-full rounded-full bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center text-sm">
                         {currentUser?.full_name?.charAt(0) || 'U'}
@@ -2642,7 +2741,7 @@ export default function StudentDashboard() {
                     <div className="w-15 h-15 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 via-teal-400 to-sky-500 shadow-xs group-hover:scale-105 transition-transform flex items-center justify-center">
                       <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
                         {group.user_avatar ? (
-                          <img src={group.user_avatar} alt={group.user_name} className="w-full h-full rounded-full object-cover" />
+                          <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
                         ) : (
                           <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
                             {group.user_name.charAt(0)}
@@ -2829,7 +2928,7 @@ export default function StudentDashboard() {
                           >
                             <div className="relative">
                               {c.partner_avatar ? (
-                                <img src={c.partner_avatar} alt={c.partner_name} className="w-10 h-10 rounded-xl object-cover" />
+                                <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-10 h-10 rounded-xl object-cover" />
                               ) : (
                                 <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
                                   {c.partner_name?.charAt(0) || 'U'}
@@ -3032,9 +3131,10 @@ export default function StudentDashboard() {
                               </button>
                               <div className="relative shrink-0">
                                 {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (
-                                  <img
+                                  <SafeImage
                                     src={selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar}
                                     alt={selectedPartner.partner_name || selectedPartner.name || 'User'}
+                                    fallbackType="avatar"
                                     className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover"
                                   />
                                 ) : (
@@ -3141,11 +3241,12 @@ export default function StudentDashboard() {
                                     </div>
                                   ) : msg.message_type === 'image' ? (
                                     <div className="space-y-1.5">
-                                      <img
+                                      <SafeImage
                                         src={msg.media_url}
                                         alt="Shared in chat"
+                                        fallbackType="product"
                                         className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                        onClick={() => window.open(msg.media_url, '_blank')}
+                                        onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
                                       />
                                       {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
                                     </div>
@@ -3354,9 +3455,10 @@ export default function StudentDashboard() {
                                 {/* Profile Header */}
                                 <div className="flex items-start space-x-3.5">
                                   {stud.profile_picture_url ? (
-                                    <img
+                                    <SafeImage
                                       src={stud.profile_picture_url}
                                       alt={stud.full_name}
+                                      fallbackType="avatar"
                                       className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-100 shadow-xs shrink-0"
                                     />
                                   ) : (
@@ -3501,7 +3603,7 @@ export default function StudentDashboard() {
                         <div key={req.request_id} className="p-5 rounded-3xl border border-sky-200 bg-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                           <div className="flex items-start space-x-3.5">
                             {req.sender_avatar ? (
-                              <img src={req.sender_avatar} alt={req.sender_name} className="w-12 h-12 rounded-2xl object-cover border border-sky-200 shrink-0" />
+                              <SafeImage src={req.sender_avatar} alt={req.sender_name} fallbackType="avatar" className="w-12 h-12 rounded-2xl object-cover border border-sky-200 shrink-0" />
                             ) : (
                               <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-base shrink-0">
                                 {req.sender_name.charAt(0)}
@@ -3575,7 +3677,7 @@ export default function StudentDashboard() {
                           <div key={f.id} className="p-4 rounded-3xl bg-white border border-slate-200 hover:shadow-xs transition-all flex items-center justify-between">
                             <div className="flex items-center space-x-3 overflow-hidden">
                               {f.profile_picture_url ? (
-                                <img src={f.profile_picture_url} alt={f.full_name} className="w-11 h-11 rounded-2xl object-cover border border-slate-200 shrink-0" />
+                                <SafeImage src={f.profile_picture_url} alt={f.full_name} fallbackType="avatar" className="w-11 h-11 rounded-2xl object-cover border border-slate-200 shrink-0" />
                               ) : (
                                 <div className="w-11 h-11 rounded-2xl bg-sky-100 text-sky-700 font-black flex items-center justify-center text-sm shrink-0">
                                   {f.full_name.charAt(0)}
@@ -3641,9 +3743,10 @@ export default function StudentDashboard() {
               <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
                 <div className="relative self-start group">
                   {currentUser?.profile_picture_url ? (
-                    <img
+                    <SafeImage
                       src={currentUser.profile_picture_url}
                       alt={currentUser.full_name}
+                      fallbackType="avatar"
                       className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
                     />
                   ) : (
@@ -3929,9 +4032,10 @@ export default function StudentDashboard() {
                 {/* Avatar */}
                 <div className="-mt-12 mb-4 flex items-end justify-between">
                   {selectedProfile.profile_picture_url ? (
-                    <img
+                    <SafeImage
                       src={selectedProfile.profile_picture_url}
                       alt={selectedProfile.full_name}
+                      fallbackType="avatar"
                       className="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-md"
                     />
                   ) : (
@@ -4394,7 +4498,7 @@ export default function StudentDashboard() {
                       <div className="flex items-center space-x-2.5">
                         <div className="w-9 h-9 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center overflow-hidden border border-white/40">
                           {group.user_avatar ? (
-                            <img src={group.user_avatar} alt={group.user_name} className="w-full h-full object-cover" />
+                            <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full object-cover" />
                           ) : (
                             <span>{group.user_name.charAt(0)}</span>
                           )}
@@ -4479,9 +4583,10 @@ export default function StudentDashboard() {
 
                       {currentItem.media_type === 'image' ? (
                         <div className="w-full h-full flex items-center justify-center p-2 relative">
-                          <img
+                          <SafeImage
                             src={currentItem.media_url}
                             alt="Status"
+                            fallbackType="product"
                             className="max-h-full max-w-full object-contain"
                           />
                           {currentItem.caption && (
@@ -4722,9 +4827,9 @@ export default function StudentDashboard() {
                     {newStatusForm.media_url ? (
                       <div className="relative h-44 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200">
                         {newStatusForm.media_type === 'video' ? (
-                          <video src={newStatusForm.media_url} controls className="w-full h-full object-cover" />
+                          <video src={getMediaUrl(newStatusForm.media_url)} controls className="w-full h-full object-cover" />
                         ) : (
-                          <img src={newStatusForm.media_url} alt="Preview" className="w-full h-full object-cover" />
+                          <SafeImage src={newStatusForm.media_url} alt="Preview" fallbackType="product" className="w-full h-full object-cover" />
                         )}
                         <button
                           type="button"
@@ -4892,7 +4997,7 @@ export default function StudentDashboard() {
                               >
                                 <div className="flex items-center space-x-2">
                                   {f.profile_picture_url ? (
-                                    <img src={f.profile_picture_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                                    <SafeImage src={f.profile_picture_url} alt="" fallbackType="avatar" className="w-6 h-6 rounded-full object-cover" />
                                   ) : (
                                     <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 font-bold text-[10px] flex items-center justify-center">
                                       {f.full_name?.charAt(0) || 'F'}
@@ -4970,7 +5075,7 @@ export default function StudentDashboard() {
                     <div key={vIdx} className="pt-2 flex items-center justify-between">
                       <div className="flex items-center space-x-2.5">
                         {viewer.avatar ? (
-                          <img src={viewer.avatar} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                          <SafeImage src={viewer.avatar} alt="" fallbackType="avatar" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
                         ) : (
                           <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-xs">
                             {(viewer.name || 'F').charAt(0)}
@@ -5144,7 +5249,7 @@ export default function StudentDashboard() {
                           {/* Actor Avatar / Icon */}
                           <div className="relative shrink-0">
                             {n.actor_avatar ? (
-                              <img src={n.actor_avatar} alt="" className="w-10 h-10 rounded-full object-cover border border-slate-200" />
+                              <SafeImage src={n.actor_avatar} alt="" fallbackType="avatar" className="w-10 h-10 rounded-full object-cover border border-slate-200" />
                             ) : (
                               <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
                                 {n.actor_name?.charAt(0) || 'C'}

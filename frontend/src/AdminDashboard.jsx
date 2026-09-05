@@ -11,7 +11,8 @@ import {
   Heart, MessageSquare, Video, Menu, Activity, Sparkles,
   ExternalLink, Layers, UserX, UserCheck, Ban
 } from 'lucide-react';
-import API from './api';
+import API, { getMediaUrl } from './api';
+import SafeImage from './components/SafeImage';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -713,7 +714,7 @@ export default function AdminDashboard() {
                         <div className="flex items-center space-x-3 overflow-hidden">
                           <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-700 font-black text-base flex items-center justify-center shrink-0">
                             {vendor.logo ? (
-                              <img src={vendor.logo} alt={vendor.business_name} className="w-full h-full object-cover rounded-2xl" />
+                              <SafeImage src={vendor.logo} alt={vendor.business_name} fallbackType="store" className="w-full h-full object-cover rounded-2xl" />
                             ) : (
                               <Store className="w-6 h-6" />
                             )}
@@ -815,7 +816,7 @@ export default function AdminDashboard() {
                             className="h-28 rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 cursor-pointer relative group"
                           >
                             {vendor.id_card_front ? (
-                              <img src={vendor.id_card_front} alt="ID Front" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <SafeImage src={vendor.id_card_front} alt="ID Front" fallbackType="product" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-medium">No Front ID</div>
                             )}
@@ -830,7 +831,7 @@ export default function AdminDashboard() {
                             className="h-28 rounded-2xl border border-slate-200 overflow-hidden bg-slate-100 cursor-pointer relative group"
                           >
                             {vendor.id_card_back ? (
-                              <img src={vendor.id_card_back} alt="ID Back" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <SafeImage src={vendor.id_card_back} alt="ID Back" fallbackType="product" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-medium">No Back ID</div>
                             )}
@@ -957,9 +958,10 @@ export default function AdminDashboard() {
                     {filteredProducts.map((p) => (
                       <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-4 flex items-center space-x-3">
-                          <img
+                          <SafeImage
                             src={p.image}
                             alt={p.name}
+                            fallbackType="product"
                             className="w-12 h-12 rounded-2xl object-cover bg-slate-100 shrink-0 border border-slate-200"
                           />
                           <div>
@@ -1012,7 +1014,7 @@ export default function AdminDashboard() {
               {filteredProducts.map((p) => (
                 <div key={p.id} className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs flex items-center justify-between gap-3">
                   <div className="flex items-center space-x-3 overflow-hidden min-w-0">
-                    <img src={p.image} alt={p.name} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-200 bg-slate-100" />
+                    <SafeImage src={p.image} alt={p.name} fallbackType="product" className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-200 bg-slate-100" />
                     <div className="overflow-hidden min-w-0">
                       <span className="font-bold text-xs text-slate-900 block truncate">{p.name}</span>
                       <span className="text-xs font-black text-sky-600 block mt-0.5">₦{Number(p.price).toLocaleString()}</span>
@@ -1094,9 +1096,10 @@ export default function AdminDashboard() {
                     {filteredServices.map((s) => (
                       <tr key={s.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-4 flex items-center space-x-3">
-                          <img
+                          <SafeImage
                             src={s.image}
                             alt={s.name}
+                            fallbackType="product"
                             className="w-12 h-12 rounded-2xl object-cover bg-slate-100 shrink-0 border border-slate-200"
                           />
                           <div>
@@ -1142,7 +1145,7 @@ export default function AdminDashboard() {
               {filteredServices.map((s) => (
                 <div key={s.id} className="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs flex items-center justify-between gap-3">
                   <div className="flex items-center space-x-3 overflow-hidden min-w-0">
-                    <img src={s.image} alt={s.name} className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-200 bg-slate-100" />
+                    <SafeImage src={s.image} alt={s.name} fallbackType="product" className="w-14 h-14 rounded-xl object-cover shrink-0 border border-slate-200 bg-slate-100" />
                     <div className="overflow-hidden min-w-0">
                       <span className="font-bold text-xs text-slate-900 block truncate">{s.name}</span>
                       <span className="text-xs font-black text-sky-600 block mt-0.5">{s.price}</span>
@@ -1213,9 +1216,10 @@ export default function AdminDashboard() {
                   className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col justify-between group"
                 >
                   <div className="h-64 bg-slate-900 relative overflow-hidden">
-                    <img
+                    <SafeImage
                       src={reel.media_url}
                       alt={reel.title}
+                      fallbackType="product"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
@@ -1714,9 +1718,10 @@ export default function AdminDashboard() {
                   <span className="text-xs font-bold text-slate-700 block mb-1.5">Front ID Card:</span>
                   <div className="h-44 sm:h-64 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
                     {selectedVendorForId.id_card_front ? (
-                      <img
+                      <SafeImage
                         src={selectedVendorForId.id_card_front}
                         alt="Front ID"
+                        fallbackType="product"
                         className="w-full h-full object-contain"
                       />
                     ) : (
@@ -1729,9 +1734,10 @@ export default function AdminDashboard() {
                   <span className="text-xs font-bold text-slate-700 block mb-1.5">Back ID Card:</span>
                   <div className="h-44 sm:h-64 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
                     {selectedVendorForId.id_card_back ? (
-                      <img
+                      <SafeImage
                         src={selectedVendorForId.id_card_back}
                         alt="Back ID"
+                        fallbackType="product"
                         className="w-full h-full object-contain"
                       />
                     ) : (

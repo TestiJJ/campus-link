@@ -85,6 +85,26 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Redirects that preserve query params (e.g. ?tab=profile) and respect role
+function DashboardRedirect() {
+  const { search } = useLocation();
+  const userStr = localStorage.getItem('user');
+  let target = '/student-dashboard';
+  try {
+    if (userStr) {
+      const u = JSON.parse(userStr);
+      if (u.role === 'vendor') target = '/vendor-dashboard';
+      else if (u.role === 'admin') target = '/admin-dashboard';
+    }
+  } catch {}
+  return <Navigate to={`${target}${search}`} replace />;
+}
+
+function VendorRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/vendor-dashboard${search}`} replace />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -143,6 +163,10 @@ export default function App() {
                   </PrivateRoute>
                 } 
               />
+
+              {/* Role-aware /dashboard and /vendor redirects */}
+              <Route path="/dashboard" element={<DashboardRedirect />} />
+              <Route path="/vendor" element={<VendorRedirect />} />
 
               {/* Fallback Route */}
               <Route path="*" element={<Navigate to="/" replace />} />

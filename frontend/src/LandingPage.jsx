@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from './components/Navbar';
+import SafeImage from './components/SafeImage';
 import {
   ShieldCheck, ArrowRight, CheckCircle2,
   MapPin, Search, ChevronDown, BookOpen,
@@ -436,9 +437,10 @@ export default function LandingPage() {
                 transition={{ duration: 0.6 }}
                 className="w-full h-[340px] sm:h-[480px] relative"
               >
-                <img
+                <SafeImage
                   src={heroSlides[currentHeroSlide].image}
                   alt={heroSlides[currentHeroSlide].title}
+                  fallbackType="product"
                   className="w-full h-full object-cover object-center"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/25 to-black/15" />
@@ -619,9 +621,10 @@ export default function LandingPage() {
                 >
                   <div>
                     <div className="h-52 w-full bg-slate-100 relative overflow-hidden">
-                      <img
+                      <SafeImage
                         src={item.image}
                         alt={item.title}
+                        fallbackType="product"
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                       <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-full text-[10px] font-bold text-sky-700 shadow-xs flex items-center space-x-1">
@@ -682,9 +685,10 @@ export default function LandingPage() {
               >
                 <div>
                   <div className="h-52 w-full bg-slate-100 relative overflow-hidden">
-                    <img
+                    <SafeImage
                       src={svc.image}
                       alt={svc.title}
+                      fallbackType="product"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-800 shadow-xs flex items-center space-x-1">
@@ -761,7 +765,7 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {campusReelsSample.map((reel) => (
             <div key={reel.id} className="h-96 rounded-3xl overflow-hidden relative shadow-xs group">
-              <img src={reel.image} alt={reel.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              <SafeImage src={reel.image} alt={reel.title} fallbackType="product" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/20 to-black/20" />
               
               <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-xs text-white px-3 py-1 rounded-full text-[11px] font-bold flex items-center space-x-1">
@@ -824,9 +828,10 @@ export default function LandingPage() {
             >
               <div>
                 <div className="h-44 w-full bg-slate-100 relative overflow-hidden">
-                  <img
+                  <SafeImage
                     src={svc.image}
                     alt={svc.title}
+                    fallbackType="product"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <span className="absolute top-3 left-3 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-full text-[10px] font-bold text-slate-800 shadow-xs flex items-center space-x-1">
