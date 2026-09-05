@@ -41,7 +41,7 @@ function PageLoading() {
   );
 }
 
-// Error boundary to prevent white blank screens
+// Error boundary to prevent white blank screens and auto-recover from transient errors
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -53,29 +53,72 @@ class ErrorBoundary extends React.Component {
   componentDidCatch(error, errorInfo) {
     console.error('CampusLink App Error:', error, errorInfo);
   }
+  handleClearCache() {
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('cl_cache_') || k.startsWith('campuslink_student_') || k.startsWith('campuslink_vendor_'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch {}
+    this.setState({ hasError: false, error: null });
+    window.location.reload();
+  }
+  handleResetSession() {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {}
+    this.setState({ hasError: false, error: null });
+    window.location.href = '/login';
+  }
   render() {
     if (this.state.hasError) {
+      const errText = this.state.error ? (this.state.error.message || String(this.state.error)) : '';
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 text-center font-sans">
           <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 font-black text-2xl shadow-sm">
             !
           </div>
           <h2 className="text-xl font-black text-slate-900 mb-2">Something went wrong</h2>
-          <p className="text-xs text-slate-500 max-w-sm mb-6 leading-relaxed">
-            CampusLink encountered an unexpected error. Please try reloading or returning home.
+          <p className="text-xs text-slate-500 max-w-sm mb-4 leading-relaxed">
+            CampusLink encountered an unexpected error. You can try reloading or clearing temporary cached state below.
           </p>
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={() => { this.setState({ hasError: false }); window.location.href = '/'; }}
-              className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shadow-sm cursor-pointer"
-            >
-              Go to Home
-            </button>
+
+          {errText && (
+            <div className="mb-6 p-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-700 font-mono text-left max-w-md w-full overflow-x-auto break-words shadow-xs">
+              <span className="font-bold block mb-0.5">Error Detail:</span>
+              {errText}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-md">
             <button
               onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+              className="px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-all"
             >
               Reload Page
+            </button>
+            <button
+              onClick={() => this.handleClearCache()}
+              className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all"
+            >
+              Clear Cache & Refresh
+            </button>
+            <button
+              onClick={() => this.handleResetSession()}
+              className="px-4 py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-bold rounded-xl cursor-pointer transition-all"
+            >
+              Sign In Again
+            </button>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); window.location.href = '/'; }}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl cursor-pointer transition-all"
+            >
+              Go to Home
             </button>
           </div>
         </div>

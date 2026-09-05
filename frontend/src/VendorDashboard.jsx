@@ -32,6 +32,29 @@ const setCachedData = (key, value) => {
   } catch {}
 };
 
+// Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit)
+const safeTime = (dateStr, fallback = 'Recently') => {
+  if (!dateStr) return fallback;
+  try {
+    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return fallback;
+  }
+};
+
+const safeDate = (dateStr, fallback = 'Recent') => {
+  if (!dateStr) return fallback;
+  try {
+    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch {
+    return fallback;
+  }
+};
+
 // URL and localStorage tab persistence for Vendor
 const getInitialVendorTab = () => {
   try {
@@ -1933,7 +1956,7 @@ export default function VendorDashboard() {
                                   <span className={`block text-[9px] mt-1.5 text-right ${
                                     msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
                                   }`}>
-                                    {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                    {safeTime(msg.created_at, 'Just now')}
                                   </span>
                                 </div>
                               </div>
@@ -2086,7 +2109,7 @@ export default function VendorDashboard() {
                                   >
                                     <p>{msg.content || msg.text}</p>
                                     <span className={`block text-[9px] mt-1 text-right ${isMine ? 'text-sky-100' : 'text-slate-400'}`}>
-                                      {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                                      {safeTime(msg.created_at, 'Now')}
                                     </span>
                                   </div>
                                 </div>
@@ -2568,7 +2591,7 @@ export default function VendorDashboard() {
                           </div>
 
                           <span className="text-[10px] text-slate-400">
-                            {reel.created_at ? new Date(reel.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Recent'}
+                            {safeDate(reel.created_at, 'Recent')}
                           </span>
                         </div>
                       </div>
@@ -2583,7 +2606,7 @@ export default function VendorDashboard() {
                                   <div className="flex items-center justify-between mb-0.5">
                                     <span className="font-bold text-slate-900 text-[11px]">{comment.author_name}</span>
                                     <span className="text-[9px] text-slate-400">
-                                      {comment.created_at ? new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                      {safeTime(comment.created_at, 'Just now')}
                                     </span>
                                   </div>
                                   <p className="text-slate-700 leading-snug">{comment.content}</p>
@@ -3424,7 +3447,13 @@ export default function VendorDashboard() {
       {/* --- NEW VENDOR WELCOME & STORE COMPLETION PROMPT MODAL --- */}
       <AnimatePresence>
         {showNewVendorModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <motion.div
+            key="new-vendor-welcome-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -3441,7 +3470,7 @@ export default function VendorDashboard() {
                   Welcome to Vendor Hub!
                 </h3>
                 <p className="text-xs text-sky-100 mt-1 max-w-xs mx-auto">
-                  Hi {user?.full_name?.split(' ')[0] || 'Merchant'}, your seller account is active. Complete your store settings to start receiving student orders!
+                  Hi {user?.full_name ? user.full_name.split(' ')[0] : 'Merchant'}, your seller account is active. Complete your store settings to start receiving student orders!
                 </p>
               </div>
 
@@ -3499,7 +3528,7 @@ export default function VendorDashboard() {
                 </div>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

@@ -47,6 +47,29 @@ const setCachedData = (key, value) => {
   } catch {}
 };
 
+// Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit)
+const safeTime = (dateStr, fallback = 'Recently') => {
+  if (!dateStr) return fallback;
+  try {
+    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return fallback;
+  }
+};
+
+const safeDate = (dateStr, fallback = 'Recent') => {
+  if (!dateStr) return fallback;
+  try {
+    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    const d = new Date(cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleDateString();
+  } catch {
+    return fallback;
+  }
+};
+
 // URL and localStorage tab persistence
 const getInitialStudentTab = () => {
   try {
@@ -65,7 +88,16 @@ const getInitialStudentTab = () => {
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
-  const [currentUser, setCurrentUser] = useState(() => getCachedData('student_user', null));
+  const [currentUser, setCurrentUser] = useState(() => {
+    const cached = getCachedData('student_user', null);
+    if (cached) return cached;
+    try {
+      const stored = localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
   const [activeTab, setActiveTab] = useState(getInitialStudentTab);
   
   // Marketplace State
@@ -206,7 +238,9 @@ export default function StudentDashboard() {
     const handlePopState = () => {
       setSelectedPartner(null);
     };
-    window.history.pushState({ chatOpen: true }, '');
+    try {
+      window.history.pushState({ chatOpen: true }, '', window.location.href);
+    } catch {}
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
@@ -224,7 +258,9 @@ export default function StudentDashboard() {
         setNotificationsOpen(false);
       }
     };
-    window.history.pushState({ notifDrawerOpen: true }, '');
+    try {
+      window.history.pushState({ notifDrawerOpen: true }, '', window.location.href);
+    } catch {}
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -2047,7 +2083,7 @@ export default function StudentDashboard() {
                             <span>{reel.location || 'Campus'}</span>
                           </span>
                           <span>•</span>
-                          <span>{reel.created_at ? new Date(reel.created_at).toLocaleDateString() : 'Recent'}</span>
+                          <span>{safeDate(reel.created_at, 'Recent')}</span>
                         </div>
                       </div>
                     </div>
@@ -2196,7 +2232,7 @@ export default function StudentDashboard() {
                                 <span className="font-bold text-slate-900">{comment.author_name}</span>
                                 <div className="flex items-center space-x-2">
                                   <span className="text-[10px] text-slate-400">
-                                    {comment.created_at ? new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                    {safeTime(comment.created_at, 'Just now')}
                                   </span>
                                   {canDeleteComment && (
                                     <button
@@ -3088,7 +3124,7 @@ export default function StudentDashboard() {
                                     <span className={`block text-[9px] mt-1.5 text-right ${
                                       msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
                                     }`}>
-                                      {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                      {safeTime(msg.created_at, 'Just now')}
                                     </span>
                                   </div>
                                 </div>
@@ -3309,7 +3345,7 @@ export default function StudentDashboard() {
                                   <span className={`block text-[9px] mt-1 text-right ${
                                     msg.sender_id === currentUser.user_id ? 'text-sky-100' : 'text-slate-400'
                                   }`}>
-                                    {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                                    {safeTime(msg.created_at, 'Just now')}
                                   </span>
                                 </div>
                               </div>
@@ -5127,7 +5163,7 @@ export default function StudentDashboard() {
                         )}
                         <div>
                           <span className="text-xs font-bold text-slate-800 block leading-tight">{viewer.name}</span>
-                          <span className="text-[10px] text-slate-400">{viewer.viewed_at ? new Date(viewer.viewed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently'}</span>
+                          <span className="text-[10px] text-slate-400">{safeTime(viewer.viewed_at, 'Recently')}</span>
                         </div>
                       </div>
                     </div>
@@ -5340,7 +5376,7 @@ export default function StudentDashboard() {
                             <div className="flex items-center justify-between">
                               <h4 className="font-bold text-xs text-slate-900 truncate">{n.title}</h4>
                               <span className="text-[10px] text-slate-400 shrink-0 ml-2">
-                                {n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                                {safeTime(n.created_at, 'Now')}
                               </span>
                             </div>
                             <p className="text-xs text-slate-600 mt-0.5 leading-snug line-clamp-2">
@@ -5379,7 +5415,13 @@ export default function StudentDashboard() {
       {/* --- NEW USER WELCOME & PROFILE COMPLETION PROMPT MODAL --- */}
       <AnimatePresence>
         {showNewUserModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <motion.div
+            key="new-user-welcome-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -5396,7 +5438,7 @@ export default function StudentDashboard() {
                   Welcome to CampusLink!
                 </h3>
                 <p className="text-xs text-sky-100 mt-1 max-w-xs mx-auto">
-                  Hi {currentUser?.full_name?.split(' ')[0] || 'there'}, your account is ready. Complete your profile to get full access to the campus community!
+                  Hi {currentUser?.full_name ? currentUser.full_name.split(' ')[0] : 'there'}, your account is ready. Complete your profile to get full access to the campus community!
                 </p>
               </div>
 
@@ -5454,7 +5496,7 @@ export default function StudentDashboard() {
                 </div>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
