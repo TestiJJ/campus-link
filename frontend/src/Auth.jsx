@@ -14,9 +14,7 @@ const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 const API_BASE_URL = (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onrender.com'))
   ? rawEnvUrl.replace(/\/+$/, '').replace(/\/api$/, '')
-  : (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
-    ? DEFAULT_BACKEND_URL
-    : 'http://127.0.0.1:8000';
+  : DEFAULT_BACKEND_URL;
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -235,14 +233,29 @@ export default function Auth() {
         setResendCooldown(60);
       }
     } catch (err) {
-      if (err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('NetworkError'))) {
-        setErrorMessage('Cannot connect to CampusLink server. Please verify your internet connection or that the backend is active.');
+      const msg = err?.message || '';
+      if (
+        err?.name === 'TypeError' &&
+        (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail'))
+      ) {
+        setErrorMessage('Cannot connect to CampusLink server. Please verify your internet connection or try again in a moment.');
       } else {
-        setErrorMessage(err.message || 'An error occurred during authentication.');
+        setErrorMessage(msg || 'An error occurred during authentication.');
       }
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatAuthError = (err, defaultMsg = 'Operation failed. Please try again.') => {
+    const msg = err?.message || '';
+    if (
+      err?.name === 'TypeError' &&
+      (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail'))
+    ) {
+      return 'Cannot connect to CampusLink server. Please check your internet connection or try again.';
+    }
+    return msg || defaultMsg;
   };
 
   const handleVerifyOtp = async (e) => {
@@ -270,7 +283,7 @@ export default function Auth() {
       setOtpSuccessMessage('Email verified successfully! You can now log in.');
       localStorage.setItem('campuslink_new_signup_pending', 'true');
     } catch (err) {
-      setErrorMessage(err.message);
+      setErrorMessage(formatAuthError(err, 'Invalid verification code.'));
     } finally {
       setLoading(false);
     }
@@ -297,7 +310,7 @@ export default function Auth() {
       setResendCooldown(60);
       setOtpSuccessMessage(data.message || 'A fresh verification code has been sent to your email.');
     } catch (err) {
-      setErrorMessage(err.message);
+      setErrorMessage(formatAuthError(err, 'Failed to resend verification code.'));
     } finally {
       setResendLoading(false);
     }

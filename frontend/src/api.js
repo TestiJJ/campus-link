@@ -9,10 +9,8 @@ if (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onrender.com')) {
   resolvedApiBase = rawEnvUrl.replace(/\/+$/, '').endsWith('/api')
     ? rawEnvUrl.replace(/\/+$/, '')
     : `${rawEnvUrl.replace(/\/+$/, '')}/api`;
-} else if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-  resolvedApiBase = `${DEFAULT_BACKEND_URL}/api`;
 } else {
-  resolvedApiBase = 'http://127.0.0.1:8000/api';
+  resolvedApiBase = `${DEFAULT_BACKEND_URL}/api`;
 }
 
 const API = axios.create({
@@ -52,9 +50,9 @@ export const getMediaUrl = (url) => {
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
 
   const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
-  const backendHost = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
-    ? (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL).replace(/\/+$/, '').replace(/\/api$/, '')
-    : 'http://127.0.0.1:8000';
+  const backendHost = (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL)
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '');
 
   let cleanUrl = String(url).trim();
 
@@ -106,9 +104,7 @@ if (typeof window !== 'undefined') {
 export const getWsUrl = (path = '') => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
-  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  
-  if (isLocal) {
+  if (rawHost && (rawHost.includes('127.0.0.1:8000') || rawHost.includes('localhost:8000'))) {
     return `ws://127.0.0.1:8000${cleanPath}`;
   }
   
