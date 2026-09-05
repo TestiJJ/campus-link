@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+const DEFAULT_BACKEND_URL = 'https://campuslink-backend.onrender.com';
+
+const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+let resolvedApiBase;
+
+if (rawEnvUrl) {
+  resolvedApiBase = rawEnvUrl.replace(/\/+$/, '').endsWith('/api')
+    ? rawEnvUrl.replace(/\/+$/, '')
+    : `${rawEnvUrl.replace(/\/+$/, '')}/api`;
+} else if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+  resolvedApiBase = `${DEFAULT_BACKEND_URL}/api`;
+} else {
+  resolvedApiBase = 'http://127.0.0.1:8000/api';
+}
+
 const API = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: resolvedApiBase,
 });
 
 // Attach JWT Token to requests if available

@@ -13,6 +13,13 @@ import models, schemas, auth, database
 
 models.Base.metadata.create_all(bind=database.engine)
 
+# Auto-seed institutions and marketplace categories on server initialization
+try:
+    import seed_universities
+    seed_universities.seed_database()
+except Exception as _e:
+    print(f"[CampusLink] Auto-seed status: {_e}")
+
 app = FastAPI(title="CampusLink API")
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
@@ -34,8 +41,9 @@ app.add_middleware(
         "http://127.0.0.1:5175",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://campus-link-dzjz.onrender.com",
     ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://.*\.onrender\.com$|^https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2171,10 +2179,22 @@ def get_vendor_reviews(vendor_id: int, db: Session = Depends(database.get_db)):
 
 @app.get("/api/universities", response_model=List[schemas.UniversityOut])
 def get_universities(db: Session = Depends(database.get_db)):
+    if db.query(models.University).count() == 0:
+        try:
+            import seed_universities
+            seed_universities.seed_database()
+        except Exception as _e:
+            print(f"[CampusLink] On-demand university seed error: {_e}")
     return db.query(models.University).order_by(models.University.name.asc()).all()
 
 @app.get("/api/categories", response_model=List[schemas.CategoryOut])
 def get_categories(db: Session = Depends(database.get_db)):
+    if db.query(models.Category).count() == 0:
+        try:
+            import seed_universities
+            seed_universities.seed_database()
+        except Exception as _e:
+            print(f"[CampusLink] On-demand category seed error: {_e}")
     return db.query(models.Category).all()
 
 
@@ -3902,3 +3922,25 @@ def clear_ai_chat(
     ).delete()
     db.commit()
     return {"message": "AI chat history cleared"}
+
+
+# --- SERVE FRONTEND STATIC BUILD (IF PRESENT IN PRODUCTION) ---
+from fastapi.responses import FileResponse
+
+FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+if os.path.exists(FRONTEND_DIST):
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend_spa(full_path: str):
+        if full_path.startswith("api") or full_path.startswith("uploads") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_candidate = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(file_candidate):
+            return FileResponse(file_candidate)
+        index_file = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Not found")

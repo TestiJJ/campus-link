@@ -9,7 +9,14 @@ import {
   GraduationCap, Car, Video, ShoppingBag
 } from 'lucide-react';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const DEFAULT_BACKEND_URL = 'https://campuslink-backend.onrender.com';
+
+const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = rawEnvUrl
+  ? rawEnvUrl.replace(/\/+$/, '').replace(/\/api$/, '')
+  : (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+    ? DEFAULT_BACKEND_URL
+    : 'http://127.0.0.1:8000';
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -222,7 +229,7 @@ export default function Auth() {
       }
     } catch (err) {
       if (err.name === 'TypeError' && (err.message.includes('fetch') || err.message.includes('NetworkError'))) {
-        setErrorMessage('Cannot connect to CampusLink server. Please verify the backend is running at http://127.0.0.1:8000.');
+        setErrorMessage('Cannot connect to CampusLink server. Please verify your internet connection or that the backend is active.');
       } else {
         setErrorMessage(err.message || 'An error occurred during authentication.');
       }

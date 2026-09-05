@@ -1,4 +1,8 @@
-
 backend/uploads/
 *.mov
 *.mp4
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.production
