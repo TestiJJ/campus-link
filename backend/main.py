@@ -20,6 +20,37 @@ try:
 except Exception as _e:
     print(f"[CampusLink] Auto-seed status: {_e}")
 
+# Automatically migrate any legacy localhost image URLs in the database to the live backend domain
+def clean_legacy_image_urls():
+    try:
+        from sqlalchemy import text
+        live_backend = os.getenv("BACKEND_URL", "https://campuslink-backend.onrender.com").rstrip("/")
+        with database.engine.connect() as conn:
+            for tbl, col in [
+                ("users", "profile_picture_url"),
+                ("vendors", "logo"),
+                ("vendors", "cover_image"),
+                ("products", "image"),
+                ("services", "image"),
+                ("posts", "image_url"),
+                ("messages", "media_url"),
+                ("reels", "media_url"),
+                ("campus_statuses", "media_url"),
+                ("campus_notices", "image_url"),
+            ]:
+                try:
+                    conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://127.0.0.1:8000', '{live_backend}') WHERE {col} LIKE '%127.0.0.1:8000%'"))
+                except Exception:
+                    pass
+            conn.commit()
+    except Exception as _err:
+        print(f"[CampusLink] Legacy URL migration status: {_err}")
+
+try:
+    clean_legacy_image_urls()
+except Exception:
+    pass
+
 app = FastAPI(title="CampusLink API")
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
@@ -356,7 +387,7 @@ def delete_own_profile(
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(request: Request, file: UploadFile = File(...)):
     ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
     if not ext:
         content_type = file.content_type or ""
@@ -372,7 +403,12 @@ async def upload_file(file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    file_url = f"http://127.0.0.1:8000/uploads/{unique_filename}"
+
+    # Determine public URL dynamically
+    base_url = str(request.base_url).rstrip("/")
+    if "onrender.com" in base_url and base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://")
+    file_url = f"{base_url}/uploads/{unique_filename}"
     return {"url": file_url, "filename": unique_filename}
 
 @app.post("/api/users/profile-picture")

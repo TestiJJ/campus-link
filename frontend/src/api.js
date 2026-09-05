@@ -42,4 +42,29 @@ export const uploadFile = async (file) => {
   return res.data.url;
 };
 
+/**
+ * Resolves any image URL to ensure it points to the correct backend host.
+ * Converts legacy 'http://127.0.0.1:8000/uploads/...' or relative '/uploads/...'
+ * into the live production backend domain.
+ */
+export const getMediaUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (url.startsWith('https://') && !url.includes('127.0.0.1') && !url.includes('localhost')) {
+    return url;
+  }
+
+  const backendHost = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+    ? (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || DEFAULT_BACKEND_URL).replace(/\/+$/, '').replace(/\/api$/, '')
+    : 'http://127.0.0.1:8000';
+
+  if (url.startsWith('http://127.0.0.1:8000') || url.startsWith('http://localhost:8000')) {
+    return url.replace(/^http:\/\/(127\.0\.0\.1|localhost):8000/, backendHost);
+  }
+  if (url.startsWith('/uploads')) {
+    return `${backendHost}${url}`;
+  }
+  return url;
+};
+
 export default API;
