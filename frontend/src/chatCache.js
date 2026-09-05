@@ -71,8 +71,29 @@ export const getCachedThreadMessages = (partnerId) => {
   return [];
 };
 
+// Debounce map for non-blocking asynchronous localStorage disk writes
+const storageDebounceTimers = new Map();
+
+const scheduleStorageSave = (key, toPersist) => {
+  if (storageDebounceTimers.has(key)) {
+    clearTimeout(storageDebounceTimers.get(key));
+  }
+  const timer = setTimeout(() => {
+    storageDebounceTimers.delete(key);
+    try {
+      localStorage.setItem(`cl_msg_thread_${key}`, JSON.stringify(toPersist));
+    } catch (err) {
+      try {
+        cleanupOldLocalStorageThreads();
+        localStorage.setItem(`cl_msg_thread_${key}`, JSON.stringify(toPersist));
+      } catch {}
+    }
+  }, 250);
+  storageDebounceTimers.set(key, timer);
+};
+
 /**
- * Save messages to in-memory cache and mirror recent 150 items to localStorage
+ * Save messages to in-memory cache and mirror recent items to localStorage asynchronously
  */
 export const setCachedThreadMessages = (partnerId, messages) => {
   const key = toKey(partnerId);
@@ -82,16 +103,9 @@ export const setCachedThreadMessages = (partnerId, messages) => {
   messageThreadsCache.set(key, normalized);
   threadMetaCache.set(key, { lastUpdated: Date.now() });
 
-  try {
-    // Keep last 150 messages in localStorage for lightning fast startup
-    const toPersist = normalized.slice(-150);
-    localStorage.setItem(`cl_msg_thread_${key}`, JSON.stringify(toPersist));
-  } catch (err) {
-    // If storage quota exceeded, clear older cached threads
-    try {
-      cleanupOldLocalStorageThreads();
-    } catch {}
-  }
+  // Non-blocking debounced disk persistence
+  const toPersist = normalized.slice(-150);
+  scheduleStorageSave(key, toPersist);
 };
 
 /**

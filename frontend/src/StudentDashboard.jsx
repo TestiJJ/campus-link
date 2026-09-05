@@ -1107,14 +1107,14 @@ export default function StudentDashboard() {
     // 2. Fetch latest messages from server in background without blocking UI
     fetchMessagesForPartner(selectedPartner.partner_id);
 
-    // 3. Fast active chat polling (1.0s) to guarantee instant receipt alongside WebSockets
+    // 3. Fallback polling (8s) if WebSocket is temporarily inactive (WebSockets handle instant push)
     const pollTimer = setInterval(() => {
       if (getAuthToken()) {
         fetchMessagesForPartner(selectedPartner.partner_id);
       } else {
         clearInterval(pollTimer);
       }
-    }, 1000);
+    }, 8000);
 
     const handleFocus = () => {
       if (document.visibilityState === 'visible' && getAuthToken()) {
@@ -4381,7 +4381,7 @@ export default function StudentDashboard() {
                           )}
 
                           {/* Chat Messages */}
-                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3">
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3 overscroll-contain scroll-smooth">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
