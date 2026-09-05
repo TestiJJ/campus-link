@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
 from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 sys.path.append(os.path.dirname(__file__))
 from datetime import datetime, timezone, timedelta
@@ -187,7 +188,7 @@ def send_otp_email(to_email: str, otp_code: str):
         try:
             import urllib.request
             resend_url = "https://api.resend.com/emails"
-            from_addr = os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>")
+            from_addr = os.getenv("RESEND_FROM", "onboarding@resend.dev")
             payload = json.dumps({
                 "from": from_addr,
                 "to": [to_email],
@@ -199,10 +200,11 @@ def send_otp_email(to_email: str, otp_code: str):
                 data=payload,
                 headers={
                     "Authorization": f"Bearer {resend_key.strip()}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "User-Agent": "CampusLink/1.0"
                 }
             )
-            with urllib.request.urlopen(req, timeout=10) as res:
+            with urllib.request.urlopen(req, timeout=12) as res:
                 if res.status in (200, 201):
                     print(f"[CAMPUSLINK] OTP successfully sent via Resend API to {to_email}")
                     return True
@@ -227,7 +229,8 @@ def send_otp_email(to_email: str, otp_code: str):
                 headers={
                     "api-key": brevo_key.strip(),
                     "Content-Type": "application/json",
-                    "Accept": "application/json"
+                    "Accept": "application/json",
+                    "User-Agent": "CampusLink/1.0"
                 }
             )
             with urllib.request.urlopen(req, timeout=10) as res:
