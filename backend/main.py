@@ -175,7 +175,9 @@ def require_role(allowed_roles: list[str]):
     return role_checker
 
 
-# --- EMAIL DISPATCH UTILS (Standard Python Gmail SMTP) ---
+# --- EMAIL DISPATCH UTILS (Standard Python Gmail SMTP & Google Apps Script Webhook) ---
+
+DEFAULT_GOOGLE_MAIL_WEBHOOK = "https://script.google.com/macros/s/AKfycbyU35yJ6ohMuWqMkCtfp-twFYvP5KDGrRE5Lo24ZFtNXy96bQTcMnt_r2eob_JyB_4n/exec"
 
 def send_otp_email(to_email: str, otp_code: str) -> bool:
     """
@@ -219,27 +221,35 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;padding:32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" style="max-width:500px;background-color:#ffffff;border-radius:18px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.04);">
+        <table role="presentation" width="100%" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
           <tr>
-            <td style="background:linear-gradient(135deg,#0284c7 0%,#0369a1 100%);padding:28px 24px;text-align:center;">
-              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">CampusLink</h1>
-              <p style="color:#e0f2fe;margin:4px 0 0 0;font-size:12px;font-weight:500;">Your All-in-One Campus Community</p>
+            <td style="background:linear-gradient(135deg,#0284c7,#0369a1);padding:32px 24px;text-align:center;">
+              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">
+                CAMPUS<span style="color:#7dd3fc;">LINK</span>
+              </h1>
+              <p style="color:#e0f2fe;margin:6px 0 0 0;font-size:13px;font-weight:500;">
+                Campus Ecosystem & Verification Portal
+              </p>
             </td>
           </tr>
           <tr>
-            <td style="padding:32px 28px;text-align:center;">
-              <h2 style="color:#0f172a;margin:0 0 10px 0;font-size:18px;font-weight:700;">Verify Your Email Address</h2>
-              <p style="color:#475569;margin:0 0 24px 0;font-size:13px;line-height:1.5;">
-                Welcome to CampusLink! Use the 6-digit code below to verify your email and activate your account:
+            <td style="padding:32px 24px;">
+              <h2 style="color:#0f172a;margin:0 0 12px 0;font-size:18px;font-weight:700;">
+                Verify Your Email Address
+              </h2>
+              <p style="color:#475569;margin:0 0 24px 0;font-size:14px;line-height:1.6;">
+                Welcome to CampusLink! Please enter the 6-digit verification code below to verify your email and activate your account.
               </p>
-              <div style="background-color:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:16px 24px;margin:0 auto 24px auto;display:inline-block;">
-                <span style="font-size:32px;font-weight:800;letter-spacing:6px;color:#0369a1;font-family:monospace;">{otp_code}</span>
+              <div style="background-color:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:20px;text-align:center;margin:0 0 24px 0;">
+                <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#0369a1;display:inline-block;">
+                  {otp_code}
+                </span>
               </div>
-              <p style="color:#64748b;margin:0 0 8px 0;font-size:12px;">
-                ⏱️ This code expires in <strong>15 minutes</strong>.
+              <p style="color:#64748b;margin:0 0 8px 0;font-size:12px;line-height:1.5;">
+                &bull; This code is valid for <strong>15 minutes</strong>.
               </p>
-              <p style="color:#94a3b8;margin:0;font-size:11px;line-height:1.4;">
-                If you did not request this verification code, please ignore this email.
+              <p style="color:#64748b;margin:0 0 24px 0;font-size:12px;line-height:1.5;">
+                &bull; If you didn't request this code, you can safely ignore this email.
               </p>
             </td>
           </tr>
@@ -268,7 +278,7 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 
     # 1. Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com over HTTPS Port 443)
     # Bypasses cloud provider SMTP port firewalls on Render!
-    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip()
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
     if google_webhook:
         try:
             resp = httpx.post(
@@ -276,12 +286,13 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
                 json={
                     "to": clean_to,
                     "subject": subject,
-                    "text": text_content,
                     "html": html_content,
+                    "body": text_content,
+                    "text": text_content,
                     "code": otp_code
                 },
                 follow_redirects=True,
-                timeout=12.0
+                timeout=15.0
             )
             if resp.status_code in (200, 201, 302):
                 print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Google Apps Script Webhook!")
@@ -410,14 +421,21 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     errors = []
 
     # 1. Google Webhook
-    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip()
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
     if google_webhook:
         try:
             resp = httpx.post(
                 google_webhook,
-                json={"to": clean_email, "subject": subject, "text": body, "code": test_otp},
+                json={
+                    "to": clean_email,
+                    "subject": subject,
+                    "html": f"<div style='font-family:sans-serif;padding:16px;'><p>{body.replace(chr(10), '<br>')}</p></div>",
+                    "body": body,
+                    "text": body,
+                    "code": test_otp
+                },
                 follow_redirects=True,
-                timeout=12.0
+                timeout=15.0
             )
             if resp.status_code in (200, 201, 302):
                 return {
