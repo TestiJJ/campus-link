@@ -2124,7 +2124,7 @@ export default function VendorDashboard() {
             <div className={`p-4 bg-white border border-slate-200 rounded-3xl shadow-xs ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:block' : 'block'}`}>
               <div className="flex items-center justify-between mb-3 px-1">
                 <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+                  <Camera className="w-3.5 h-3.5 text-sky-500" />
                   <span>Campus Stories & Status Updates</span>
                 </span>
                 <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} campus updates</span>

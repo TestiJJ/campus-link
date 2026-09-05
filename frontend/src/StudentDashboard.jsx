@@ -3355,14 +3355,14 @@ export default function StudentDashboard() {
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
           <div className="space-y-4">
-            {/* Sleek, Compact Campus Vibe & Status Strip (Decluttered, Zero Media Storage) */}
+            {/* Sleek, Compact Campus Story Strip */}
             {!selectedPartner && (
               <div className="bg-white rounded-2xl border border-slate-200 px-4 py-2.5 shadow-2xs flex items-center justify-between gap-3 overflow-x-auto">
                 <div className="flex items-center space-x-2 shrink-0">
                   <div className="w-6 h-6 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                    <Sparkles className="w-3.5 h-3.5" />
+                    <Camera className="w-3.5 h-3.5" />
                   </div>
-                  <span className="text-xs font-bold text-slate-800 shrink-0">Campus Vibes</span>
+                  <span className="text-xs font-bold text-slate-800 shrink-0">Campus Stories</span>
                 </div>
 
                 <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5">
@@ -3371,10 +3371,10 @@ export default function StudentDashboard() {
                     type="button"
                     onClick={() => setCreateStatusModalOpen(true)}
                     className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 text-[11px] font-bold transition-all shrink-0 cursor-pointer shadow-2xs active:scale-95"
-                    title="Set your campus vibe or quick status"
+                    title="Share a campus story or status drop"
                   >
                     <Plus className="w-3 h-3 stroke-[3]" />
-                    <span>My Vibe</span>
+                    <span>Add Story</span>
                   </button>
 
                   {/* Peer Status Pills */}
@@ -3384,7 +3384,7 @@ export default function StudentDashboard() {
                       type="button"
                       onClick={() => setActiveStatusViewer({ userIdx: uIdx, itemIdx: 0 })}
                       className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 transition-colors shrink-0 cursor-pointer text-[11px] group"
-                      title={`View ${group.user_name}'s vibe`}
+                      title={`View ${group.user_name}'s story`}
                     >
                       <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping" />
                       <span className="font-semibold text-slate-800 truncate max-w-[70px]">
