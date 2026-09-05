@@ -4741,16 +4741,22 @@ export default function VendorDashboard() {
       {/* ========================================================================= */}
       <AnimatePresence>
         {profileModalOpen && selectedProfile && (
-          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative border border-slate-200 my-auto text-center"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl relative border-t sm:border border-slate-200 text-center safe-drawer-bottom sm:pb-7"
             >
+              {/* Mobile Drawer Drag Handle */}
+              <div className="sm:hidden -mt-2 mb-2 flex justify-center">
+                <div className="drawer-handle" />
+              </div>
+
               <button
                 onClick={() => setProfileModalOpen(false)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer"
+                className="min-tap-target-sm absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1.5"
+                aria-label="Close modal"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5158,18 +5164,23 @@ export default function VendorDashboard() {
       {/* ========================================================================= */}
       {/* --- CREATE STATUS STORY MODAL --- */}
       {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* --- CREATE STATUS STORY MODAL --- */}
+      {/* ========================================================================= */}
       <AnimatePresence>
         {createStatusModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative border border-slate-200 my-auto max-h-[92vh] overflow-y-auto"
+              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative border border-slate-200 my-0 sm:my-auto max-h-[90dvh] overflow-y-auto safe-drawer-bottom"
             >
+              <div className="drawer-handle sm:hidden" />
               <button
                 onClick={() => setCreateStatusModalOpen(false)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer"
+                className="absolute top-4 right-4 min-tap-target-sm flex items-center justify-center text-slate-400 hover:text-slate-800 cursor-pointer rounded-full hover:bg-slate-100 transition-colors"
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5183,14 +5194,14 @@ export default function VendorDashboard() {
                   <button
                     type="button"
                     onClick={() => setStatusType('text')}
-                    className={`py-1.5 rounded-lg cursor-pointer ${statusType === 'text' ? 'bg-white text-sky-700 shadow-2xs' : 'text-slate-600'}`}
+                    className={`py-2 min-tap-target-sm rounded-lg cursor-pointer transition-all ${statusType === 'text' ? 'bg-white text-sky-700 shadow-2xs' : 'text-slate-600'}`}
                   >
                     Text Announcement
                   </button>
                   <button
                     type="button"
                     onClick={() => setStatusType('image')}
-                    className={`py-1.5 rounded-lg cursor-pointer ${statusType === 'image' ? 'bg-white text-sky-700 shadow-2xs' : 'text-slate-600'}`}
+                    className={`py-2 min-tap-target-sm rounded-lg cursor-pointer transition-all ${statusType === 'image' ? 'bg-white text-sky-700 shadow-2xs' : 'text-slate-600'}`}
                   >
                     Photo / Video
                   </button>
@@ -5272,7 +5283,7 @@ export default function VendorDashboard() {
                 <button
                   type="submit"
                   disabled={isPublishingStatus}
-                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all disabled:opacity-50"
+                  className="w-full min-tap-target py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all disabled:opacity-50 active:scale-98"
                 >
                   {isPublishingStatus ? 'Posting Story Drop...' : 'Share 24h Campus Story'}
                 </button>
@@ -5285,14 +5296,21 @@ export default function VendorDashboard() {
       {/* --- ADD / EDIT PRODUCT MODAL --- */}
       <AnimatePresence>
         {showProductModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-auto max-h-[92vh] overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-0 sm:my-auto max-h-[90dvh] overflow-y-auto safe-drawer-bottom"
+            >
+              <div className="drawer-handle sm:hidden" />
               <button
                 onClick={() => {
                   setShowProductModal(false);
                   setEditingProduct(null);
                 }}
-                className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer"
+                className="absolute top-4 right-4 min-tap-target-sm flex items-center justify-center text-slate-400 hover:text-slate-800 cursor-pointer rounded-full hover:bg-slate-100 transition-colors"
+                aria-label="Close"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -5414,7 +5432,7 @@ export default function VendorDashboard() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50"
+                  className="w-full min-tap-target py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50 active:scale-98 transition-all"
                 >
                   {isSubmitting
                     ? (editingProduct ? 'Saving Changes...' : 'Uploading & Publishing...')
@@ -5429,9 +5447,19 @@ export default function VendorDashboard() {
       {/* --- ADD SERVICE MODAL --- */}
       <AnimatePresence>
         {showServiceModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-auto max-h-[92vh] overflow-y-auto">
-              <button onClick={() => setShowServiceModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-0 sm:my-auto max-h-[90dvh] overflow-y-auto safe-drawer-bottom"
+            >
+              <div className="drawer-handle sm:hidden" />
+              <button
+                onClick={() => setShowServiceModal(false)}
+                className="absolute top-4 right-4 min-tap-target-sm flex items-center justify-center text-slate-400 hover:text-slate-800 cursor-pointer rounded-full hover:bg-slate-100 transition-colors"
+                aria-label="Close"
+              >
                 <X className="w-5 h-5" />
               </button>
               <h3 className="text-lg font-black text-slate-900 mb-1">List Student Service</h3>
@@ -5480,7 +5508,7 @@ export default function VendorDashboard() {
                   <textarea rows={3} placeholder="Turnaround time, what is included, special perks..." value={serviceForm.description} onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500" />
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="w-full min-tap-target py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50 active:scale-98 transition-all">
                   {isSubmitting ? 'Uploading & Publishing...' : 'Publish Service'}
                 </button>
               </form>
@@ -5492,9 +5520,19 @@ export default function VendorDashboard() {
       {/* --- ADD REEL MODAL --- */}
       <AnimatePresence>
         {showReelModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-auto max-h-[92vh] overflow-y-auto">
-              <button onClick={() => setShowReelModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 30, scale: 0.98 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-0 sm:my-auto max-h-[90dvh] overflow-y-auto safe-drawer-bottom"
+            >
+              <div className="drawer-handle sm:hidden" />
+              <button
+                onClick={() => setShowReelModal(false)}
+                className="absolute top-4 right-4 min-tap-target-sm flex items-center justify-center text-slate-400 hover:text-slate-800 cursor-pointer rounded-full hover:bg-slate-100 transition-colors"
+                aria-label="Close"
+              >
                 <X className="w-5 h-5" />
               </button>
               <h3 className="text-lg font-black text-slate-900 mb-1">Post Campus Promo Drop</h3>
@@ -5541,7 +5579,7 @@ export default function VendorDashboard() {
                   <textarea rows={2} placeholder="Add details, size availability or discounts..." value={reelForm.description} onChange={(e) => setReelForm({ ...reelForm, description: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500" />
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50">
+                <button type="submit" disabled={isSubmitting} className="w-full min-tap-target py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50 active:scale-98 transition-all">
                   {isSubmitting ? 'Uploading & Posting...' : 'Post to Campus Reels Feed'}
                 </button>
               </form>
@@ -5562,98 +5600,109 @@ export default function VendorDashboard() {
       />
 
       {/* --- FACEBOOK/WHATSAPP-STYLE MOBILE BOTTOM NAVIGATION BAR FOR MERCHANTS --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-2 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
         {/* Products */}
         <button
           onClick={() => setActiveTab('inventory')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'inventory'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Catalog"
         >
-          <Package className={`w-5 h-5 ${activeTab === 'inventory' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Package className={`w-5 h-5 transition-transform ${activeTab === 'inventory' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Catalog</span>
           {activeTab === 'inventory' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Orders */}
         <button
           onClick={() => setActiveTab('orders')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'orders'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Orders"
         >
-          <div className="relative">
-            <ShoppingCart className={`w-5 h-5 ${activeTab === 'orders' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <ShoppingCart className={`w-5 h-5 transition-transform ${activeTab === 'orders' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
             {pendingOrdersCount > 0 && (
-              <span className="absolute -top-1 -right-2 bg-amber-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs">
+              <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white text-[8px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white animate-bounce">
                 {pendingOrdersCount}
               </span>
             )}
           </div>
           <span className="text-[10px] tracking-tight mt-0.5">Orders</span>
           {activeTab === 'orders' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Chats & Stories */}
         <button
           onClick={() => setActiveTab('messages')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'messages'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Messages"
         >
-          <div className="relative">
-            <MessageSquare className={`w-5 h-5 ${activeTab === 'messages' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <MessageSquare className={`w-5 h-5 transition-transform ${activeTab === 'messages' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
             {(totalUnreadChatCount > 0 || (pendingRequests || []).length > 0) && (
-              <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white animate-bounce">
                 {totalUnreadChatCount > 0 ? totalUnreadChatCount : (pendingRequests || []).length}
               </span>
             )}
           </div>
           <span className="text-[10px] tracking-tight mt-0.5">Chats</span>
           {activeTab === 'messages' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Sales Hub */}
         <button
           onClick={() => setActiveTab('hub')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'hub'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Sales Hub"
         >
-          <Store className={`w-5 h-5 ${activeTab === 'hub' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Store className={`w-5 h-5 transition-transform ${activeTab === 'hub' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Hub</span>
           {activeTab === 'hub' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Settings */}
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'settings'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Settings"
         >
-          <Settings className={`w-5 h-5 ${activeTab === 'settings' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Settings className={`w-5 h-5 transition-transform ${activeTab === 'settings' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
           {activeTab === 'settings' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
       </nav>

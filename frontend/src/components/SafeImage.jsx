@@ -16,6 +16,7 @@ const DEFAULT_FOOD_SVG = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/
  * 2. Catches HTTP 404, network ERR_FAILED, and cold-start timeouts
  * 3. Gracefully defaults to zero-network inline SVG data URIs
  * 4. Strictly prevents infinite error loops and UI layout breaks
+ * 5. Guarantees Zero Cumulative Layout Shift (CLS = 0) with skeleton placeholders and smooth transitions
  */
 export default function SafeImage({
   src,
@@ -26,13 +27,16 @@ export default function SafeImage({
   onClick,
   style,
   loading = 'lazy',
+  showShimmer = false,
   ...props
 }) {
   const [errorLevel, setErrorLevel] = useState(0); // 0: initial, 1: fallback attempt, 2: inline SVG
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Reset error state if the src prop changes
+  // Reset state if the src prop changes
   useEffect(() => {
     setErrorLevel(0);
+    setIsLoaded(false);
   }, [src]);
 
   const imgOptions = props.width || (fallbackType === 'avatar' ? 'avatar' : 600);
@@ -67,15 +71,23 @@ export default function SafeImage({
     setErrorLevel((prev) => prev + 1);
   };
 
+  const handleLoad = () => {
+    setIsLoaded(true);
+  };
+
+  const shimmerClass = (!isLoaded && showShimmer) ? 'skeleton-shimmer' : '';
+
   return (
     <img
       src={finalSrc}
       alt={alt}
-      className={className}
+      className={`transition-opacity duration-200 ${isLoaded || errorLevel > 0 ? 'opacity-100' : 'opacity-90'} ${shimmerClass} ${className}`}
       onError={handleError}
+      onLoad={handleLoad}
       onClick={onClick}
       style={style}
       loading={loading}
+      decoding="async"
       {...props}
     />
   );

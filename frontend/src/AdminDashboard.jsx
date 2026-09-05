@@ -316,9 +316,9 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row w-full max-w-full overflow-x-hidden">
       
-      {/* --- CLEAN TOP HEADER FOR SMALLER SCREENS (< md) --- */}
-      <header className="md:hidden bg-white/95 backdrop-blur-md border-b border-slate-200 px-3.5 py-2.5 flex items-center justify-between sticky top-0 z-30 shadow-xs w-full">
-        <Link to="/" className="flex items-center space-x-2 shrink-0">
+      {/* --- MOBILE HEADER (md:hidden) --- */}
+      <header className="md:hidden bg-white/95 backdrop-blur-md border-b border-slate-200 px-3.5 py-2.5 safe-top flex items-center justify-between sticky top-0 z-30 shadow-xs w-full">
+        <Link to="/" className="flex items-center space-x-2 shrink-0 min-tap-target-sm">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-xs">
             CL
           </div>
@@ -335,13 +335,14 @@ export default function AdminDashboard() {
             onClick={loadAdminData}
             title="Refresh Data"
             disabled={loading}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+            className="p-2 min-tap-target-sm rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer flex items-center justify-center"
+            aria-label="Refresh Data"
           >
-            <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-600' : ''}`} />
+            <RotateCcw className={`w-4 h-4 ${loading ? 'animate-spin text-sky-600' : ''}`} />
           </button>
           
           {adminUser && (
-            <div className="flex items-center space-x-1.5 px-2 py-1 rounded-xl bg-sky-50 border border-sky-100 text-sky-800 text-[11px] font-bold max-w-[110px] truncate">
+            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-sky-50 border border-sky-100 text-sky-800 text-[11px] font-bold max-w-[120px] truncate">
               <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
               <span className="truncate">{adminUser.full_name?.split(' ')[0] || 'Admin'}</span>
             </div>
@@ -350,10 +351,10 @@ export default function AdminDashboard() {
           <button
             onClick={handleLogout}
             title="Log Out Admin"
-            className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-colors cursor-pointer"
+            className="p-2 min-tap-target-sm rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-colors cursor-pointer flex items-center justify-center"
             aria-label="Log Out"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
@@ -486,95 +487,111 @@ export default function AdminDashboard() {
       </aside>
 
       {/* --- FACEBOOK/STUDENT-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom flex items-center justify-around shadow-lg w-full">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 px-1.5 py-1.5 safe-nav-bottom flex items-center justify-around shadow-lg w-full max-w-lg mx-auto">
         {/* Vendors */}
         <button
           onClick={() => setActiveTab('vendors')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'vendors' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Vendors"
         >
-          <div className="relative">
-            <Store className={`w-5 h-5 ${activeTab === 'vendors' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Store className={`w-5 h-5 transition-transform ${activeTab === 'vendors' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
             {pendingCount > 0 && (
-              <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center animate-pulse shadow-xs">
+              <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-bounce shadow-xs">
                 {pendingCount > 9 ? '9+' : pendingCount}
               </span>
             )}
           </div>
           <span className="text-[10px] tracking-tight mt-0.5">Vendors</span>
           {activeTab === 'vendors' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Products */}
         <button
           onClick={() => setActiveTab('products')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'products' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Products"
         >
-          <Package className={`w-5 h-5 ${activeTab === 'products' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Package className={`w-5 h-5 transition-transform ${activeTab === 'products' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Products</span>
           {activeTab === 'products' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Services */}
         <button
           onClick={() => setActiveTab('services')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'services' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Services"
         >
-          <Wrench className={`w-5 h-5 ${activeTab === 'services' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Wrench className={`w-5 h-5 transition-transform ${activeTab === 'services' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Services</span>
           {activeTab === 'services' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Reels */}
         <button
           onClick={() => setActiveTab('reels')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'reels' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Reels"
         >
-          <Video className={`w-5 h-5 ${activeTab === 'reels' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Video className={`w-5 h-5 transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Reels</span>
           {activeTab === 'reels' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Students */}
         <button
           onClick={() => setActiveTab('students')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'students' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Students"
         >
-          <GraduationCap className={`w-5 h-5 ${activeTab === 'students' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <GraduationCap className={`w-5 h-5 transition-transform ${activeTab === 'students' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Students</span>
           {activeTab === 'students' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* Stats */}
         <button
           onClick={() => setActiveTab('stats')}
-          className={`flex-1 flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'stats' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
+          aria-label="Platform Stats"
         >
-          <Activity className={`w-5 h-5 ${activeTab === 'stats' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <div className="relative flex items-center justify-center">
+            <Activity className={`w-5 h-5 transition-transform ${activeTab === 'stats' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
           <span className="text-[10px] tracking-tight mt-0.5">Stats</span>
           {activeTab === 'stats' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
       </nav>
