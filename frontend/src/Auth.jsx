@@ -32,7 +32,6 @@ export default function Auth() {
   const [role, setRole] = useState(initialRoleParam === 'vendor' ? 'vendor' : 'student');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [retrying, setRetrying] = useState(false);
 
   // Server Live Health Status Indicator
   const [serverStatus, setServerStatus] = useState('checking'); // 'checking' | 'online' | 'waking' | 'offline'
@@ -79,15 +78,11 @@ export default function Auth() {
     setIsCheckingHealth(true);
     if (!isInitial) setServerStatus('checking');
     const start = performance.now();
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 12000);
 
     try {
       const res = await fetch(`${API_BASE_URL}/api/health`, {
-        method: 'GET',
-        signal: ctrl.signal
+        method: 'GET'
       });
-      clearTimeout(timeout);
       const elapsed = Math.round(performance.now() - start);
 
       if (res.ok) {
@@ -99,13 +94,8 @@ export default function Auth() {
         setServerPingMs(elapsed);
       }
     } catch (err) {
-      clearTimeout(timeout);
-      console.warn('[CampusLink Server Ping] Warning/Cold-start:', err);
-      if (err?.name === 'AbortError') {
-        setServerStatus('waking');
-      } else {
-        setServerStatus('offline');
-      }
+      console.warn('[CampusLink Server Ping] Notice:', err);
+      setServerStatus('offline');
     } finally {
       setIsCheckingHealth(false);
     }
@@ -186,16 +176,11 @@ export default function Auth() {
     if (serverData?.detail && typeof serverData.detail === 'string') {
       return serverData.detail;
     }
-    
-    // 2. Abort / Request Timeout
-    if (err?.name === 'AbortError') {
-      return 'Server request timed out. The backend is waking up on Render. Please wait 10 seconds and try again.';
-    }
 
     const msg = String(err?.message || '');
     const code = String(err?.code || '');
 
-    // 3. Network Connection Breakdown (ERR_NETWORK, net::ERR_FAILED, CORS / Host unreachable)
+    // 2. Network Connection Breakdown (ERR_NETWORK, net::ERR_FAILED, Host unreachable)
     if (
       code === 'ERR_NETWORK' ||
       err?.name === 'TypeError' ||
@@ -207,7 +192,7 @@ export default function Auth() {
       return 'Cannot connect to CampusLink server. Please verify backend service status on Render.';
     }
 
-    // 4. HTTP Gateway Timeouts
+    // 3. HTTP Gateway Timeouts
     if (
       msg.includes('408') ||
       msg.includes('504') ||
@@ -258,7 +243,6 @@ export default function Auth() {
     }
 
     setLoading(true);
-    setRetrying(false);
 
     const endpoint = isLogin ? '/api/login' : '/api/register';
     const payload = isLogin
@@ -279,101 +263,66 @@ export default function Auth() {
           category_id: role === 'vendor' ? Number(formData.category_id) : null,
         };
 
-    const performRequest = async (isRetry = false) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
+      let data = {};
       try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal
+        data = await response.json();
+      } catch {
+        data = {};
+      }
+
+      if (!response.ok) {
+        console.error('[CampusLink Auth Error Response]', {
+          status: response.status,
+          statusText: response.statusText,
+          detail: data?.detail,
+          data
         });
 
-        clearTimeout(timeoutId);
-
-        let data = {};
-        try {
-          data = await response.json();
-        } catch {
-          data = {};
-        }
-
-        if (!response.ok) {
-          console.error('[CampusLink Auth Diagnostic Response]', {
-            status: response.status,
-            statusText: response.statusText,
-            detail: data?.detail,
-            data
-          });
-
-          // Transient cold-start / server bootup: auto-retry once after 2 seconds
-          if (!isRetry && (response.status === 408 || response.status === 504 || response.status === 502 || response.status === 503)) {
-            setRetrying(true);
-            await new Promise((r) => setTimeout(r, 2000));
-            return performRequest(true);
-          }
-
-          if (response.status === 403 && data?.detail && String(data.detail).includes('not verified')) {
-            setPendingEmail(formData.email.trim());
-            setShowOtpModal(true);
-            setResendCooldown(30);
-            throw new Error('Your email is not verified yet. Please enter the 6-digit code sent to your email.');
-          }
-
-          throw new Error(data?.detail || (isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
-        }
-
-        // Success Handling
-        if (isLogin) {
-          localStorage.setItem('token', data.access_token);
-          localStorage.setItem('user', JSON.stringify(data.user));
-
-          if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
-            localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
-            localStorage.removeItem('campuslink_new_signup_pending');
-          }
-
-          if (data.user?.role === 'admin') {
-            navigate('/admin');
-          } else if (data.user?.role === 'vendor') {
-            navigate('/vendor-dashboard');
-          } else {
-            navigate('/student-dashboard');
-          }
-        } else {
-          localStorage.setItem('campuslink_new_signup_pending', 'true');
+        if (response.status === 403 && data?.detail && String(data.detail).includes('not verified')) {
           setPendingEmail(formData.email.trim());
           setShowOtpModal(true);
-          setResendCooldown(60);
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-
-        // Auto-retry once on network failure or abort timeout
-        if (!isRetry && (err?.name === 'AbortError' || err?.name === 'TypeError' || err?.code === 'ERR_NETWORK')) {
-          console.warn('[CampusLink Auth] Connection interrupted. Automatically retrying in 2s...', err);
-          setRetrying(true);
-          await new Promise((r) => setTimeout(r, 2000));
-          return performRequest(true);
+          setResendCooldown(30);
+          setErrorMessage('Your email is not verified yet. Please enter the 6-digit code sent to your email.');
+          return;
         }
 
-        console.error('[CampusLink Auth Diagnostic Exception]', {
-          message: err?.message,
-          name: err?.name,
-          code: err?.code,
-          stack: err?.stack
-        });
-
-        setErrorMessage(formatAuthError(err, null, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
-      } finally {
-        setRetrying(false);
+        setErrorMessage(formatAuthError(null, data, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+        return;
       }
-    };
 
-    try {
-      await performRequest(false);
+      // Success Handling
+      if (isLogin) {
+        localStorage.setItem('token', data.access_token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+
+        if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
+          localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
+          localStorage.removeItem('campuslink_new_signup_pending');
+        }
+
+        if (data.user?.role === 'admin') {
+          navigate('/admin');
+        } else if (data.user?.role === 'vendor') {
+          navigate('/vendor-dashboard');
+        } else {
+          navigate('/student-dashboard');
+        }
+      } else {
+        localStorage.setItem('campuslink_new_signup_pending', 'true');
+        setPendingEmail(formData.email.trim());
+        setShowOtpModal(true);
+        setResendCooldown(60);
+      }
+    } catch (err) {
+      console.error('[CampusLink Auth Exception]', err);
+      setErrorMessage(formatAuthError(err, null, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
     } finally {
       setLoading(false);
     }
@@ -384,18 +333,12 @@ export default function Auth() {
     setErrorMessage('');
     setLoading(true);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingEmail, code: otpCode.trim() }),
-        signal: controller.signal
+        body: JSON.stringify({ email: pendingEmail, code: otpCode.trim() })
       });
-
-      clearTimeout(timeoutId);
 
       let data = {};
       try {
@@ -415,9 +358,8 @@ export default function Auth() {
       setOtpSuccessMessage('Email verified successfully! You can now log in.');
       localStorage.setItem('campuslink_new_signup_pending', 'true');
     } catch (err) {
-      setErrorMessage(formatAuthError(err, 'Invalid verification code.'));
+      setErrorMessage(formatAuthError(err, null, 'Invalid verification code.'));
     } finally {
-      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -427,18 +369,12 @@ export default function Auth() {
     setResendLoading(true);
     setErrorMessage('');
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/resend-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: pendingEmail }),
-        signal: controller.signal
+        body: JSON.stringify({ email: pendingEmail })
       });
-
-      clearTimeout(timeoutId);
 
       let data = {};
       try {
@@ -454,9 +390,8 @@ export default function Auth() {
       setResendCooldown(60);
       setOtpSuccessMessage(data.message || 'A fresh verification code has been sent to your email.');
     } catch (err) {
-      setErrorMessage(formatAuthError(err, 'Failed to resend verification code.'));
+      setErrorMessage(formatAuthError(err, null, 'Failed to resend verification code.'));
     } finally {
-      clearTimeout(timeoutId);
       setResendLoading(false);
     }
   };
@@ -907,15 +842,7 @@ export default function Auth() {
               disabled={loading}
               className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-500/25 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 mt-4"
             >
-              <span>
-                {retrying
-                  ? 'Re-connecting to Server...'
-                  : loading
-                  ? 'Processing...'
-                  : isLogin
-                  ? 'Sign In to Account'
-                  : 'Complete Registration'}
-              </span>
+              <span>{loading ? 'Processing...' : isLogin ? 'Sign In to Account' : 'Complete Registration'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.2';
+const CACHE_NAME = 'campuslink-v1.0.3';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -11,14 +11,15 @@ const PRECACHE_ASSETS = [
   '/apple-touch-icon.png'
 ];
 
-// Install: Pre-cache app shell & skip waiting
+// Install: Pre-cache app shell & skip waiting immediately
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
         console.warn('CampusLink SW pre-cache partial warning:', err);
       });
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -55,15 +56,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Bypass API endpoints, auth routes, websockets, and uploads
+  // Bypass API endpoints, auth routes, websockets, uploads, and backend origins entirely
   if (
     url.pathname.startsWith('/api') ||
+    url.pathname.includes('/api/') ||
     url.pathname.startsWith('/auth') ||
     url.pathname.startsWith('/ws') ||
     url.pathname.startsWith('/upload') ||
     url.pathname.startsWith('/docs') ||
-    url.pathname.startsWith('/openapi.json')
+    url.pathname.startsWith('/openapi.json') ||
+    url.hostname.includes('onrender.com') ||
+    url.origin !== self.location.origin
   ) {
+    // Always let API and remote backend requests go straight to the network
     return;
   }
 
@@ -128,7 +133,7 @@ self.addEventListener('fetch', (event) => {
           })
           .catch(() => {
             // Return safe fallback if network fails
-            return new Response('', { status: 408, statusText: 'Request Timeout' });
+            return new Response('', { status: 503, statusText: 'Service Unavailable' });
           });
       })
     );
