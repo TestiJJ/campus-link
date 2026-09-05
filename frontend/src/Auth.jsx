@@ -6,7 +6,8 @@ import {
   ShieldCheck, ArrowRight, Lock, Mail, Phone,
   User, Building2, Store, CheckCircle2,
   AlertCircle, ChevronDown, Eye, EyeOff, X,
-  GraduationCap, Car, Video, ShoppingBag
+  GraduationCap, Car, Video, ShoppingBag,
+  Activity, RefreshCw, Wifi, WifiOff
 } from 'lucide-react';
 
 const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
@@ -31,6 +32,12 @@ export default function Auth() {
   const [role, setRole] = useState(initialRoleParam === 'vendor' ? 'vendor' : 'student');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  // Server Live Health Status Indicator
+  const [serverStatus, setServerStatus] = useState('checking'); // 'checking' | 'online' | 'waking' | 'offline'
+  const [serverPingMs, setServerPingMs] = useState(null);
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
   // Form Fields
   const [formData, setFormData] = useState({
@@ -63,10 +70,51 @@ export default function Auth() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
 
-
   // Alert & Feedback Messages
   const [errorMessage, setErrorMessage] = useState('');
   const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
+
+  // Diagnostic Server Health Check (Warms up Render backend & checks reachability)
+  const checkServerHealth = async (isInitial = false) => {
+    setIsCheckingHealth(true);
+    if (!isInitial) setServerStatus('checking');
+    const start = performance.now();
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 12000);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/health`, {
+        method: 'GET',
+        signal: ctrl.signal
+      });
+      clearTimeout(timeout);
+      const elapsed = Math.round(performance.now() - start);
+
+      if (res.ok) {
+        setServerStatus('online');
+        setServerPingMs(elapsed);
+        console.log(`[CampusLink Server Ping] Live & Reachable in ${elapsed}ms`);
+      } else {
+        setServerStatus('waking');
+        setServerPingMs(elapsed);
+      }
+    } catch (err) {
+      clearTimeout(timeout);
+      console.warn('[CampusLink Server Ping] Warning/Cold-start:', err);
+      if (err?.name === 'AbortError') {
+        setServerStatus('waking');
+      } else {
+        setServerStatus('offline');
+      }
+    } finally {
+      setIsCheckingHealth(false);
+    }
+  };
+
+  // Pre-Login Health Ping on Mount (Warms up server while user types)
+  useEffect(() => {
+    checkServerHealth(true);
+  }, []);
 
   // Fetch institutions on component mount
   useEffect(() => {
@@ -133,6 +181,45 @@ export default function Auth() {
     setErrorMessage('');
   };
 
+  const formatAuthError = (err, serverData = null, defaultMsg = 'Operation failed. Please try again.') => {
+    // 1. Direct Backend Detail Message (e.g., "Invalid email or password", "Database connection failed", etc.)
+    if (serverData?.detail && typeof serverData.detail === 'string') {
+      return serverData.detail;
+    }
+    
+    // 2. Abort / Request Timeout
+    if (err?.name === 'AbortError') {
+      return 'Server request timed out. The backend is waking up on Render. Please wait 10 seconds and try again.';
+    }
+
+    const msg = String(err?.message || '');
+    const code = String(err?.code || '');
+
+    // 3. Network Connection Breakdown (ERR_NETWORK, net::ERR_FAILED, CORS / Host unreachable)
+    if (
+      code === 'ERR_NETWORK' ||
+      err?.name === 'TypeError' ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('net::ERR_FAILED') ||
+      msg.toLowerCase().includes('network error')
+    ) {
+      return 'Cannot connect to CampusLink server. Please verify backend service status on Render.';
+    }
+
+    // 4. HTTP Gateway Timeouts
+    if (
+      msg.includes('408') ||
+      msg.includes('504') ||
+      msg.includes('502') ||
+      msg.includes('503')
+    ) {
+      return 'Server is warming up on Render. Please wait a few seconds and try again.';
+    }
+
+    return msg || defaultMsg;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -171,6 +258,7 @@ export default function Auth() {
     }
 
     setLoading(true);
+    setRetrying(false);
 
     const endpoint = isLogin ? '/api/login' : '/api/register';
     const payload = isLogin
@@ -191,91 +279,104 @@ export default function Auth() {
           category_id: role === 'vendor' ? Number(formData.category_id) : null,
         };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const performRequest = async (isRetry = false) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      let data = {};
       try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
 
-      if (!response.ok) {
-        if (response.status === 408 || response.status === 504 || response.status === 502 || response.status === 503) {
-          throw new Error('Server is waking up. Please wait 10 seconds and try again.');
+        clearTimeout(timeoutId);
+
+        let data = {};
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
         }
-        if (response.status === 403 && data.detail && data.detail.includes('not verified')) {
+
+        if (!response.ok) {
+          console.error('[CampusLink Auth Diagnostic Response]', {
+            status: response.status,
+            statusText: response.statusText,
+            detail: data?.detail,
+            data
+          });
+
+          // Transient cold-start / server bootup: auto-retry once after 2 seconds
+          if (!isRetry && (response.status === 408 || response.status === 504 || response.status === 502 || response.status === 503)) {
+            setRetrying(true);
+            await new Promise((r) => setTimeout(r, 2000));
+            return performRequest(true);
+          }
+
+          if (response.status === 403 && data?.detail && String(data.detail).includes('not verified')) {
+            setPendingEmail(formData.email.trim());
+            setShowOtpModal(true);
+            setResendCooldown(30);
+            throw new Error('Your email is not verified yet. Please enter the 6-digit code sent to your email.');
+          }
+
+          throw new Error(data?.detail || (isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+        }
+
+        // Success Handling
+        if (isLogin) {
+          localStorage.setItem('token', data.access_token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+
+          if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
+            localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
+            localStorage.removeItem('campuslink_new_signup_pending');
+          }
+
+          if (data.user?.role === 'admin') {
+            navigate('/admin');
+          } else if (data.user?.role === 'vendor') {
+            navigate('/vendor-dashboard');
+          } else {
+            navigate('/student-dashboard');
+          }
+        } else {
+          localStorage.setItem('campuslink_new_signup_pending', 'true');
           setPendingEmail(formData.email.trim());
           setShowOtpModal(true);
-          setResendCooldown(30);
-          throw new Error('Your email is not verified yet. Please enter the 6-digit code sent to your email.');
+          setResendCooldown(60);
         }
-        throw new Error(data.detail || (isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+      } catch (err) {
+        clearTimeout(timeoutId);
+
+        // Auto-retry once on network failure or abort timeout
+        if (!isRetry && (err?.name === 'AbortError' || err?.name === 'TypeError' || err?.code === 'ERR_NETWORK')) {
+          console.warn('[CampusLink Auth] Connection interrupted. Automatically retrying in 2s...', err);
+          setRetrying(true);
+          await new Promise((r) => setTimeout(r, 2000));
+          return performRequest(true);
+        }
+
+        console.error('[CampusLink Auth Diagnostic Exception]', {
+          message: err?.message,
+          name: err?.name,
+          code: err?.code,
+          stack: err?.stack
+        });
+
+        setErrorMessage(formatAuthError(err, null, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+      } finally {
+        setRetrying(false);
       }
+    };
 
-      if (isLogin) {
-        localStorage.setItem('token', data.access_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-
-        if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
-          localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
-          localStorage.removeItem('campuslink_new_signup_pending');
-        }
-
-        if (data.user?.role === 'admin') {
-          navigate('/admin');
-        } else if (data.user?.role === 'vendor') {
-          navigate('/vendor-dashboard');
-        } else {
-          navigate('/student-dashboard');
-        }
-      } else {
-        localStorage.setItem('campuslink_new_signup_pending', 'true');
-        setPendingEmail(formData.email.trim());
-        setShowOtpModal(true);
-        setResendCooldown(60);
-      }
-    } catch (err) {
-      setErrorMessage(formatAuthError(err, 'An error occurred during authentication.'));
+    try {
+      await performRequest(false);
     } finally {
-      clearTimeout(timeoutId);
       setLoading(false);
     }
-  };
-
-  const formatAuthError = (err, defaultMsg = 'Operation failed. Please try again.') => {
-    if (err?.name === 'AbortError') {
-      return 'Server is waking up. Please wait 10 seconds and try again.';
-    }
-    const msg = err?.message || '';
-    if (
-      msg.includes('408') ||
-      msg.includes('504') ||
-      msg.includes('502') ||
-      msg.includes('503') ||
-      msg.toLowerCase().includes('timeout') ||
-      msg.toLowerCase().includes('waking up')
-    ) {
-      return 'Server is waking up. Please wait 10 seconds and try again.';
-    }
-    if (
-      err?.name === 'TypeError' &&
-      (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail') || msg.toLowerCase().includes('failed to fetch'))
-    ) {
-      return 'Server is waking up or connection was interrupted. Please wait a few seconds and try again.';
-    }
-    return msg || defaultMsg;
   };
 
   const handleVerifyOtp = async (e) => {
@@ -447,7 +548,7 @@ export default function Auth() {
           </div>
 
           {/* Mode Switcher: Sign In vs Sign Up */}
-          <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 mb-6">
+          <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 mb-4">
             <button
               type="button"
               onClick={() => {
@@ -471,6 +572,38 @@ export default function Auth() {
               }`}
             >
               Create Account
+            </button>
+          </div>
+
+          {/* Test Server Connection Status Indicator */}
+          <div className="mb-4 flex items-center justify-between px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-[11px]">
+            <div className="flex items-center space-x-2">
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                serverStatus === 'online'
+                  ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
+                  : serverStatus === 'waking' || serverStatus === 'checking'
+                  ? 'bg-amber-500 shadow-xs shadow-amber-500/50 animate-pulse'
+                  : 'bg-rose-500'
+              }`} />
+              <span className="font-semibold text-slate-700">
+                {serverStatus === 'online'
+                  ? `Server Online (${serverPingMs || 0}ms)`
+                  : serverStatus === 'waking'
+                  ? 'Server Waking Up (Cold Start)...'
+                  : serverStatus === 'checking'
+                  ? 'Pinging Server...'
+                  : 'Server Offline'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => checkServerHealth(false)}
+              disabled={isCheckingHealth}
+              className="flex items-center space-x-1 text-sky-600 hover:text-sky-700 font-bold cursor-pointer disabled:opacity-50 transition-colors"
+              title="Ping CampusLink server health endpoint"
+            >
+              <RefreshCw className={`w-3 h-3 ${isCheckingHealth ? 'animate-spin' : ''}`} />
+              <span>Test Connection</span>
             </button>
           </div>
 
@@ -774,7 +907,15 @@ export default function Auth() {
               disabled={loading}
               className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-500/25 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 mt-4"
             >
-              <span>{loading ? 'Processing...' : isLogin ? 'Sign In to Account' : 'Complete Registration'}</span>
+              <span>
+                {retrying
+                  ? 'Re-connecting to Server...'
+                  : loading
+                  ? 'Processing...'
+                  : isLogin
+                  ? 'Sign In to Account'
+                  : 'Complete Registration'}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import SQLAlchemyError
 import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -652,11 +653,25 @@ def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.ge
     clean_email = (credentials.email or "").strip().lower()
     try:
         user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
-    except Exception as db_err:
-        print(f"[Login Database Error] {db_err}")
+    except SQLAlchemyError as db_err:
+        print(f"[Login Database Error] SQLAlchemyError: {db_err}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection is warming up. Please wait 5-10 seconds and try again."
+            detail="Database connection failed. Please retry in a few moments."
+        )
+    except Exception as db_err:
+        print(f"[Login Database Error] Unexpected: {db_err}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection failed. Please retry in a few moments."
         )
 
     if not user or not auth.verify_password(credentials.password, user.password_hash):
