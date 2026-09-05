@@ -117,6 +117,11 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "https://campus-link-dzjz.onrender.com",
+        "https://campus-link.onrender.com",
+        "https://campus-link-backend-vhxr.onrender.com",
+        "capacitor://localhost",
+        "http://localhost",
+        "https://localhost",
     ],
     allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
@@ -2690,19 +2695,24 @@ class ConnectionManager:
         # user_id (str) -> list of active WebSockets
         self.active_connections: dict[str, list[WebSocket]] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket):
-        await websocket.accept()
+    async def connect(self, user_id: str, websocket: WebSocket) -> bool:
+        try:
+            await websocket.accept()
+        except Exception:
+            return False
         uid = str(user_id)
         if uid not in self.active_connections:
             self.active_connections[uid] = []
         self.active_connections[uid].append(websocket)
+        return True
 
     def disconnect(self, user_id: str, websocket: WebSocket):
         uid = str(user_id)
         if uid in self.active_connections:
             try:
-                self.active_connections[uid].remove(websocket)
-            except (ValueError, Exception):
+                if websocket in self.active_connections[uid]:
+                    self.active_connections[uid].remove(websocket)
+            except Exception:
                 pass
             if not self.active_connections[uid]:
                 del self.active_connections[uid]
@@ -2723,7 +2733,10 @@ ws_manager = ConnectionManager()
 
 @app.websocket("/ws/{user_id}")
 async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
-    await ws_manager.connect(str(user_id), websocket)
+    connected = await ws_manager.connect(str(user_id), websocket)
+    if not connected:
+        return
+
     try:
         with database.SessionLocal() as _db:
             _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
@@ -2733,6 +2746,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
             _db.commit()
     except Exception:
         pass
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -2742,18 +2756,9 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
                     await websocket.send_json({"type": "pong"})
             except Exception:
                 pass
-    except WebSocketDisconnect:
-        ws_manager.disconnect(str(user_id), websocket)
-        try:
-            with database.SessionLocal() as _db:
-                _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
-                    "is_online": False,
-                    "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
-                })
-                _db.commit()
-        except Exception:
-            pass
-    except Exception:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
         ws_manager.disconnect(str(user_id), websocket)
         try:
             with database.SessionLocal() as _db:

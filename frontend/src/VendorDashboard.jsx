@@ -486,27 +486,56 @@ export default function VendorDashboard() {
     if (!uid) return;
     let socket = null;
     let pingInterval = null;
+    let reconnectTimeout = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
     let isMounted = true;
 
+    const clearTimers = () => {
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+    };
+
     const connectWs = () => {
+      if (!isMounted) return;
+      if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+        return;
+      }
+      clearTimers();
+
       try {
         const wsUrl = getWsUrl(`/ws/${uid}`);
         socket = new WebSocket(wsUrl);
 
         socket.onopen = () => {
+          retryCount = 0; // Successfully connected, reset retry counter
           pingInterval = setInterval(() => {
             if (socket && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'ping' }));
+              try {
+                socket.send(JSON.stringify({ type: 'ping' }));
+              } catch (_) {}
             }
-          }, 25000);
+          }, 35000); // 35-second keepalive heartbeat for Render proxy
         };
 
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            if (data.type === 'pong') return; // Heartbeat response
+
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
               const isFromMe = (newM.sender_id === uid);
+
+              // Immediately append to thread cache
+              appendThreadMessage(newM.sender_id, newM);
+              appendThreadMessage(newM.recipient_id, newM);
 
               if (!isFromMe) {
                 const currentPid = selectedPartnerRef.current?.partner_id || selectedPartnerRef.current?.user_id || selectedPartnerRef.current?.id;
@@ -560,31 +589,55 @@ export default function VendorDashboard() {
               }
             }
           } catch (err) {
-            console.error('Error handling WS message in vendor:', err);
+            // Suppress noisy error logs
           }
         };
 
         socket.onclose = () => {
-          clearInterval(pingInterval);
-          if (isMounted) {
-            setTimeout(connectWs, 1500);
+          clearTimers();
+          if (!isMounted) return;
+
+          if (retryCount < MAX_RETRIES) {
+            // Exponential backoff with jitter: 2s, ~4s, ~8s, ~16s, max 30s
+            const backoffMs = Math.min(30000, 2000 * Math.pow(1.8, retryCount) + Math.random() * 800);
+            retryCount++;
+            reconnectTimeout = setTimeout(connectWs, backoffMs);
           }
         };
 
         socket.onerror = () => {
-          socket.close();
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            try { socket.close(); } catch (_) {}
+          }
         };
       } catch (err) {
-        console.warn('Vendor WS setup notice:', err);
+        // Fallback gracefully
       }
     };
+
+    const handleReconnectTrigger = () => {
+      if (!isMounted) return;
+      retryCount = 0;
+      connectWs();
+    };
+
+    window.addEventListener('online', handleReconnectTrigger);
+    window.addEventListener('focus', handleReconnectTrigger);
 
     connectWs();
 
     return () => {
       isMounted = false;
-      clearInterval(pingInterval);
-      if (socket) socket.close();
+      window.removeEventListener('online', handleReconnectTrigger);
+      window.removeEventListener('focus', handleReconnectTrigger);
+      clearTimers();
+      if (socket) {
+        try {
+          socket.onclose = null;
+          socket.onerror = null;
+          socket.close();
+        } catch (_) {}
+      }
     };
   }, [user?.user_id, user?.id]);
 

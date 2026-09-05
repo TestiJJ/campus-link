@@ -457,24 +457,49 @@ export default function StudentDashboard() {
     if (!currentUser?.user_id) return;
     let socket = null;
     let pingInterval = null;
+    let reconnectTimeout = null;
+    let retryCount = 0;
+    const MAX_RETRIES = 5;
     let isMounted = true;
 
+    const clearTimers = () => {
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+    };
+
     const connectWs = () => {
+      if (!isMounted) return;
+      if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+        return;
+      }
+      clearTimers();
+
       try {
         const wsUrl = getWsUrl(`/ws/${currentUser.user_id}`);
         socket = new WebSocket(wsUrl);
 
         socket.onopen = () => {
+          retryCount = 0; // Successfully connected, reset retry counter
           pingInterval = setInterval(() => {
             if (socket && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'ping' }));
+              try {
+                socket.send(JSON.stringify({ type: 'ping' }));
+              } catch (_) {}
             }
-          }, 25000);
+          }, 35000); // 35-second keepalive heartbeat for Render proxy
         };
 
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            if (data.type === 'pong') return; // Heartbeat response
+
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
               const isFromMe = newM.sender_id === currentUser.user_id;
@@ -536,31 +561,55 @@ export default function StudentDashboard() {
               }
             }
           } catch (err) {
-            console.error('Error handling WS message:', err);
+            // Suppress error storms
           }
         };
 
         socket.onclose = () => {
-          clearInterval(pingInterval);
-          if (isMounted) {
-            setTimeout(connectWs, 1500);
+          clearTimers();
+          if (!isMounted) return;
+
+          if (retryCount < MAX_RETRIES) {
+            // Exponential backoff with jitter: 2s, ~4s, ~8s, ~16s, max 30s
+            const backoffMs = Math.min(30000, 2000 * Math.pow(1.8, retryCount) + Math.random() * 800);
+            retryCount++;
+            reconnectTimeout = setTimeout(connectWs, backoffMs);
           }
         };
 
         socket.onerror = () => {
-          socket.close();
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            try { socket.close(); } catch (_) {}
+          }
         };
       } catch (err) {
-        console.warn('WS setup notice:', err);
+        // Fall back gracefully to polling
       }
     };
+
+    const handleReconnectTrigger = () => {
+      if (!isMounted) return;
+      retryCount = 0;
+      connectWs();
+    };
+
+    window.addEventListener('online', handleReconnectTrigger);
+    window.addEventListener('focus', handleReconnectTrigger);
 
     connectWs();
 
     return () => {
       isMounted = false;
-      clearInterval(pingInterval);
-      if (socket) socket.close();
+      window.removeEventListener('online', handleReconnectTrigger);
+      window.removeEventListener('focus', handleReconnectTrigger);
+      clearTimers();
+      if (socket) {
+        try {
+          socket.onclose = null;
+          socket.onerror = null;
+          socket.close();
+        } catch (_) {}
+      }
     };
   }, [currentUser?.user_id]);
 
