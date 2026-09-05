@@ -267,25 +267,30 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
     print(f"[CAMPUSLINK OTP for {clean_to}]: {otp_code}")
 
     # --- Attempt 1: Google Apps Script Webhook (HTTPS 443 - bypasses Render port blocks) ---
-    try:
-        resp = httpx.post(
-            webhook_url,
-            json={
-                "to": clean_to,
-                "subject": subject,
-                "html": html_body,
-                "text": text_body,
-                "code": otp_code,
-            },
-            follow_redirects=True,
-            timeout=15.0,
-        )
-        if resp.status_code in (200, 201, 302):
-            print(f"[EMAIL] Sent to {clean_to} via Google Apps Script Webhook")
-            return True
-        print(f"[EMAIL] Webhook returned HTTP {resp.status_code}: {resp.text[:120]}")
-    except Exception as e_wh:
-        print(f"[EMAIL] Webhook error: {e_wh}")
+    urls_to_try = [webhook_url]
+    if webhook_url != DEFAULT_GOOGLE_MAIL_WEBHOOK:
+        urls_to_try.append(DEFAULT_GOOGLE_MAIL_WEBHOOK)
+
+    for target_url in urls_to_try:
+        try:
+            resp = httpx.post(
+                target_url,
+                json={
+                    "to": clean_to,
+                    "subject": subject,
+                    "html": html_body,
+                    "text": text_body,
+                    "code": otp_code,
+                },
+                follow_redirects=True,
+                timeout=15.0,
+            )
+            if resp.status_code in (200, 201, 302):
+                print(f"[EMAIL] Sent to {clean_to} via Google Apps Script Webhook ({target_url[:35]}...)")
+                return True
+            print(f"[EMAIL] Webhook ({target_url[:35]}...) returned HTTP {resp.status_code}: {resp.text[:120]}")
+        except Exception as e_wh:
+            print(f"[EMAIL] Webhook error on {target_url[:35]}...: {e_wh}")
 
     # --- Attempt 2: Gmail SMTP SSL port 465 ---
     msg = MIMEMultipart("alternative")
@@ -337,46 +342,52 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     webhook_url = get_clean_webhook_url()
     sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
 
-    webhook_debug = {}
-    try:
-        resp = httpx.post(
-            webhook_url,
-            json={
-                "to": clean_email,
-                "subject": f"{test_otp} is your CampusLink Verification Code",
-                "html": f"<p>CampusLink test code: <b>{test_otp}</b></p>",
-                "text": f"Your CampusLink test verification code is: {test_otp}",
-                "code": test_otp,
-            },
-            follow_redirects=True,
-            timeout=15.0,
-        )
-        webhook_debug = {
-            "status_code": resp.status_code,
-            "response_preview": resp.text[:300] if resp.text else "(empty)",
-            "url_used": webhook_url[:35] + "..." if len(webhook_url) > 35 else webhook_url
-        }
-        if resp.status_code in (200, 201, 302):
-            return {
-                "success": True,
-                "recipient": clean_email,
-                "otp_sent": test_otp,
-                "webhook_debug": webhook_debug,
-                "message": f"Verification email delivered to {clean_email}!",
-            }
-    except Exception as e_diag:
-        webhook_debug = {
-            "exception": str(e_diag),
-            "url_used": webhook_url[:35] + "..." if len(webhook_url) > 35 else webhook_url
-        }
+    attempts = []
+    urls_to_test = [webhook_url]
+    if webhook_url != DEFAULT_GOOGLE_MAIL_WEBHOOK:
+        urls_to_test.append(DEFAULT_GOOGLE_MAIL_WEBHOOK)
+
+    for target_url in urls_to_test:
+        try:
+            resp = httpx.post(
+                target_url,
+                json={
+                    "to": clean_email,
+                    "subject": f"{test_otp} is your CampusLink Verification Code",
+                    "html": f"<p>CampusLink test code: <b>{test_otp}</b></p>",
+                    "text": f"Your CampusLink test verification code is: {test_otp}",
+                    "code": test_otp,
+                },
+                follow_redirects=True,
+                timeout=15.0,
+            )
+            attempts.append({
+                "url": target_url[:42] + "...",
+                "status_code": resp.status_code,
+                "response": resp.text[:200] if resp.text else "(empty)"
+            })
+            if resp.status_code in (200, 201, 302):
+                return {
+                    "success": True,
+                    "recipient": clean_email,
+                    "otp_sent": test_otp,
+                    "delivered_via": target_url[:42] + "...",
+                    "attempts": attempts,
+                    "message": f"Verification email delivered to {clean_email}!",
+                }
+        except Exception as e_diag:
+            attempts.append({
+                "url": target_url[:42] + "...",
+                "error": str(e_diag)
+            })
 
     return {
         "success": False,
         "recipient": clean_email,
         "sender": sender,
-        "webhook_debug": webhook_debug,
+        "attempts": attempts,
         "message": (
-            "Webhook delivery failed. See webhook_debug for the exact response/status code from Google."
+            "Webhook delivery failed across all URLs. Check attempts list for details."
         ),
     }
 
