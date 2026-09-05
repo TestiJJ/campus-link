@@ -717,7 +717,7 @@ export default function VendorDashboard() {
     };
 
     pollChat();
-    timer = setInterval(pollChat, 8000);
+    timer = setInterval(pollChat, 1000);
 
     const handleFocus = () => {
       if (document.visibilityState === 'visible' && getAuthToken()) {
@@ -2972,7 +2972,7 @@ export default function VendorDashboard() {
                         )}
 
                         {/* Chat Messages */}
-                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3 overscroll-contain scroll-smooth">
+                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
