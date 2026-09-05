@@ -43,6 +43,10 @@ def clean_legacy_image_urls():
             ]:
                 try:
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://127.0.0.1:8000', '{live_backend}') WHERE {col} LIKE '%127.0.0.1:8000%'"))
+                    conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://localhost:8000', '{live_backend}') WHERE {col} LIKE '%localhost:8000%'"))
+                    conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'https://campuslink-backend.onrender.com', '{live_backend}') WHERE {col} LIKE '%campuslink-backend.onrender.com%'"))
+                    conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://campuslink-backend.onrender.com', '{live_backend}') WHERE {col} LIKE '%campuslink-backend.onrender.com%'"))
+                    conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://campus-link-backend-vhxr.onrender.com', '{live_backend}') WHERE {col} LIKE '%http://campus-link-backend-vhxr%'"))
                 except Exception:
                     pass
             conn.commit()

@@ -214,36 +214,44 @@ export default function VendorDashboard() {
 
   const loadStoreData = async () => {
     try {
-      const storeRes = await API.get('/vendor/my-store');
-      setVendorStore(storeRes.data);
-      setVerificationForm({
-        id_card_type: storeRes.data.id_card_type || 'national_id',
-        id_card_number: storeRes.data.id_card_number || '',
-        id_card_front: storeRes.data.id_card_front || '',
-        id_card_back: storeRes.data.id_card_back || '',
-        location: storeRes.data.location || '',
-        phone: storeRes.data.phone || '',
-        business_name: storeRes.data.business_name || ''
-      });
-      if (storeRes.data.id_card_front) setIdFrontPreview(storeRes.data.id_card_front);
-      if (storeRes.data.id_card_back) setIdBackPreview(storeRes.data.id_card_back);
+      let storeData = null;
+      try {
+        const storeRes = await API.get('/vendor/my-store');
+        storeData = storeRes.data;
+        setVendorStore(storeData);
+        setVerificationForm({
+          id_card_type: storeData.id_card_type || 'national_id',
+          id_card_number: storeData.id_card_number || '',
+          id_card_front: storeData.id_card_front || '',
+          id_card_back: storeData.id_card_back || '',
+          location: storeData.location || '',
+          phone: storeData.phone || '',
+          business_name: storeData.business_name || ''
+        });
+        if (storeData.id_card_front) setIdFrontPreview(storeData.id_card_front);
+        if (storeData.id_card_back) setIdBackPreview(storeData.id_card_back);
 
-      setProfileForm({
-        full_name: storeRes.data.user_name || user?.full_name || '',
-        phone_number: storeRes.data.phone || user?.phone_number || '',
-        business_name: storeRes.data.business_name || '',
-        business_description: storeRes.data.business_description || '',
-        location: storeRes.data.location || '',
-        category_id: storeRes.data.category_id || 1,
-        bio: user?.bio || ''
-      });
+        setProfileForm({
+          full_name: storeData.user_name || user?.full_name || '',
+          phone_number: storeData.phone || user?.phone_number || '',
+          business_name: storeData.business_name || '',
+          business_description: storeData.business_description || '',
+          location: storeData.location || '',
+          category_id: storeData.category_id || 1,
+          bio: user?.bio || ''
+        });
+      } catch (storeErr) {
+        console.warn('Vendor store profile warning:', storeErr);
+      }
+
+      const storeId = storeData?.id;
 
       // Concurrent fetch of all dashboard & community assets
       const results = await Promise.allSettled([
         API.get('/products'),
         API.get('/services'),
         API.get('/vendor/orders'),
-        API.get(`/vendors/${storeRes.data.id}/reviews`),
+        storeId ? API.get(`/vendors/${storeId}/reviews`) : Promise.resolve({ data: [] }),
         API.get('/conversations'),
         API.get('/reels'),
         API.get('/friends'),
@@ -254,10 +262,12 @@ export default function VendorDashboard() {
       ]);
 
       if (results[0].status === 'fulfilled') {
-        setProducts(results[0].value.data.filter(p => p.vendor_id === storeRes.data.id));
+        const allProds = results[0].value.data || [];
+        setProducts(storeId ? allProds.filter(p => p.vendor_id === storeId) : allProds);
       }
       if (results[1].status === 'fulfilled') {
-        setServices(results[1].value.data.filter(s => s.vendor_id === storeRes.data.id));
+        const allSvcs = results[1].value.data || [];
+        setServices(storeId ? allSvcs.filter(s => s.vendor_id === storeId) : allSvcs);
       }
       if (results[2].status === 'fulfilled') {
         setVendorOrders(results[2].value.data);

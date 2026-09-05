@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import os
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -40,6 +42,20 @@ def decode_access_token(token: str):
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
         return None
+
+class TokenData:
+    def __init__(self, user_id: str, role: Optional[str] = None):
+        self.user_id = user_id
+        self.role = role
+
+def verify_token(token: str) -> Optional[TokenData]:
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    return TokenData(user_id=user_id, role=payload.get("role"))
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
     credentials_exception = HTTPException(

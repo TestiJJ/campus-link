@@ -50,21 +50,40 @@ export const uploadFile = async (file) => {
 export const getMediaUrl = (url) => {
   if (!url) return '';
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
-  if (url.startsWith('https://') && !url.includes('127.0.0.1') && !url.includes('localhost')) {
-    return url;
-  }
 
+  const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
   const backendHost = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
-    ? (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || DEFAULT_BACKEND_URL).replace(/\/+$/, '').replace(/\/api$/, '')
+    ? (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL).replace(/\/+$/, '').replace(/\/api$/, '')
     : 'http://127.0.0.1:8000';
 
-  if (url.startsWith('http://127.0.0.1:8000') || url.startsWith('http://localhost:8000')) {
-    return url.replace(/^http:\/\/(127\.0\.0\.1|localhost):8000/, backendHost);
+  let cleanUrl = String(url).trim();
+
+  // Rewrite any stale/legacy Express domain to the real active backend domain
+  if (cleanUrl.includes('campuslink-backend.onrender.com')) {
+    cleanUrl = cleanUrl.replace(/https?:\/\/campuslink-backend\.onrender\.com/, backendHost);
   }
-  if (url.startsWith('/uploads')) {
-    return `${backendHost}${url}`;
+
+  // Rewrite localhost / 127.0.0.1 dev URLs
+  if (cleanUrl.startsWith('http://127.0.0.1:8000') || cleanUrl.startsWith('http://localhost:8000')) {
+    cleanUrl = cleanUrl.replace(/^http:\/\/(127\.0\.0\.1|localhost):8000/, backendHost);
   }
-  return url;
+
+  // Relative uploads path
+  if (cleanUrl.startsWith('/uploads') || cleanUrl.startsWith('uploads/')) {
+    return `${backendHost}/${cleanUrl.replace(/^\/+/, '')}`;
+  }
+
+  // Relative eateries path
+  if (cleanUrl.startsWith('/eateries') || cleanUrl.startsWith('eateries/')) {
+    return `${backendHost}/${cleanUrl.replace(/^\/+/, '')}`;
+  }
+
+  // Prevent mixed-content blocking on HTTPS (Render production)
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && cleanUrl.startsWith('http://') && !cleanUrl.includes('localhost') && !cleanUrl.includes('127.0.0.1')) {
+    cleanUrl = cleanUrl.replace('http://', 'https://');
+  }
+
+  return cleanUrl;
 };
 
 /**
