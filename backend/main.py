@@ -17,6 +17,14 @@ import models, schemas, auth, database
 
 try:
     models.Base.metadata.create_all(bind=database.engine)
+    from sqlalchemy import text as _sql_text
+    with database.engine.connect() as _conn:
+        try:
+            _conn.execute(_sql_text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;"))
+            _conn.execute(_sql_text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            _conn.commit()
+        except Exception:
+            pass
 except Exception as _db_err:
     print(f"[CampusLink] Database init notice: {_db_err}")
 # Auto-seed institutions and marketplace categories on server initialization

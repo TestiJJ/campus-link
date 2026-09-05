@@ -43,8 +43,8 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Bypass non-GET requests and API calls
-  if (request.method !== 'GET' || url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
+  // Bypass non-GET requests, non-HTTP(S) schemes (e.g. chrome-extension), and API calls
+  if (request.method !== 'GET' || !url.protocol.startsWith('http') || url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
     return;
   }
 
