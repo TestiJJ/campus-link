@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
+import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 
 
 // Stale-While-Revalidate Caching Utilities for Vendor
@@ -309,11 +310,78 @@ export default function VendorDashboard() {
     };
   }, [selectedPartner]);
 
-  useEffect(() => {
+  // Chat auto-scroll helpers: Instant on open, smooth on new message
+  const scrollToChatBottom = (behavior = 'auto') => {
     if (chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+      chatBottomRef.current.scrollIntoView({ behavior });
     }
-  }, [chatMessages]);
+  };
+
+  useEffect(() => {
+    if (selectedPartner) {
+      scrollToChatBottom('auto');
+      const t1 = setTimeout(() => scrollToChatBottom('auto'), 80);
+      const t2 = setTimeout(() => scrollToChatBottom('auto'), 250);
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
+
+  useEffect(() => {
+    if (chatMessages.length > 0) {
+      scrollToChatBottom('smooth');
+    }
+  }, [chatMessages.length]);
+
+  // Unread badge helpers across multi-profile views
+  const getUnreadCountForUser = (userId) => {
+    if (!userId || !conversations?.length) return 0;
+    const conv = conversations.find(c => String(c.partner_id) === String(userId));
+    return conv?.unread_count || 0;
+  };
+
+  const totalUnreadChatCount = (conversations || []).reduce((acc, c) => acc + (c.unread_count || 0), 0);
+
+  const otherUnreadChatCount = (conversations || []).reduce((acc, c) => {
+    const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
+    if (pid && String(c.partner_id) === String(pid)) return acc;
+    return acc + (c.unread_count || 0);
+  }, 0);
+
+  // Active chat auto-polling every 3 seconds for vendor
+  useEffect(() => {
+    const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
+    if (!pid || selectedPartner?.is_ai) return;
+
+    const pollChat = async () => {
+      try {
+        const res = await API.get(`/messages/${pid}`);
+        const list = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
+        setChatMessages(list);
+        setConversations(prev =>
+          prev.map(c => (String(c.partner_id) === String(pid) ? { ...c, unread_count: 0 } : c))
+        );
+      } catch {}
+    };
+
+    const timer = setInterval(pollChat, 3000);
+    return () => clearInterval(timer);
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
+
+  // Global background polling for vendor conversations and requests every 4.5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      API.get('/conversations')
+        .then(res => setConversations(res.data || []))
+        .catch(() => {});
+      API.get('/friends/requests/pending')
+        .then(res => setPendingRequests(res.data || []))
+        .catch(() => {});
+    }, 4500);
+    return () => clearInterval(interval);
+  }, []);
 
   // Record status views
   useEffect(() => {
@@ -479,16 +547,36 @@ export default function VendorDashboard() {
     }
   };
 
-  const handleReplyToStatus = async (recipientId) => {
-    if (!statusReplyText.trim()) return;
+  const handleReplyToStatus = async (recipientId, customText = null, emoji = null) => {
+    const textToSend = typeof customText === 'string' ? customText : statusReplyText;
+    if (!emoji && !textToSend.trim()) return;
+    if (!activeStatusViewer) return;
+    const group = statusGroups[activeStatusViewer.userIdx];
+    if (!group) return;
+    const currentItem = group.items?.[activeStatusViewer.itemIdx] || group.items?.[0];
+
+    const payload = {
+      type: 'status_reply',
+      reply_text: emoji ? '' : textToSend.trim(),
+      reaction: emoji || null,
+      status_id: currentItem?.id,
+      status_media_type: currentItem?.media_type || (currentItem?.media_url ? 'image' : 'text'),
+      status_media_url: currentItem?.media_url || null,
+      status_caption: currentItem?.caption || '',
+      status_bg: currentItem?.background_color || null,
+      author_name: group.user_name || 'Story'
+    };
+
     try {
       await API.post('/messages', {
         recipient_id: recipientId,
-        content: `Replying to your story: "${statusReplyText.trim()}"`
+        content: JSON.stringify(payload),
+        message_type: 'status_reply',
+        media_url: currentItem?.media_url || null
       });
       setStatusReplyText('');
       setActiveStatusViewer(null);
-      setFeedbackMsg({ type: 'success', text: 'Reply sent to chat!' });
+      setFeedbackMsg({ type: 'success', text: emoji ? `Sent ${emoji} reaction!` : 'Reply sent to chat!' });
       
       // Open that chat
       const partner = communityUsers.find(u => (u.user_id === recipientId || u.id === recipientId));
@@ -498,6 +586,7 @@ export default function VendorDashboard() {
       }
       setActiveTab('messages');
       setMessageSubtab('chats');
+      API.get('/conversations').then(res => setConversations(res.data || [])).catch(() => {});
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to send reply.');
     }
@@ -1195,9 +1284,9 @@ export default function VendorDashboard() {
             >
               <MessageSquare className="w-4 h-4" />
               <span>Chats & Stories</span>
-              {pendingRequests.length > 0 && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                  {pendingRequests.length}
+              {(totalUnreadChatCount > 0 || pendingRequests.length > 0) && (
+                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs animate-pulse">
+                  {totalUnreadChatCount > 0 ? totalUnreadChatCount : pendingRequests.length}
                 </span>
               )}
             </button>
@@ -1670,6 +1759,11 @@ export default function VendorDashboard() {
                 >
                   <MessageSquare className="w-3.5 h-3.5" />
                   <span>Customer Inquiries</span>
+                  {totalUnreadChatCount > 0 && (
+                    <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black shadow-xs animate-pulse">
+                      {totalUnreadChatCount}
+                    </span>
+                  )}
                 </button>
 
                 <button
@@ -1709,11 +1803,11 @@ export default function VendorDashboard() {
               </div>
             </div>
 
-            {/* WHATSAPP-STYLE CAMPUS STATUS STORIES RAIL (Visible at the top of Chats) */}
+            {/* CAMPUS STATUS STORIES RAIL (Visible at the top of Chats) */}
             <div className={`p-4 bg-white border border-slate-200 rounded-3xl shadow-xs ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:block' : 'block'}`}>
               <div className="flex items-center justify-between mb-3 px-1">
                 <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                  <Sparkles className="w-3.5 h-3.5 text-sky-500" />
                   <span>Campus Stories & Status Updates</span>
                 </span>
                 <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} campus updates</span>
@@ -1725,7 +1819,7 @@ export default function VendorDashboard() {
                   onClick={() => setCreateStatusModalOpen(true)}
                   className="flex flex-col items-center shrink-0 cursor-pointer group"
                 >
-                  <div className="relative w-14 h-14 rounded-full p-0.5 border-2 border-dashed border-emerald-400 group-hover:border-emerald-600 transition-all flex items-center justify-center bg-slate-50 overflow-visible">
+                  <div className="relative w-14 h-14 rounded-full p-0.5 border-2 border-dashed border-sky-400 group-hover:border-sky-600 transition-all flex items-center justify-center bg-slate-50 overflow-visible">
                     {user?.profile_picture_url || vendorStore?.logo ? (
                       <SafeImage
                         src={user?.profile_picture_url || vendorStore?.logo}
@@ -1734,11 +1828,11 @@ export default function VendorDashboard() {
                         className="w-full h-full rounded-full object-cover"
                       />
                     ) : (
-                      <div className="w-full h-full rounded-full bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center text-sm">
+                      <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
                         {user?.full_name?.charAt(0) || 'V'}
                       </div>
                     )}
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-500 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs">
                       <Plus className="w-3 h-3 stroke-[3]" />
                     </div>
                   </div>
@@ -1782,7 +1876,14 @@ export default function VendorDashboard() {
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                   <div className="p-3.5 border-b border-slate-100 flex items-center justify-between font-bold text-xs text-slate-800">
-                    <span>Recent Customer Chats</span>
+                    <div className="flex items-center space-x-2">
+                      <span>Recent Customer Chats</span>
+                      {totalUnreadChatCount > 0 && (
+                        <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs animate-pulse">
+                          {totalUnreadChatCount} new
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full font-bold">
                       {conversations.length} Active
                     </span>
@@ -1854,7 +1955,7 @@ export default function VendorDashboard() {
                               handleOpenProfile(c.partner_id || c.user_id);
                             }}
                             title="View Profile"
-                            className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm hover:ring-2 hover:ring-sky-500 transition-all overflow-hidden"
+                            className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm hover:ring-2 hover:ring-sky-500 transition-all overflow-hidden relative"
                           >
                             {c.partner_avatar ? (
                               <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
@@ -1865,11 +1966,27 @@ export default function VendorDashboard() {
                           <div className="flex-1 overflow-hidden">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                              <span className="text-[10px] text-slate-400 shrink-0">
-                                {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
-                              </span>
+                              <div className="flex items-center space-x-1.5 shrink-0">
+                                {c.unread_count > 0 && (
+                                  <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
+                                    {c.unread_count}
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400">
+                                  {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
+                                </span>
+                              </div>
                             </div>
-                            <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message || 'Inquired about product...'}</p>
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {(() => {
+                                if (!c.last_message) return 'Inquired about product...';
+                                if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
+                                  const parsed = parseStatusReply(c.last_message);
+                                  return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
+                                }
+                                return c.last_message;
+                              })()}
+                            </p>
                           </div>
                         </button>
                       ))
@@ -2040,10 +2157,15 @@ export default function VendorDashboard() {
                             <button
                               type="button"
                               onClick={() => setSelectedPartner(null)}
-                              className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg shrink-0 cursor-pointer"
+                              className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg shrink-0 cursor-pointer relative"
                               title="Back to conversation list"
                             >
                               <ChevronLeft className="w-5 h-5" />
+                              {otherUnreadChatCount > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                                  {otherUnreadChatCount}
+                                </span>
+                              )}
                             </button>
                             <div
                               onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
@@ -2090,11 +2212,28 @@ export default function VendorDashboard() {
                           </div>
                         </div>
 
+                        {/* Cross-Profile Unread Indicator */}
+                        {otherUnreadChatCount > 0 && (
+                          <div
+                            onClick={() => setSelectedPartner(null)}
+                            className="bg-sky-50 hover:bg-sky-100 border-b border-sky-200 px-3 py-1.5 text-xs text-sky-800 flex items-center justify-between cursor-pointer transition-colors"
+                          >
+                            <span className="font-semibold flex items-center space-x-1.5">
+                              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                              <span>You have <strong>{otherUnreadChatCount}</strong> unread message{otherUnreadChatCount > 1 ? 's' : ''} in other chats</span>
+                            </span>
+                            <span className="text-[11px] font-bold text-sky-600 underline">View all</span>
+                          </div>
+                        )}
+
                         {/* Chat Messages */}
                         <div className="flex-1 p-4 overflow-y-auto space-y-3">
                           {chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
                               const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+                              const isStatusReply = msg.message_type === 'status_reply' || (typeof msg.content === 'string' && (msg.content.includes('"type":"status_reply"') || msg.content.startsWith('Replying to') || msg.content.startsWith('Reacted ')));
+                              const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
+
                               return (
                                 <div
                                   key={msg.id || idx}
@@ -2107,7 +2246,11 @@ export default function VendorDashboard() {
                                         : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
                                     }`}
                                   >
-                                    <p>{msg.content || msg.text}</p>
+                                    {isStatusReply ? (
+                                      <StoryReplyBubble statusData={statusData} isMine={isMine} />
+                                    ) : (
+                                      <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
+                                    )}
                                     <span className={`block text-[9px] mt-1 text-right ${isMine ? 'text-sky-100' : 'text-slate-400'}`}>
                                       {safeTime(msg.created_at, 'Now')}
                                     </span>
@@ -2289,6 +2432,11 @@ export default function VendorDashboard() {
                               >
                                 <MessageSquare className="w-3 h-3" />
                                 <span>Chat</span>
+                                {getUnreadCountForUser(uid) > 0 && (
+                                  <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
+                                    {getUnreadCountForUser(uid)}
+                                  </span>
+                                )}
                               </button>
                             ) : isSent ? (
                               <span className="px-2.5 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-xl">
@@ -2427,6 +2575,11 @@ export default function VendorDashboard() {
                             >
                               <MessageSquare className="w-3 h-3" />
                               <span>Chat</span>
+                              {getUnreadCountForUser(fid) > 0 && (
+                                <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
+                                  {getUnreadCountForUser(fid)}
+                                </span>
+                              )}
                             </button>
                             <button
                               onClick={() => handleRemoveFriend(fid)}
@@ -3595,9 +3748,9 @@ export default function VendorDashboard() {
           >
             <div className="relative">
               <MessageSquare className={`w-5 h-5 shrink-0 ${activeTab === 'messages' && !selectedPartner?.is_ai ? 'stroke-[2.5]' : 'stroke-2'}`} />
-              {pendingRequests.length > 0 && (
-                <span className="absolute -top-1 -right-1.5 bg-rose-500 text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
-                  {pendingRequests.length}
+              {(totalUnreadChatCount > 0 || pendingRequests.length > 0) && (
+                <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                  {totalUnreadChatCount > 0 ? totalUnreadChatCount : pendingRequests.length}
                 </span>
               )}
             </div>
@@ -3668,7 +3821,14 @@ export default function VendorDashboard() {
               </div>
 
               {/* Full Name & Role */}
-              <h3 className="text-lg font-black text-slate-900">{selectedProfile.full_name}</h3>
+              <div className="flex items-center justify-center space-x-2">
+                <h3 className="text-lg font-black text-slate-900">{selectedProfile.full_name}</h3>
+                {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-xs font-black shadow-xs animate-pulse">
+                    {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new
+                  </span>
+                )}
+              </div>
               <div className="flex items-center justify-center space-x-2 mt-1">
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
                   {selectedProfile.role === 'vendor' ? '🏪 Campus Merchant' : '🎓 Student'}
@@ -3773,6 +3933,11 @@ export default function VendorDashboard() {
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span>Chat Now</span>
+                  {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                    <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
+                      {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
+                    </span>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -3977,25 +4142,41 @@ export default function VendorDashboard() {
                       )}
 
                       {!group.is_self && (
-                        <div className="flex items-center space-x-2 pt-1">
-                          <input
-                            type="text"
-                            placeholder={`Reply to ${group.user_name.split(' ')[0]}...`}
-                            value={statusReplyText}
-                            onChange={(e) => setStatusReplyText(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleReplyToStatus(group.user_id);
-                              }
-                            }}
-                            className="flex-1 p-2.5 rounded-full bg-white/20 border border-white/30 text-white text-xs placeholder-white/60 focus:outline-none focus:bg-white/30"
-                          />
-                          <button
-                            onClick={() => handleReplyToStatus(group.user_id)}
-                            className="p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full cursor-pointer transition-colors"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
+                        <div className="space-y-2 pt-1">
+                          {/* Quick Emoji Reactions */}
+                          <div className="flex items-center justify-around px-2 py-1 bg-black/40 rounded-full backdrop-blur-xs">
+                            {['❤️', '🔥', '👏', '😂', '😮', '🙌'].map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => handleReplyToStatus(group.user_id, null, emoji)}
+                                className="text-xl hover:scale-130 active:scale-90 transition-transform cursor-pointer"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="text"
+                              placeholder={`Reply to ${group.user_name.split(' ')[0]}...`}
+                              value={statusReplyText}
+                              onChange={(e) => setStatusReplyText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleReplyToStatus(group.user_id);
+                                }
+                              }}
+                              className="flex-1 p-2.5 rounded-full bg-white/20 border border-white/30 text-white text-xs placeholder-white/60 focus:outline-none focus:bg-white/30"
+                            />
+                            <button
+                              onClick={() => handleReplyToStatus(group.user_id)}
+                              className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-full cursor-pointer transition-colors shadow-xs"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

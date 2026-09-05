@@ -2606,13 +2606,27 @@ def send_message(
     db.commit()
     db.refresh(new_msg)
 
+    notif_title = f"Message from {current_user.full_name}"
+    notif_body = f"{current_user.full_name}: {new_msg.content[:60] if new_msg.content else 'Sent an attachment'}"
+    if new_msg.message_type == "status_reply":
+        notif_title = f"Story reply from {current_user.full_name}"
+        try:
+            p_data = json.loads(new_msg.content)
+            if p_data.get("reaction"):
+                notif_body = f"{current_user.full_name} reacted {p_data.get('reaction')} to your story"
+            else:
+                rep_snippet = (p_data.get('reply_text') or '')[:50]
+                notif_body = f"{current_user.full_name} replied to your story: \"{rep_snippet}\""
+        except Exception:
+            notif_body = f"{current_user.full_name} replied to your story"
+
     create_notification(
         db=db,
         user_id=recipient.user_id,
         actor_id=current_user.user_id,
         notification_type="message",
-        title=f"Message from {current_user.full_name}",
-        message=f"{current_user.full_name}: {new_msg.content[:60] if new_msg.content else 'Sent an attachment'}",
+        title=notif_title,
+        message=notif_body,
         reference_id=current_user.user_id
     )
 
@@ -2673,6 +2687,16 @@ def get_conversations_list(
                 preview = "📷 Photo"
             elif m.message_type == "video":
                 preview = "🎥 Video"
+            elif m.message_type == "status_reply":
+                try:
+                    p_data = json.loads(m.content)
+                    if p_data.get("reaction"):
+                        preview = f"Reacted {p_data.get('reaction')} to story"
+                    else:
+                        rep_text = p_data.get('reply_text', '')
+                        preview = f"💬 Story reply: \"{rep_text}\"" if rep_text else "💬 Story reply"
+                except Exception:
+                    preview = "💬 Replied to story"
 
             conv_map[partner_id] = {
                 "partner_id": partner_id,
