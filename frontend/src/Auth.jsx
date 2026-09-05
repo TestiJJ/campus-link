@@ -768,41 +768,22 @@ export default function Auth() {
               </div>
 
               <h3 className="text-xl font-black text-slate-900 tracking-tight">Verify Your Email</h3>
-              <p className="text-xs text-slate-500 mt-1 mb-3 leading-relaxed">
-                We sent a 6-digit verification code to <strong className="text-slate-800">{pendingEmail}</strong>.
+              <p className="text-xs text-slate-500 mt-1 mb-5 leading-relaxed">
+                We sent a 6-digit verification code to <strong className="text-slate-800">{pendingEmail}</strong>. Please check your inbox or spam folder.
               </p>
-
-              {/* Instant Verification Fallback Notice */}
-              <div className="bg-sky-50/90 border border-sky-200 rounded-2xl p-3 mb-4 text-xs text-sky-900 flex items-start space-x-2.5">
-                <Sparkles className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                <div className="text-[11px] leading-relaxed">
-                  <span className="font-bold block text-sky-950">Instant Verification Active:</span>
-                  If email delivery is delayed by spam filters or your network, use instant code <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-sky-300 font-black text-sky-700">123456</strong>.
-                </div>
-              </div>
 
               <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase">
-                      6-Digit Verification Code
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode('123456')}
-                      className="text-[11px] font-bold text-sky-600 hover:text-sky-800 cursor-pointer flex items-center space-x-1"
-                    >
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      <span>Use 123456</span>
-                    </button>
-                  </div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">
+                    6-Digit Verification Code
+                  </label>
                   <input
                     type="text"
                     required
                     maxLength={6}
-                    placeholder="123456"
+                    placeholder="Enter 6-digit code"
                     value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
                     className="w-full text-center tracking-widest text-lg font-black p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"
                   />
                 </div>

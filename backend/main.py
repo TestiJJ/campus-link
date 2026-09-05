@@ -191,6 +191,28 @@ def send_otp_email(to_email: str, otp_code: str):
 
     print(f"[CAMPUSLINK OTP for {to_email}]: {otp_code}")
 
+    # 0. Check if Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com) is configured
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK")
+    if google_webhook:
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "to": to_email,
+                "subject": subject,
+                "body": body
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                google_webhook.strip(),
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "CampusLink/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as res:
+                if res.status in (200, 201, 302):
+                    print(f"[CAMPUSLINK] OTP successfully sent via Google Gmail Webhook to {to_email}")
+                    return True
+        except Exception as e_google:
+            print(f"[CAMPUSLINK] Google Gmail Webhook warning: {e_google}")
+
     # 1. Check if Resend HTTP API is configured (HTTPS port 443 - bypasses all cloud SMTP port blocks on Render)
     resend_key = os.getenv("RESEND_API_KEY")
     if resend_key:
@@ -365,13 +387,13 @@ def verify_email(payload: schemas.VerifyEmailSchema, db: Session = Depends(datab
     if user.is_email_verified:
         return {"message": "Email is already verified."}
 
-    # Accept actual OTP or dev master code '123456'
-    if payload.code != "123456" and user.verification_code != payload.code:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+    # Strictly verify user's actual generated OTP code
+    if not user.verification_code or user.verification_code != payload.code.strip():
+        raise HTTPException(status_code=400, detail="Invalid verification code. Please check your email and try again.")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if payload.code != "123456" and user.code_expires_at and user.code_expires_at < now:
-        raise HTTPException(status_code=400, detail="Verification code has expired.")
+    if user.code_expires_at and user.code_expires_at < now:
+        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new code.")
 
     user.is_email_verified = True
     user.verification_code = None
@@ -397,8 +419,7 @@ def resend_otp(payload: schemas.ResendOTPSchema, background_tasks: BackgroundTas
 
     background_tasks.add_task(send_otp_email, user.email, otp)
     return {
-        "message": "A verification code has been dispatched. (Instant test fallback: 123456)",
-        "demo_code": "123456"
+        "message": "A fresh verification code has been dispatched to your email."
     }
 
 @app.post("/api/login", response_model=schemas.Token)
