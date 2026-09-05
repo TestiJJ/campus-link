@@ -15,8 +15,10 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 import models, schemas, auth, database
 
-models.Base.metadata.create_all(bind=database.engine)
-
+try:
+    models.Base.metadata.create_all(bind=database.engine)
+except Exception as _db_err:
+    print(f"[CampusLink] Database init notice: {_db_err}")
 # Auto-seed institutions and marketplace categories on server initialization
 try:
     import seed_universities
@@ -78,19 +80,8 @@ if os.path.exists(EATERIES_DIR):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://campus-link-dzjz.onrender.com",
-    ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$|^https://.*\.onrender\.com$|^https://.*\.vercel\.app$",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
