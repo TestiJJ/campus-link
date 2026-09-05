@@ -550,6 +550,56 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     }
 
 
+# --- PRESENCE / ONLINE STATUS ENDPOINTS ---
+
+def get_current_user_for_presence(token: str, db: Session) -> models.User:
+    """Lightweight token resolution used by presence endpoints."""
+    from auth import verify_token
+    payload = verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user = db.query(models.User).filter(models.User.user_id == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
+
+
+@app.post("/api/presence/heartbeat")
+def presence_heartbeat(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Called by the frontend every 30 s to keep the user marked as online.
+    Also passively marks users whose last_seen is > 2 min ago as offline.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    current_user.is_online = True
+    current_user.last_seen = now
+    # Passive cleanup: mark stale users as offline (last_seen > 2 min ago)
+    stale_cutoff = now - timedelta(minutes=2)
+    db.query(models.User).filter(
+        models.User.is_online == True,
+        models.User.last_seen < stale_cutoff,
+        models.User.user_id != current_user.user_id
+    ).update({"is_online": False}, synchronize_session=False)
+    db.commit()
+    return {"status": "online", "last_seen": now.isoformat()}
+
+
+@app.post("/api/presence/offline")
+def presence_offline(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Called when the user closes the tab or hides the app."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    current_user.is_online = False
+    current_user.last_seen = now
+    db.commit()
+    return {"status": "offline", "last_seen": now.isoformat()}
+
+
 # --- AUTH & USER ENDPOINTS ---
 
 @app.post("/api/register", response_model=schemas.UserRegistrationOut, status_code=status.HTTP_201_CREATED)
@@ -2994,7 +3044,10 @@ def get_conversations_list(
                 "last_message": preview,
                 "last_message_type": m.message_type or "text",
                 "last_timestamp": m.created_at,
-                "unread_count": 0
+                "unread_count": 0,
+                # Presence fields — real-time online/offline status
+                "is_online": partner.is_online if partner else False,
+                "last_seen": partner.last_seen.isoformat() if partner and partner.last_seen else None,
             }
         if m.recipient_id == user_id and not m.is_read:
             conv_map[partner_id]["unread_count"] += 1

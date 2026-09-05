@@ -56,6 +56,8 @@ class UserOut(UserBase):
     user_id: str
     matric_number: Optional[str] = None
     is_email_verified: bool
+    is_online: Optional[bool] = False
+    last_seen: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     class Config:

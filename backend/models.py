@@ -41,6 +41,10 @@ class User(Base):
     profile_picture_url = Column(String(550), nullable=True)
     bio = Column(Text, nullable=True)
     
+    # Online presence & activity tracking
+    is_online = Column(Boolean, default=False, nullable=True)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=True)
+
     # Email OTP Verification fields
     is_email_verified = Column(Boolean, default=False)
     verification_code = Column(String(6), nullable=True)

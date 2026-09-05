@@ -72,6 +72,27 @@ const safeDate = (dateStr, fallback = 'Recent') => {
   }
 };
 
+// Presence: format last seen or active now
+const formatLastSeen = (lastSeenIso, isOnline) => {
+  if (isOnline) return { label: 'Active now', online: true };
+  if (!lastSeenIso) return { label: 'Last seen recently', online: false };
+  try {
+    const then = new Date(lastSeenIso.includes('T') ? lastSeenIso : lastSeenIso.replace(' ', 'T'));
+    if (isNaN(then.getTime())) return { label: 'Last seen recently', online: false };
+    const diffMs = Date.now() - then.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr  = Math.floor(diffMs / 3600000);
+    if (diffMin < 1)  return { label: 'Last seen just now', online: false };
+    if (diffMin < 60) return { label: `Last seen ${diffMin}m ago`, online: false };
+    if (diffHr  < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
+    if (diffHr  < 48) return { label: 'Last seen yesterday', online: false };
+    const opts = { day: 'numeric', month: 'short' };
+    return { label: `Last seen ${then.toLocaleDateString([], opts)}`, online: false };
+  } catch {
+    return { label: 'Last seen recently', online: false };
+  }
+};
+
 // URL and localStorage tab persistence
 const getInitialStudentTab = () => {
   try {
@@ -247,6 +268,48 @@ export default function StudentDashboard() {
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
+
+  // --- PRESENCE HEARTBEAT ---
+  // Sends a heartbeat every 30 s so the backend knows we are online.
+  // Also fires an offline signal when the tab is hidden or closed.
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const sendHeartbeat = () => {
+      API.post('/presence/heartbeat').catch(() => {});
+    };
+    const sendOffline = () => {
+      // fetch with keepalive:true survives page unload and supports Bearer auth
+      const baseUrl = (API.defaults.baseURL || '').replace(/\/api$/, '');
+      const offlineUrl = `${baseUrl}/api/presence/offline`;
+      fetch(offlineUrl, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      }).catch(() => {});
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') sendOffline();
+      else sendHeartbeat();
+    };
+
+    sendHeartbeat(); // mark online immediately on mount
+    const interval = setInterval(sendHeartbeat, 30000);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', sendOffline);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', sendOffline);
+      sendOffline(); // mark offline on component unmount (logout)
+    };
+  }, []);
 
   // Chat auto-scroll helpers: Instant on open, smooth on new message
   const scrollToChatBottom = (instant = true) => {
@@ -3326,6 +3389,8 @@ export default function StudentDashboard() {
                                   {c.partner_name?.charAt(0) || 'U'}
                                 </div>
                               )}
+                              {/* Online presence dot */}
+                              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                               {c.unread_count > 0 && (
                                 <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
                                   {c.unread_count}
@@ -3557,8 +3622,15 @@ export default function StudentDashboard() {
                                   </span>
                                 </div>
                                 <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
-                                  <span>Online • Active now</span>
+                                  {(() => {
+                                    const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
+                                    return (
+                                      <>
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 inline-block ${presence.online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                        <span>{presence.label}</span>
+                                      </>
+                                    );
+                                  })()}
                                 </p>
                               </div>
                             </div>

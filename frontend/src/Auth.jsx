@@ -64,7 +64,7 @@ export default function Auth() {
   const [otpCode, setOtpCode] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
-  const [devOtpHint, setDevOtpHint] = useState('');
+
 
   // Alert & Feedback Messages
   const [errorMessage, setErrorMessage] = useState('');
@@ -231,11 +231,6 @@ export default function Auth() {
       } else {
         localStorage.setItem('campuslink_new_signup_pending', 'true');
         setPendingEmail(formData.email.trim());
-        if (data.dev_code) {
-          setDevOtpHint(data.dev_code);
-        } else {
-          setDevOtpHint('');
-        }
         setShowOtpModal(true);
         setResendCooldown(60);
       }
@@ -299,9 +294,6 @@ export default function Auth() {
         throw new Error(data.detail || 'Failed to resend verification code.');
       }
 
-      if (data.dev_code) {
-        setDevOtpHint(data.dev_code);
-      }
       setResendCooldown(60);
       setOtpSuccessMessage(data.message || 'A fresh verification code has been sent to your email.');
     } catch (err) {
@@ -788,23 +780,7 @@ export default function Auth() {
                 We sent a 6-digit verification code to <strong className="text-slate-800">{pendingEmail}</strong>. Please check your inbox or spam folder.
               </p>
 
-              {devOtpHint && (
-                <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3 mb-4 text-xs text-sky-900 flex items-start justify-between space-x-2">
-                  <div>
-                    <span className="font-bold block text-sky-950">Instant Code Active:</span>
-                    <span className="text-[11px] text-sky-800 leading-tight">
-                      Your verification code is <strong className="font-mono bg-white px-1.5 py-0.5 rounded border border-sky-300 font-black text-sky-700">{devOtpHint}</strong>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setOtpCode(devOtpHint)}
-                    className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-[10px] font-bold shrink-0 cursor-pointer"
-                  >
-                    Auto-fill
-                  </button>
-                </div>
-              )}
+
 
               <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div>
