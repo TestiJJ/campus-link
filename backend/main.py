@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
