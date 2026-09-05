@@ -14,12 +14,14 @@ services:
         generateValue: true
       - key: CLOUDINARY_URL
         sync: false
-      - key: RESEND_API_KEY
-        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 465
       - key: SMTP_EMAIL
         value: testimonyjokotoye65@gmail.com
       - key: SMTP_PASSWORD
-        value: ilon yrpn hlwa fdgs
+        value: pvytfgxjjcycacrj
       - key: DATABASE_URL
         value: postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:6543/postgres
 
