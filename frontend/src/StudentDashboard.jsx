@@ -14,9 +14,10 @@ import {
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark
 } from 'lucide-react';
-import API, { uploadFile, getMediaUrl } from './api';
+import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
+import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
 
 const renderCategoryIcon = (name) => {
   const n = (name || '').toLowerCase();
@@ -233,31 +234,221 @@ export default function StudentDashboard() {
   const [newMsgText, setNewMsgText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const [inAppBanner, setInAppBanner] = useState(null);
+  const selectedPartnerRef = useRef(null);
+  const activeTabRef = useRef(activeTab);
+  const isSwitchingPartnerRef = useRef(false);
+
+  useEffect(() => {
+    selectedPartnerRef.current = selectedPartner;
+  }, [selectedPartner]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
   // Chat auto-scroll helpers: Instant on open, smooth on new message
-  const scrollToChatBottom = (behavior = 'auto') => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior });
+  const scrollToChatBottom = (instant = true) => {
+    if (chatContainerRef.current) {
+      if (instant) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      } else {
+        try {
+          chatContainerRef.current.scrollTo({
+            top: chatContainerRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        } catch {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      }
     }
   };
 
+  // Instant snap to bottom on partner selection or messages update (shows most recent chat)
   useEffect(() => {
     if (selectedPartner) {
-      scrollToChatBottom('auto');
-      const t1 = setTimeout(() => scrollToChatBottom('auto'), 80);
-      const t2 = setTimeout(() => scrollToChatBottom('auto'), 250);
+      const snap = () => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      };
+      snap();
+      const r1 = requestAnimationFrame(snap);
+      const t1 = setTimeout(snap, 30);
+      const t2 = setTimeout(snap, 100);
+      const t3 = setTimeout(snap, 250);
+      const t4 = setTimeout(snap, 600);
+      const t5 = setTimeout(() => {
+        snap();
+        isSwitchingPartnerRef.current = false;
+      }, 1000);
       return () => {
+        cancelAnimationFrame(r1);
         clearTimeout(t1);
         clearTimeout(t2);
+        clearTimeout(t3);
+        clearTimeout(t4);
+        clearTimeout(t5);
       };
     }
+  }, [selectedPartner?.partner_id, chatMessages]);
+
+  // DOM observer to keep chat pinned to recent messages as photos/media elements load
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+
+    const observer = new MutationObserver(() => {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
+      if (isNearBottom || isSwitchingPartnerRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+
+    observer.observe(el, { childList: true, subtree: true, attributes: true });
+    return () => {
+      observer.disconnect();
+    };
   }, [selectedPartner?.partner_id]);
 
+  // Real-time WebSocket connection for instant chat delivery & floating banner alerts
   useEffect(() => {
-    if (chatMessages.length > 0) {
-      scrollToChatBottom('smooth');
+    if (!currentUser?.user_id) return;
+    let socket = null;
+    let pingInterval = null;
+    let isMounted = true;
+
+    const connectWs = () => {
+      try {
+        const wsUrl = getWsUrl(`/ws/${currentUser.user_id}`);
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          pingInterval = setInterval(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            }
+          }, 25000);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'new_message' && data.message) {
+              const newM = data.message;
+              const isFromMe = newM.sender_id === currentUser.user_id;
+
+              if (!isFromMe) {
+                const isCurrentChatOpen = selectedPartnerRef.current && 
+                  String(selectedPartnerRef.current.partner_id) === String(newM.sender_id) &&
+                  activeTabRef.current === 'messages';
+
+                if (isCurrentChatOpen) {
+                  setChatMessages(prev => {
+                    if (prev.some(m => m.id === newM.id)) return prev;
+                    return [...prev, newM];
+                  });
+                  setTimeout(() => scrollToChatBottom(false), 50);
+                } else {
+                  // Pop up in-app notification banner across Reels, Marketplace, etc.
+                  setInAppBanner({
+                    id: newM.id || Date.now(),
+                    senderId: newM.sender_id,
+                    senderName: data.sender_name || 'Campus Peer',
+                    senderAvatar: data.sender_avatar,
+                    senderRole: data.sender_role,
+                    text: newM.message_type === 'audio' ? '🎤 Voice note' : (newM.content || 'Sent a photo/video'),
+                    timestamp: Date.now()
+                  });
+                  playChatNotificationSound();
+
+                  // Immediately increment unread count in conversations state
+                  setConversations(prev => {
+                    const existing = prev.find(c => String(c.partner_id) === String(newM.sender_id));
+                    if (existing) {
+                      return prev.map(c => String(c.partner_id) === String(newM.sender_id) ? {
+                        ...c,
+                        unread_count: (c.unread_count || 0) + 1,
+                        last_message: newM.content || 'New message',
+                        last_timestamp: newM.created_at
+                      } : c);
+                    } else {
+                      return [{
+                        partner_id: newM.sender_id,
+                        partner_name: data.sender_name || 'Campus Peer',
+                        partner_avatar: data.sender_avatar,
+                        partner_role: data.sender_role || 'Student',
+                        is_friend: true,
+                        unread_count: 1,
+                        last_message: newM.content || 'New message',
+                        last_timestamp: newM.created_at
+                      }, ...prev];
+                    }
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error handling WS message:', err);
+          }
+        };
+
+        socket.onclose = () => {
+          clearInterval(pingInterval);
+          if (isMounted) {
+            setTimeout(connectWs, 4000);
+          }
+        };
+
+        socket.onerror = () => {
+          socket.close();
+        };
+      } catch (err) {
+        console.warn('WS setup notice:', err);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      isMounted = false;
+      clearInterval(pingInterval);
+      if (socket) socket.close();
+    };
+  }, [currentUser?.user_id]);
+
+  const handleReplyFromBanner = (senderId) => {
+    setInAppBanner(null);
+    setActiveTab('messages');
+    setMessageSubtab('chats');
+    setChatMessages([]);
+    isSwitchingPartnerRef.current = true;
+    const existing = conversations.find(c => String(c.partner_id) === String(senderId));
+    if (existing) {
+      setSelectedPartner(existing);
+    } else {
+      API.get(`/students`)
+        .then(res => {
+          const student = (res.data || []).find(s => String(s.user_id || s.id) === String(senderId));
+          if (student) {
+            setSelectedPartner({
+              partner_id: student.user_id || student.id,
+              partner_name: student.full_name,
+              partner_avatar: student.profile_picture_url,
+              partner_role: 'Student',
+              is_friend: true
+            });
+          } else {
+            setSelectedPartner({ partner_id: senderId, partner_name: 'Campus Peer' });
+          }
+        })
+        .catch(() => {
+          setSelectedPartner({ partner_id: senderId, partner_name: 'Campus Peer' });
+        });
     }
-  }, [chatMessages.length]);
+  };
 
   // Unread badge helpers across multi-profile views
   const getUnreadCountForUser = (userId) => {
@@ -272,6 +463,15 @@ export default function StudentDashboard() {
     if (selectedPartner && String(c.partner_id) === String(selectedPartner.partner_id)) return acc;
     return acc + (c.unread_count || 0);
   }, 0);
+
+  // WhatsApp-style browser tab title badge for unread chats
+  useEffect(() => {
+    const prefix = totalUnreadChatCount > 0 ? `(${totalUnreadChatCount}) ` : '';
+    document.title = `${prefix}CampusLink - Student Portal`;
+    return () => {
+      document.title = 'CampusLink - Student Portal';
+    };
+  }, [totalUnreadChatCount]);
 
   // Mobile back button / swipe gesture support (WhatsApp-style back navigation)
   useEffect(() => {
@@ -545,8 +745,8 @@ export default function StudentDashboard() {
       }
     }
 
-    // Real-time live polling for notifications, friend requests, and conversations every 4.5 seconds
-    const interval = setInterval(() => {
+    // Gentle background sync (WebSockets handle instant push; 12s heartbeat fallback)
+    const syncDashboard = () => {
       fetchNotifications();
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
@@ -554,9 +754,15 @@ export default function StudentDashboard() {
       API.get('/conversations')
         .then(res => setConversations(res.data || []))
         .catch(() => {});
-    }, 4500);
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(syncDashboard, 12000);
+    window.addEventListener('focus', syncDashboard);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', syncDashboard);
+    };
   }, [navigate]);
 
   // Reload Social Data (Friends & Requests)
@@ -582,10 +788,17 @@ export default function StudentDashboard() {
     if (!partnerId) return;
     try {
       const res = await API.get(`/messages/${partnerId}`);
-      setChatMessages(res.data || []);
+      const msgs = res.data || [];
+      setChatMessages(msgs);
       setConversations(prev =>
         prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
       );
+      // Instant snap to bottom to guarantee recent message visibility
+      requestAnimationFrame(() => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      });
     } catch (err) {
       console.error('Error loading chat messages:', err);
     }
@@ -596,10 +809,10 @@ export default function StudentDashboard() {
     if (selectedPartner.is_ai) return;
     fetchMessagesForPartner(selectedPartner.partner_id);
 
-    // Auto-poll every 3 seconds while chat window is active
+    // Fallback sync every 10 seconds while chat window is active (WebSockets handle instant push)
     const pollTimer = setInterval(() => {
       fetchMessagesForPartner(selectedPartner.partner_id);
-    }, 3000);
+    }, 10000);
 
     return () => clearInterval(pollTimer);
   }, [selectedPartner?.partner_id]);
@@ -1167,6 +1380,8 @@ export default function StudentDashboard() {
       department: student.department,
       level: student.level
     };
+    setChatMessages([]);
+    isSwitchingPartnerRef.current = true;
     setSelectedPartner(partner);
     setActiveTab('messages');
     setMessageSubtab('chats');
@@ -1183,6 +1398,8 @@ export default function StudentDashboard() {
       partner_role: 'Vendor',
       location: productOrService.vendor_location || productOrService.location
     };
+    setChatMessages([]);
+    isSwitchingPartnerRef.current = true;
     setSelectedPartner(partner);
     setActiveTab('messages');
     setMessageSubtab('chats');
@@ -1538,6 +1755,12 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
+      {/* Floating In-App Chat Notification Alert */}
+      <InAppChatBanner
+        banner={inAppBanner}
+        onReply={handleReplyFromBanner}
+        onDismiss={() => setInAppBanner(null)}
+      />
       
       {/* Desktop Sidebar Navigation (Hidden on small screens) */}
       <aside className="hidden md:flex flex-col md:w-64 bg-white border-r border-slate-200 p-5 justify-between shrink-0 shadow-xs">
@@ -3084,6 +3307,10 @@ export default function StudentDashboard() {
                           <button
                             key={c.partner_id}
                             onClick={() => {
+                              if (selectedPartner?.partner_id !== c.partner_id) {
+                                setChatMessages([]);
+                              }
+                              isSwitchingPartnerRef.current = true;
                               setSelectedPartner(c);
                               fetchMessagesForPartner(c.partner_id);
                             }}
@@ -3133,7 +3360,7 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Right Column: Live Chat Window */}
-                  <div className={`flex-1 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                  <div className={`flex-1 min-h-0 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                     {selectedPartner ? (
                       selectedPartner.is_ai ? (
                         <>
@@ -3380,7 +3607,7 @@ export default function StudentDashboard() {
                           )}
 
                           {/* Chat Messages */}
-                          <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-3">
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3">
                           {chatMessages.length > 0 ? (
                             chatMessages.map((msg) => (
                               <div

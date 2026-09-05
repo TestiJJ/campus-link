@@ -103,5 +103,25 @@ if (typeof window !== 'undefined') {
   setTimeout(warmUpBackend, 50);
 }
 
+export const getWsUrl = (path = '') => {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  
+  if (isLocal) {
+    return `ws://127.0.0.1:8000${cleanPath}`;
+  }
+  
+  const root = (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL)
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '');
+  
+  const wsRoot = root.startsWith('https://')
+    ? root.replace('https://', 'wss://')
+    : root.replace('http://', 'ws://');
+    
+  return `${wsRoot}${cleanPath}`;
+};
+
 export default API;
 

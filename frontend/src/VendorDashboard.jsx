@@ -12,9 +12,10 @@ import {
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone
 } from 'lucide-react';
-import API, { uploadFile, getMediaUrl } from './api';
+import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
+import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
 
 
 // Stale-While-Revalidate Caching Utilities for Vendor
@@ -310,30 +311,210 @@ export default function VendorDashboard() {
     };
   }, [selectedPartner]);
 
+  const chatContainerRef = useRef(null);
+  const [inAppBanner, setInAppBanner] = useState(null);
+  const selectedPartnerRef = useRef(null);
+  const activeTabRef = useRef(activeTab);
+
+  const isSwitchingPartnerRef = useRef(false);
+
+  useEffect(() => {
+    selectedPartnerRef.current = selectedPartner;
+  }, [selectedPartner]);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
   // Chat auto-scroll helpers: Instant on open, smooth on new message
-  const scrollToChatBottom = (behavior = 'auto') => {
-    if (chatBottomRef.current) {
-      chatBottomRef.current.scrollIntoView({ behavior });
+  const scrollToChatBottom = (instant = true) => {
+    if (chatContainerRef.current) {
+      if (instant) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      } else {
+        try {
+          chatContainerRef.current.scrollTo({
+            top: chatContainerRef.current.scrollHeight,
+            behavior: 'smooth'
+          });
+        } catch {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      }
     }
   };
 
+  // Instant snap to bottom on partner selection or messages update (shows most recent chat)
   useEffect(() => {
     if (selectedPartner) {
-      scrollToChatBottom('auto');
-      const t1 = setTimeout(() => scrollToChatBottom('auto'), 80);
-      const t2 = setTimeout(() => scrollToChatBottom('auto'), 250);
+      const snap = () => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      };
+      snap();
+      const r1 = requestAnimationFrame(snap);
+      const t1 = setTimeout(snap, 30);
+      const t2 = setTimeout(snap, 100);
+      const t3 = setTimeout(snap, 250);
+      const t4 = setTimeout(snap, 600);
+      const t5 = setTimeout(() => {
+        snap();
+        isSwitchingPartnerRef.current = false;
+      }, 1000);
       return () => {
+        cancelAnimationFrame(r1);
         clearTimeout(t1);
         clearTimeout(t2);
+        clearTimeout(t3);
+        clearTimeout(t4);
+        clearTimeout(t5);
       };
     }
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, chatMessages]);
+
+  // DOM observer to keep chat pinned to recent messages as media elements load
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+
+    const observer = new MutationObserver(() => {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
+      if (isNearBottom || isSwitchingPartnerRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+
+    observer.observe(el, { childList: true, subtree: true, attributes: true });
+    return () => {
+      observer.disconnect();
+    };
   }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
 
+  // Real-time WebSocket connection for vendor instant chat delivery & floating banner alerts
   useEffect(() => {
-    if (chatMessages.length > 0) {
-      scrollToChatBottom('smooth');
+    const uid = user?.user_id || user?.id;
+    if (!uid) return;
+    let socket = null;
+    let pingInterval = null;
+    let isMounted = true;
+
+    const connectWs = () => {
+      try {
+        const wsUrl = getWsUrl(`/ws/${uid}`);
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+          pingInterval = setInterval(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            }
+          }, 25000);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'new_message' && data.message) {
+              const newM = data.message;
+              const isFromMe = (newM.sender_id === uid);
+
+              if (!isFromMe) {
+                const currentPid = selectedPartnerRef.current?.partner_id || selectedPartnerRef.current?.user_id || selectedPartnerRef.current?.id;
+                const isCurrentChatOpen = currentPid && 
+                  String(currentPid) === String(newM.sender_id) &&
+                  activeTabRef.current === 'messages';
+
+                if (isCurrentChatOpen) {
+                  setChatMessages(prev => {
+                    if (prev.some(m => m.id === newM.id)) return prev;
+                    return [...prev, newM];
+                  });
+                  setTimeout(() => scrollToChatBottom(false), 50);
+                } else {
+                  // Pop up in-app notification banner across Reels, Store, etc.
+                  setInAppBanner({
+                    id: newM.id || Date.now(),
+                    senderId: newM.sender_id,
+                    senderName: data.sender_name || 'Campus Student',
+                    senderAvatar: data.sender_avatar,
+                    senderRole: data.sender_role || 'Student',
+                    text: newM.message_type === 'audio' ? '🎤 Voice note' : (newM.content || 'Sent a message'),
+                    timestamp: Date.now()
+                  });
+                  playChatNotificationSound();
+
+                  // Immediately increment unread count in conversations state
+                  setConversations(prev => {
+                    const existing = prev.find(c => String(c.partner_id) === String(newM.sender_id));
+                    if (existing) {
+                      return prev.map(c => String(c.partner_id) === String(newM.sender_id) ? {
+                        ...c,
+                        unread_count: (c.unread_count || 0) + 1,
+                        last_message: newM.content || 'New message',
+                        last_timestamp: newM.created_at
+                      } : c);
+                    } else {
+                      return [{
+                        partner_id: newM.sender_id,
+                        partner_name: data.sender_name || 'Campus Student',
+                        partner_avatar: data.sender_avatar,
+                        partner_role: data.sender_role || 'Student',
+                        is_friend: true,
+                        unread_count: 1,
+                        last_message: newM.content || 'New message',
+                        last_timestamp: newM.created_at
+                      }, ...prev];
+                    }
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error handling WS message in vendor:', err);
+          }
+        };
+
+        socket.onclose = () => {
+          clearInterval(pingInterval);
+          if (isMounted) {
+            setTimeout(connectWs, 4000);
+          }
+        };
+
+        socket.onerror = () => {
+          socket.close();
+        };
+      } catch (err) {
+        console.warn('Vendor WS setup notice:', err);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      isMounted = false;
+      clearInterval(pingInterval);
+      if (socket) socket.close();
+    };
+  }, [user?.user_id, user?.id]);
+
+  const handleReplyFromBanner = (senderId) => {
+    setInAppBanner(null);
+    setActiveTab('messages');
+    setMessageSubtab('chats');
+    const existing = conversations.find(c => String(c.partner_id) === String(senderId));
+    if (existing) {
+      handleSelectPartner(existing);
+    } else {
+      const commUser = communityUsers.find(u => String(u.user_id || u.id) === String(senderId));
+      if (commUser) {
+        handleSelectPartner({ partner_id: senderId, partner_name: commUser.full_name, role: commUser.role });
+      } else {
+        handleSelectPartner({ partner_id: senderId, partner_name: 'Campus User' });
+      }
     }
-  }, [chatMessages.length]);
+  };
 
   // Unread badge helpers across multi-profile views
   const getUnreadCountForUser = (userId) => {
@@ -350,7 +531,16 @@ export default function VendorDashboard() {
     return acc + (c.unread_count || 0);
   }, 0);
 
-  // Active chat auto-polling every 3 seconds for vendor
+  // WhatsApp-style browser tab title badge for unread chats
+  useEffect(() => {
+    const prefix = totalUnreadChatCount > 0 ? `(${totalUnreadChatCount}) ` : '';
+    document.title = `${prefix}CampusLink - Merchant Hub`;
+    return () => {
+      document.title = 'CampusLink - Merchant Hub';
+    };
+  }, [totalUnreadChatCount]);
+
+  // Active chat fallback auto-polling every 10 seconds for vendor (WebSockets handle instant push)
   useEffect(() => {
     const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
     if (!pid || selectedPartner?.is_ai) return;
@@ -363,24 +553,36 @@ export default function VendorDashboard() {
         setConversations(prev =>
           prev.map(c => (String(c.partner_id) === String(pid) ? { ...c, unread_count: 0 } : c))
         );
+        requestAnimationFrame(() => {
+          if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+          }
+        });
       } catch {}
     };
 
-    const timer = setInterval(pollChat, 3000);
+    const timer = setInterval(pollChat, 10000);
     return () => clearInterval(timer);
   }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
 
-  // Global background polling for vendor conversations and requests every 4.5 seconds
+  // Gentle background sync for vendor conversations and requests (12s fallback + window focus)
   useEffect(() => {
-    const interval = setInterval(() => {
+    const syncVendorData = () => {
       API.get('/conversations')
         .then(res => setConversations(res.data || []))
         .catch(() => {});
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
         .catch(() => {});
-    }, 4500);
-    return () => clearInterval(interval);
+    };
+
+    const interval = setInterval(syncVendorData, 12000);
+    window.addEventListener('focus', syncVendorData);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', syncVendorData);
+    };
   }, []);
 
   // Record status views
@@ -716,11 +918,26 @@ export default function VendorDashboard() {
 
   // --- MESSAGING & CHAT ACTIONS ---
   const handleSelectPartner = async (partner) => {
+    const prevPid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
+    const newPid = partner?.partner_id || partner?.user_id || partner?.id;
+    if (String(prevPid) !== String(newPid)) {
+      setChatMessages([]);
+    }
+    isSwitchingPartnerRef.current = true;
     setSelectedPartner(partner);
     try {
-      const partnerId = partner.partner_id || partner.user_id || partner.id;
+      const partnerId = newPid;
       const res = await API.get(`/messages/${partnerId}`);
-      setChatMessages(Array.isArray(res.data) ? res.data : (res.data?.messages || []));
+      const list = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
+      setChatMessages(list);
+      setConversations(prev =>
+        prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
+      );
+      requestAnimationFrame(() => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      });
     } catch (err) {
       console.error('Failed to load partner messages:', err);
       setChatMessages([]);
@@ -1186,6 +1403,12 @@ export default function VendorDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
+      {/* Floating In-App Chat Notification Alert */}
+      <InAppChatBanner
+        banner={inAppBanner}
+        onReply={handleReplyFromBanner}
+        onDismiss={() => setInAppBanner(null)}
+      />
       
       {/* --- DESKTOP SIDEBAR (Visible md and up) --- */}
       <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs h-screen sticky top-0">
@@ -2007,7 +2230,7 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Chat Panel */}
-                <div className={`flex-1 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                <div className={`flex-1 min-h-0 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                   {selectedPartner ? (
                     selectedPartner.is_ai ? (
                       <>
@@ -2227,7 +2450,7 @@ export default function VendorDashboard() {
                         )}
 
                         {/* Chat Messages */}
-                        <div className="flex-1 p-4 overflow-y-auto space-y-3">
+                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3">
                           {chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
                               const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
@@ -4582,6 +4805,103 @@ export default function VendorDashboard() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* --- FACEBOOK/WHATSAPP-STYLE MOBILE BOTTOM NAVIGATION BAR FOR MERCHANTS --- */}
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
+        {/* Products */}
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+            activeTab === 'inventory'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+        >
+          <Package className={`w-5 h-5 ${activeTab === 'inventory' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <span className="text-[10px] tracking-tight mt-0.5">Catalog</span>
+          {activeTab === 'inventory' && (
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+          )}
+        </button>
+
+        {/* Orders */}
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+            activeTab === 'orders'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+        >
+          <div className="relative">
+            <ShoppingCart className={`w-5 h-5 ${activeTab === 'orders' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+            {pendingOrdersCount > 0 && (
+              <span className="absolute -top-1 -right-2 bg-amber-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs">
+                {pendingOrdersCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight mt-0.5">Orders</span>
+          {activeTab === 'orders' && (
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+          )}
+        </button>
+
+        {/* Chats & Stories */}
+        <button
+          onClick={() => setActiveTab('messages')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+            activeTab === 'messages'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+        >
+          <div className="relative">
+            <MessageSquare className={`w-5 h-5 ${activeTab === 'messages' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+            {(totalUnreadChatCount > 0 || (pendingRequests || []).length > 0) && (
+              <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                {totalUnreadChatCount > 0 ? totalUnreadChatCount : (pendingRequests || []).length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight mt-0.5">Chats</span>
+          {activeTab === 'messages' && (
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+          )}
+        </button>
+
+        {/* Sales Hub */}
+        <button
+          onClick={() => setActiveTab('hub')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+            activeTab === 'hub'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+        >
+          <Store className={`w-5 h-5 ${activeTab === 'hub' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <span className="text-[10px] tracking-tight mt-0.5">Hub</span>
+          {activeTab === 'hub' && (
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+          )}
+        </button>
+
+        {/* Settings */}
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all cursor-pointer relative ${
+            activeTab === 'settings'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+        >
+          <Settings className={`w-5 h-5 ${activeTab === 'settings' ? 'stroke-[2.5]' : 'stroke-2'}`} />
+          <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
+          {activeTab === 'settings' && (
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+          )}
+        </button>
+      </nav>
 
     </div>
   );

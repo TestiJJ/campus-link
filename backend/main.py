@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
@@ -2726,8 +2726,62 @@ def resolve_target_user_id(target_id: str, db: Session) -> Optional[models.User]
         return v.user
     return None
 
+# --- REAL-TIME WEBSOCKET CONNECTION MANAGER ---
+class ConnectionManager:
+    def __init__(self):
+        # user_id (str) -> list of active WebSockets
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket):
+        await websocket.accept()
+        uid = str(user_id)
+        if uid not in self.active_connections:
+            self.active_connections[uid] = []
+        self.active_connections[uid].append(websocket)
+
+    def disconnect(self, user_id: str, websocket: WebSocket):
+        uid = str(user_id)
+        if uid in self.active_connections:
+            try:
+                self.active_connections[uid].remove(websocket)
+            except (ValueError, Exception):
+                pass
+            if not self.active_connections[uid]:
+                del self.active_connections[uid]
+
+    async def broadcast_to_user(self, user_id: str, data: dict):
+        uid = str(user_id)
+        if uid in self.active_connections:
+            dead_sockets = []
+            for connection in list(self.active_connections[uid]):
+                try:
+                    await connection.send_json(data)
+                except Exception:
+                    dead_sockets.append(connection)
+            for dead in dead_sockets:
+                self.disconnect(uid, dead)
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws/{user_id}")
+async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
+    await ws_manager.connect(str(user_id), websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect(str(user_id), websocket)
+    except Exception:
+        ws_manager.disconnect(str(user_id), websocket)
+
 @app.post("/api/messages", response_model=schemas.MessageOut)
-def send_message(
+async def send_message(
     msg_data: schemas.MessageCreate,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
@@ -2797,6 +2851,33 @@ def send_message(
         reference_id=current_user.user_id
     )
 
+    # Broadcast real-time instant event over WebSockets to both recipient & sender
+    try:
+        msg_payload = {
+            "type": "new_message",
+            "message": {
+                "id": new_msg.id,
+                "sender_id": new_msg.sender_id,
+                "recipient_id": new_msg.recipient_id,
+                "post_id": new_msg.post_id,
+                "content": new_msg.content,
+                "message_type": new_msg.message_type,
+                "media_url": new_msg.media_url,
+                "duration": new_msg.duration,
+                "is_read": new_msg.is_read,
+                "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None,
+            },
+            "sender_name": current_user.full_name,
+            "sender_avatar": current_user.profile_picture_url,
+            "sender_role": current_user.role,
+            "notif_title": notif_title,
+            "notif_body": notif_body
+        }
+        await ws_manager.broadcast_to_user(recipient.user_id, msg_payload)
+        await ws_manager.broadcast_to_user(current_user.user_id, msg_payload)
+    except Exception as _ws_err:
+        print(f"[WebSocket] Broadcast notice: {_ws_err}")
+
     return new_msg
 
 @app.get("/api/messages/{other_user_id}", response_model=List[schemas.MessageOut])
@@ -2815,10 +2896,11 @@ def get_conversation(
         ((models.Message.sender_id == target_uid) & (models.Message.recipient_id == current_user.user_id))
     ).order_by(models.Message.created_at.asc()).all()
 
-    for m in msgs:
-        if m.recipient_id == current_user.user_id and not m.is_read:
-            m.is_read = True
-    db.commit()
+    # Bulk update unread messages in 1 query without ORM mutation loop
+    unread_ids = [m.id for m in msgs if m.recipient_id == current_user.user_id and not m.is_read]
+    if unread_ids:
+        db.query(models.Message).filter(models.Message.id.in_(unread_ids)).update({"is_read": True}, synchronize_session=False)
+        db.commit()
     return msgs
 
 @app.get("/api/conversations")
@@ -2831,19 +2913,37 @@ def get_conversations_list(
         (models.Message.sender_id == user_id) | (models.Message.recipient_id == user_id)
     ).order_by(models.Message.created_at.desc()).all()
 
+    if not msgs:
+        return []
+
+    # 1. Collect all distinct partner IDs
+    partner_ids = set()
+    for m in msgs:
+        p_id = m.recipient_id if m.sender_id == user_id else m.sender_id
+        partner_ids.add(p_id)
+
+    # 2. Batch fetch all partners with their vendor profiles in 1 single SQL query
+    partners = db.query(models.User).options(joinedload(models.User.vendor_profile)).filter(models.User.user_id.in_(partner_ids)).all()
+    partner_map = {p.user_id: p for p in partners}
+
+    # 3. Batch fetch all friendships involving current_user and these partners in 1 single SQL query
+    friendships = db.query(models.Friendship).filter(
+        ((models.Friendship.user_id == user_id) & (models.Friendship.friend_id.in_(partner_ids))) |
+        ((models.Friendship.user_id.in_(partner_ids)) & (models.Friendship.friend_id == user_id))
+    ).all()
+    
+    friendship_map = {}
+    for f in friendships:
+        other_id = f.friend_id if f.user_id == user_id else f.user_id
+        friendship_map[other_id] = f.status
+
     conv_map = {}
     for m in msgs:
         partner_id = m.recipient_id if m.sender_id == user_id else m.sender_id
         if partner_id not in conv_map:
-            partner = db.query(models.User).filter(models.User.user_id == partner_id).first()
+            partner = partner_map.get(partner_id)
             vendor = partner.vendor_profile if partner else None
-            
-            # Friendship verification
-            f_rel = db.query(models.Friendship).filter(
-                ((models.Friendship.user_id == user_id) & (models.Friendship.friend_id == partner_id)) |
-                ((models.Friendship.user_id == partner_id) & (models.Friendship.friend_id == user_id))
-            ).first()
-            f_status = f_rel.status if f_rel else "none"
+            f_status = friendship_map.get(partner_id, "none")
             is_friend = (f_status == "accepted")
 
             # Format rich preview
@@ -2882,6 +2982,7 @@ def get_conversations_list(
             conv_map[partner_id]["unread_count"] += 1
 
     return list(conv_map.values())
+
 
 # --- CAMPUS SOCIAL & FRIEND REQUEST SYSTEM ---
 
