@@ -332,25 +332,46 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     webhook_url = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
     sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
 
-    success = send_otp_email(clean_email, test_otp)
-
-    if success:
-        return {
-            "success": True,
-            "recipient": clean_email,
-            "otp_sent": test_otp,
-            "webhook_configured": bool(os.getenv("GOOGLE_MAIL_WEBHOOK", "")),
-            "message": f"Verification email delivered to {clean_email}!",
+    webhook_debug = {}
+    try:
+        resp = httpx.post(
+            webhook_url,
+            json={
+                "to": clean_email,
+                "subject": f"{test_otp} is your CampusLink Verification Code",
+                "html": f"<p>CampusLink test code: <b>{test_otp}</b></p>",
+                "text": f"Your CampusLink test verification code is: {test_otp}",
+                "code": test_otp,
+            },
+            follow_redirects=True,
+            timeout=15.0,
+        )
+        webhook_debug = {
+            "status_code": resp.status_code,
+            "response_preview": resp.text[:300] if resp.text else "(empty)",
+            "url_used": webhook_url[:35] + "..." if len(webhook_url) > 35 else webhook_url
+        }
+        if resp.status_code in (200, 201, 302):
+            return {
+                "success": True,
+                "recipient": clean_email,
+                "otp_sent": test_otp,
+                "webhook_debug": webhook_debug,
+                "message": f"Verification email delivered to {clean_email}!",
+            }
+    except Exception as e_diag:
+        webhook_debug = {
+            "exception": str(e_diag),
+            "url_used": webhook_url[:35] + "..." if len(webhook_url) > 35 else webhook_url
         }
 
     return {
         "success": False,
         "recipient": clean_email,
         "sender": sender,
-        "webhook_configured": bool(os.getenv("GOOGLE_MAIL_WEBHOOK", "")),
+        "webhook_debug": webhook_debug,
         "message": (
-            "All delivery methods failed. "
-            "Ensure GOOGLE_MAIL_WEBHOOK is set on Render with your deployed Apps Script URL."
+            "Webhook delivery failed. See webhook_debug for the exact response/status code from Google."
         ),
     }
 
