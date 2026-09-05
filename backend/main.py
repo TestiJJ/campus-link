@@ -175,125 +175,125 @@ def require_role(allowed_roles: list[str]):
     return role_checker
 
 
-# --- EMAIL DISPATCH UTILS (Gmail SMTP via smtplib) ---
+# --- EMAIL DISPATCH (Google Apps Script Webhook primary, Gmail SMTP fallback) ---
+
+# Default Apps Script webhook URL - override with GOOGLE_MAIL_WEBHOOK env var on Render
+DEFAULT_GOOGLE_MAIL_WEBHOOK = "https://script.google.com/macros/s/AKfycbyU35yJ6ohMuWqMkCtfp-twFYvP5KDGrRE5Lo24ZFtNXy96bQTcMnt_r2eob_JyB_4n/exec"
+
 
 def send_otp_email(to_email: str, otp_code: str) -> bool:
     """
-    Sends a CampusLink verification code to any email address using Gmail SMTP.
+    Sends a CampusLink OTP verification code.
 
-    Credentials are read from environment variables:
-      SMTP_EMAIL    â€” sender Gmail address  (default: testimonyjokotoye65@gmail.com)
-      SMTP_PASSWORD â€” Gmail App Password    (default: pvytfgxjjcycacrj)
-      SMTP_HOST     â€” SMTP host             (default: smtp.gmail.com)
+    Delivery order:
+      1. Google Apps Script Webhook (HTTPS 443) - works on Render, sends from your Gmail
+      2. Gmail SMTP SSL port 465 (local/VPS fallback)
+      3. Gmail SMTP STARTTLS port 587 (local/VPS fallback)
 
-    Attempts:
-      1. SSL on port 465
-      2. STARTTLS on port 587 (fallback)
-
-    Returns True on success, False on failure. Never raises â€” all errors are logged.
+    Env vars (set on Render):
+      GOOGLE_MAIL_WEBHOOK  - deployed Apps Script web app URL
+      SMTP_EMAIL           - sender Gmail address
+      SMTP_PASSWORD        - Gmail App Password (16 chars, no spaces)
+      SMTP_HOST            - default: smtp.gmail.com
     """
     clean_to = (to_email or "").strip().lower()
     if not clean_to:
-        print("[CAMPUSLINK EMAIL ERROR] Missing recipient email address.")
+        print("[EMAIL ERROR] Missing recipient address.")
         return False
 
-    sender_email   = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
+    sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
     sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
-    smtp_host      = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
+    smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
+    webhook_url     = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
 
     subject = f"{otp_code} is your CampusLink Verification Code"
 
-    text_content = (
+    text_body = (
         f"Hello,\n\n"
-        f"Your CampusLink email verification code is: {otp_code}\n\n"
-        f"Enter this 6-digit code on the registration screen to activate your account.\n"
+        f"Your CampusLink verification code is: {otp_code}\n\n"
+        f"Enter this code on the registration screen to activate your account.\n"
         f"This code expires in 15 minutes.\n\n"
         f"If you did not request this, please ignore this email.\n\n"
-        f"â€” CampusLink Team"
+        f"-- CampusLink Team"
     )
 
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CampusLink Verification</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;padding:32px 16px;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
-          <tr>
-            <td style="background:linear-gradient(135deg,#0284c7,#0369a1);padding:32px 24px;text-align:center;">
-              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">
-                CAMPUS<span style="color:#7dd3fc;">LINK</span>
-              </h1>
-              <p style="color:#e0f2fe;margin:6px 0 0 0;font-size:13px;font-weight:500;">
-                Campus Ecosystem &amp; Verification Portal
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:32px 24px;">
-              <h2 style="color:#0f172a;margin:0 0 12px 0;font-size:18px;font-weight:700;">
-                Verify Your Email Address
-              </h2>
-              <p style="color:#475569;margin:0 0 24px 0;font-size:14px;line-height:1.6;">
-                Welcome to CampusLink! Enter the 6-digit code below to verify your email and activate your account.
-              </p>
-              <div style="background-color:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:20px;text-align:center;margin:0 0 24px 0;">
-                <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#0369a1;display:inline-block;">
-                  {otp_code}
-                </span>
-              </div>
-              <p style="color:#64748b;margin:0 0 8px 0;font-size:12px;line-height:1.5;">
-                &bull; This code is valid for <strong>15 minutes</strong>.
-              </p>
-              <p style="color:#64748b;margin:0 0 24px 0;font-size:12px;line-height:1.5;">
-                &bull; If you didn't request this code, you can safely ignore this email.
-              </p>
-            </td>
-          </tr>
-          <tr>
-            <td style="background-color:#f8fafc;border-top:1px solid #e2e8f0;padding:16px;text-align:center;">
-              <p style="color:#94a3b8;margin:0;font-size:11px;">
-                &copy; CampusLink Nigeria. Connecting students, vendors, and campus life.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>"""
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = f"CampusLink <{sender_email}>"
-    msg["To"]      = clean_to
-    msg.attach(MIMEText(text_content, "plain"))
-    msg.attach(MIMEText(html_content, "html"))
+    html_body = (
+        "<!DOCTYPE html>"
+        "<html><head>"
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        "<title>CampusLink Verification</title>"
+        "</head>"
+        '<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;padding:32px 16px;">'
+        '<tr><td align="center">'
+        '<table role="presentation" width="100%" style="max-width:480px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);border:1px solid #e2e8f0;">'
+        '<tr><td style="background:linear-gradient(135deg,#0284c7,#0369a1);padding:32px 24px;text-align:center;">'
+        '<h1 style="color:#fff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">CAMPUS<span style="color:#7dd3fc;">LINK</span></h1>'
+        '<p style="color:#e0f2fe;margin:6px 0 0 0;font-size:13px;">Campus Ecosystem &amp; Verification Portal</p>'
+        "</td></tr>"
+        '<tr><td style="padding:32px 24px;">'
+        '<h2 style="color:#0f172a;margin:0 0 12px 0;font-size:18px;font-weight:700;">Verify Your Email Address</h2>'
+        '<p style="color:#475569;margin:0 0 24px 0;font-size:14px;line-height:1.6;">Welcome to CampusLink! Enter the 6-digit code below to verify your email and activate your account.</p>'
+        '<div style="background:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:20px;text-align:center;margin:0 0 24px 0;">'
+        f'<span style="font-family:Courier New,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#0369a1;display:inline-block;">{otp_code}</span>'
+        "</div>"
+        '<p style="color:#64748b;margin:0 0 8px 0;font-size:12px;">This code is valid for <strong>15 minutes</strong>.</p>'
+        '<p style="color:#64748b;margin:0;font-size:12px;">If you did not request this code, you can safely ignore this email.</p>'
+        "</td></tr>"
+        '<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px;text-align:center;">'
+        '<p style="color:#94a3b8;margin:0;font-size:11px;">&copy; CampusLink Nigeria. Connecting students, vendors, and campus life.</p>'
+        "</td></tr>"
+        "</table></td></tr></table>"
+        "</body></html>"
+    )
 
     # Always log OTP to server console for debugging
     print(f"[CAMPUSLINK OTP for {clean_to}]: {otp_code}")
 
-    # --- Attempt 1: Gmail SSL Port 465 ---
+    # --- Attempt 1: Google Apps Script Webhook (HTTPS 443 - bypasses Render port blocks) ---
+    try:
+        resp = httpx.post(
+            webhook_url,
+            json={
+                "to": clean_to,
+                "subject": subject,
+                "html": html_body,
+                "text": text_body,
+                "code": otp_code,
+            },
+            follow_redirects=True,
+            timeout=15.0,
+        )
+        if resp.status_code in (200, 201, 302):
+            print(f"[EMAIL] Sent to {clean_to} via Google Apps Script Webhook")
+            return True
+        print(f"[EMAIL] Webhook returned HTTP {resp.status_code}: {resp.text[:120]}")
+    except Exception as e_wh:
+        print(f"[EMAIL] Webhook error: {e_wh}")
+
+    # --- Attempt 2: Gmail SMTP SSL port 465 ---
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"CampusLink <{sender_email}>"
+    msg["To"]      = clean_to
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
     try:
         ssl_ctx = ssl.create_default_context()
         with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=10) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
-            print(f"[CAMPUSLINK EMAIL] âœ“ Sent to {clean_to} via Gmail SSL (port 465)")
+            print(f"[EMAIL] Sent to {clean_to} via Gmail SSL port 465")
             return True
-    except smtplib.SMTPAuthenticationError as auth_err:
-        print(f"[CAMPUSLINK EMAIL ERROR] Gmail authentication failed â€” check SMTP_EMAIL / SMTP_PASSWORD: {auth_err}")
-        return False  # No point trying port 587 if credentials are wrong
-    except Exception as ssl_err:
-        print(f"[CAMPUSLINK EMAIL] SSL 465 unavailable ({ssl_err}), trying STARTTLS 587â€¦")
+    except smtplib.SMTPAuthenticationError as e_auth:
+        print(f"[EMAIL ERROR] Gmail auth failed (check SMTP_EMAIL/SMTP_PASSWORD): {e_auth}")
+        return False
+    except Exception as e_ssl:
+        print(f"[EMAIL] SSL 465 unavailable ({e_ssl}), trying STARTTLS 587...")
 
-    # --- Attempt 2: Gmail STARTTLS Port 587 ---
+    # --- Attempt 3: Gmail SMTP STARTTLS port 587 ---
     try:
         ssl_ctx = ssl.create_default_context()
         with smtplib.SMTP(smtp_host, 587, timeout=10) as server:
@@ -302,18 +302,11 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
             server.ehlo()
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
-            print(f"[CAMPUSLINK EMAIL] âœ“ Sent to {clean_to} via Gmail STARTTLS (port 587)")
+            print(f"[EMAIL] Sent to {clean_to} via Gmail STARTTLS port 587")
             return True
-    except smtplib.SMTPAuthenticationError as auth_err:
-        print(f"[CAMPUSLINK EMAIL ERROR] Gmail authentication failed on port 587: {auth_err}")
-    except Exception as tls_err:
-        print(f"[CAMPUSLINK EMAIL ERROR] STARTTLS 587 also failed for {clean_to}: {tls_err}")
+    except Exception as e_tls:
+        print(f"[EMAIL ERROR] All delivery methods failed for {clean_to}: {e_tls}")
 
-    print(
-        f"[CAMPUSLINK EMAIL ERROR] All delivery attempts failed for {clean_to}. "
-        "Check that SMTP_EMAIL and SMTP_PASSWORD are set correctly on Render and "
-        "that the Gmail account has 2FA enabled with an App Password (not your normal password)."
-    )
     return False
 
 
@@ -321,41 +314,33 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 @app.post("/api/test-email")
 def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """
-    Diagnostic endpoint â€” sends a live test OTP to the given address using Gmail SMTP.
-    Usage:  GET /api/test-email?email=someone@example.com
+    Diagnostic endpoint to test live email delivery.
+    GET /api/test-email?email=anyone@example.com
     """
-    clean_email    = (email or "testimonyjokotoye65@gmail.com").strip().lower()
-    sender_email   = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
-    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
-    smtp_host      = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
-    test_otp       = str(random.randint(100000, 999999))
+    clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
+    test_otp    = str(random.randint(100000, 999999))
+    webhook_url = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
+    sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
 
     success = send_otp_email(clean_email, test_otp)
 
     if success:
         return {
             "success": True,
-            "provider": "Gmail SMTP (smtplib)",
-            "smtp_host": smtp_host,
-            "sender": sender_email,
             "recipient": clean_email,
             "otp_sent": test_otp,
-            "message": f"âœ“ Verification email delivered to {clean_email} via Gmail SMTP.",
+            "webhook_configured": bool(os.getenv("GOOGLE_MAIL_WEBHOOK", "")),
+            "message": f"Verification email delivered to {clean_email}!",
         }
 
     return {
         "success": False,
-        "provider": "Gmail SMTP (smtplib)",
-        "smtp_host": smtp_host,
-        "sender": sender_email,
         "recipient": clean_email,
+        "sender": sender,
+        "webhook_configured": bool(os.getenv("GOOGLE_MAIL_WEBHOOK", "")),
         "message": (
-            "Email delivery failed. Possible causes:\n"
-            "1. Render blocks outbound SMTP ports (465 / 587) on free-tier instances.\n"
-            "2. SMTP_PASSWORD is the raw Gmail password instead of an App Password.\n"
-            "3. 2-Step Verification is not enabled on the Gmail account.\n"
-            "Fix: Enable 2FA on Gmail â†’ Google Account â†’ Security â†’ App Passwords â†’ "
-            "generate a 16-character app password â†’ set SMTP_PASSWORD on Render."
+            "All delivery methods failed. "
+            "Ensure GOOGLE_MAIL_WEBHOOK is set on Render with your deployed Apps Script URL."
         ),
     }
 
