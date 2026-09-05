@@ -18,34 +18,32 @@ import models, schemas, auth, database
 try:
     models.Base.metadata.create_all(bind=database.engine)
     from sqlalchemy import text as _sql_text
-    with database.engine.connect() as _conn:
-        for col_stmt in [
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
-            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
-            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
-            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
-            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
-            "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
-            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_id ON messages (recipient_id);",
-            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at);",
-            "CREATE INDEX IF NOT EXISTS ix_messages_sender_recipient ON messages (sender_id, recipient_id);",
-            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
-            "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
-            "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
-        ]:
-            try:
+    for col_stmt in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
+        "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
+        "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
+        "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
+        "CREATE INDEX IF NOT EXISTS ix_messages_recipient_id ON messages (recipient_id);",
+        "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at);",
+        "CREATE INDEX IF NOT EXISTS ix_messages_sender_recipient ON messages (sender_id, recipient_id);",
+        "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
+        "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
+        "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
+    ]:
+        try:
+            with database.engine.begin() as _conn:
                 _conn.execute(_sql_text(col_stmt))
-                _conn.commit()
-            except Exception:
-                # Fallback for SQLite which doesn't support IF NOT EXISTS on ALTER TABLE
-                try:
-                    fallback_stmt = col_stmt.replace(" IF NOT EXISTS", "")
+        except Exception:
+            try:
+                fallback_stmt = col_stmt.replace(" IF NOT EXISTS", "")
+                with database.engine.begin() as _conn:
                     _conn.execute(_sql_text(fallback_stmt))
-                    _conn.commit()
-                except Exception:
-                    pass
+            except Exception:
+                pass
 except Exception as _db_err:
     print(f"[CampusLink] Database init notice: {_db_err}")
 # Auto-seed institutions and marketplace categories on server initialization
