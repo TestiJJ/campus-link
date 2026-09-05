@@ -17,10 +17,20 @@ const API = axios.create({
   baseURL: resolvedApiBase,
 });
 
+export const getAuthToken = () => {
+  if (typeof window === 'undefined') return null;
+  const token = localStorage.getItem('token') || localStorage.getItem('campuslink_token');
+  return (token && token.trim().length > 10) ? token.trim() : null;
+};
+
+export const isAuthenticated = () => {
+  return !!getAuthToken();
+};
+
 // Attach JWT Token to requests if available
 API.interceptors.request.use(
   (req) => {
-    const token = localStorage.getItem('token');
+    const token = getAuthToken();
     if (token) {
       req.headers.Authorization = `Bearer ${token}`;
     }

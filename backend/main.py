@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -105,6 +106,50 @@ EATERIES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fr
 if os.path.exists(EATERIES_DIR):
     app.mount("/eateries", StaticFiles(directory=EATERIES_DIR), name="eateries")
 
+# Global CORS & Exception Interceptor Middleware
+# Guarantees Access-Control headers on ALL responses (2xx, 3xx, 4xx, 5xx, OPTIONS)
+@app.middleware("http")
+async def add_cors_and_catch_exceptions(request: Request, call_next):
+    origin = request.headers.get("origin") or "*"
+    
+    # Direct short-circuit handling for OPTIONS preflights
+    if request.method == "OPTIONS":
+        response = JSONResponse(content={"status": "ok"})
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        print(f"[CampusLink Unhandled Error] {request.method} {request.url.path}: {exc}")
+        response = JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal server error occurred. Please try again."}
+        )
+
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[CampusLink Global Exception] {request.method} {request.url.path}: {exc}")
+    origin = request.headers.get("origin") or "*"
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -120,6 +165,7 @@ app.add_middleware(
         "https://campus-link.onrender.com",
         "https://campus-link-backend-vhxr.onrender.com",
         "capacitor://localhost",
+        "ionic://localhost",
         "http://localhost",
         "https://localhost",
     ],

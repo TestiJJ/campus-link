@@ -12,7 +12,7 @@ import {
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply
 } from 'lucide-react';
-import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
+import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
@@ -483,7 +483,7 @@ export default function VendorDashboard() {
   // Real-time WebSocket connection for vendor instant chat delivery & floating banner alerts
   useEffect(() => {
     const uid = user?.user_id || user?.id;
-    if (!uid) return;
+    if (!uid || !getAuthToken()) return;
     let socket = null;
     let pingInterval = null;
     let reconnectTimeout = null;
@@ -685,7 +685,7 @@ export default function VendorDashboard() {
   // Active chat fast fallback auto-polling (1.0s) for vendor (WebSockets handle instant push)
   useEffect(() => {
     const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
-    if (!pid || selectedPartner?.is_ai) return;
+    if (!pid || selectedPartner?.is_ai || !getAuthToken()) return;
 
     // 1. Instantly load cached messages in 0ms (memory or localStorage)
     const cached = getCachedThreadMessages(pid);
@@ -693,7 +693,11 @@ export default function VendorDashboard() {
     setIsLoadingChatMessages(false);
     smartScrollToBottom(chatContainerRef.current, false);
 
+    let isPolling = true;
+    let timer = null;
+
     const pollChat = async () => {
+      if (!isPolling || !getAuthToken()) return;
       try {
         await revalidateThreadMessages(pid, API, (fresh) => {
           setChatMessages(fresh);
@@ -704,14 +708,19 @@ export default function VendorDashboard() {
         setConversations(prev =>
           prev.map(c => (String(c.partner_id) === String(pid) ? { ...c, unread_count: 0 } : c))
         );
-      } catch {}
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          isPolling = false;
+          if (timer) clearInterval(timer);
+        }
+      }
     };
 
     pollChat();
-    const timer = setInterval(pollChat, 1000);
+    timer = setInterval(pollChat, 1000);
 
     const handleFocus = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && getAuthToken()) {
         pollChat();
       }
     };
@@ -719,7 +728,8 @@ export default function VendorDashboard() {
     document.addEventListener('visibilitychange', handleFocus);
 
     return () => {
-      clearInterval(timer);
+      isPolling = false;
+      if (timer) clearInterval(timer);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleFocus);
     };
@@ -727,14 +737,24 @@ export default function VendorDashboard() {
 
   // Background live sync for vendor data (conversations, orders, statuses, requests)
   useEffect(() => {
+    if (!getAuthToken()) return;
+    let isSyncing = true;
+    let interval = null;
+
     const syncVendorData = () => {
+      if (!isSyncing || !getAuthToken()) return;
       API.get('/conversations')
         .then(res => {
           const convs = res.data || [];
           setConversations(convs);
           primeConversationsCache(convs);
         })
-        .catch(() => {});
+        .catch(err => {
+          if (err?.response?.status === 401) {
+            isSyncing = false;
+            if (interval) clearInterval(interval);
+          }
+        });
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
         .catch(() => {});
@@ -746,12 +766,16 @@ export default function VendorDashboard() {
         .catch(() => {});
     };
 
-    const interval = setInterval(syncVendorData, 8000);
-    window.addEventListener('focus', syncVendorData);
+    interval = setInterval(syncVendorData, 8000);
+    const handleFocus = () => {
+      if (getAuthToken()) syncVendorData();
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', syncVendorData);
+      isSyncing = false;
+      if (interval) clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 

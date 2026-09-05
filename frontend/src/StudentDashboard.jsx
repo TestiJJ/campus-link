@@ -14,7 +14,7 @@ import {
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply
 } from 'lucide-react';
-import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
+import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
@@ -349,13 +349,23 @@ export default function StudentDashboard() {
   // Sends a heartbeat every 30 s so the backend knows we are online.
   // Also fires an offline signal when the tab is hidden or closed.
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = getAuthToken();
     if (!token) return;
+    let isCancelled = false;
+    let interval = null;
 
     const sendHeartbeat = () => {
-      API.post('/presence/heartbeat').catch(() => {});
+      if (isCancelled || !getAuthToken()) return;
+      API.post('/presence/heartbeat').catch((err) => {
+        if (err?.response?.status === 401) {
+          isCancelled = true;
+          if (interval) clearInterval(interval);
+        }
+      });
     };
     const sendOffline = () => {
+      const activeToken = getAuthToken();
+      if (!activeToken) return;
       // fetch with keepalive:true survives page unload and supports Bearer auth
       const baseUrl = (API.defaults.baseURL || '').replace(/\/api$/, '');
       const offlineUrl = `${baseUrl}/api/presence/offline`;
@@ -364,7 +374,7 @@ export default function StudentDashboard() {
         keepalive: true,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${activeToken}`,
         },
         body: JSON.stringify({}),
       }).catch(() => {});
@@ -375,12 +385,13 @@ export default function StudentDashboard() {
     };
 
     sendHeartbeat(); // mark online immediately on mount
-    const interval = setInterval(sendHeartbeat, 30000);
+    interval = setInterval(sendHeartbeat, 30000);
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', sendOffline);
 
     return () => {
-      clearInterval(interval);
+      isCancelled = true;
+      if (interval) clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', sendOffline);
       sendOffline(); // mark offline on component unmount (logout)
@@ -454,7 +465,7 @@ export default function StudentDashboard() {
 
   // Real-time WebSocket connection for instant chat delivery & floating banner alerts
   useEffect(() => {
-    if (!currentUser?.user_id) return;
+    if (!currentUser?.user_id || !getAuthToken()) return;
     let socket = null;
     let pingInterval = null;
     let reconnectTimeout = null;
@@ -947,7 +958,11 @@ export default function StudentDashboard() {
     }
 
     // Gentle background sync (keeps reels/posts, statuses, chats and notices live without manual refresh)
+    let syncCancelled = false;
+    let syncInterval = null;
+
     const syncDashboard = () => {
+      if (syncCancelled || !getAuthToken()) return;
       fetchNotifications();
       API.get('/reels')
         .then(res => {
@@ -956,7 +971,12 @@ export default function StudentDashboard() {
             setCachedData('reels', res.data);
           }
         })
-        .catch(() => {});
+        .catch(err => {
+          if (err?.response?.status === 401) {
+            syncCancelled = true;
+            if (syncInterval) clearInterval(syncInterval);
+          }
+        });
       API.get('/campus/statuses')
         .then(res => {
           if (res.data && Array.isArray(res.data)) setStatusGroups(res.data);
@@ -970,14 +990,15 @@ export default function StudentDashboard() {
         .catch(() => {});
     };
 
-    const interval = setInterval(syncDashboard, 15000);
+    syncInterval = setInterval(syncDashboard, 15000);
     const onWindowFocus = () => {
-      syncDashboard();
+      if (getAuthToken()) syncDashboard();
     };
     window.addEventListener('focus', onWindowFocus);
 
     return () => {
-      clearInterval(interval);
+      syncCancelled = true;
+      if (syncInterval) clearInterval(syncInterval);
       window.removeEventListener('focus', onWindowFocus);
     };
   }, [navigate]);
@@ -1075,6 +1096,7 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!selectedPartner?.partner_id) return;
     if (selectedPartner.is_ai) return;
+    if (!getAuthToken()) return;
 
     // 1. Instantly load cached messages in 0ms to eliminate delay
     const cached = getCachedThreadMessages(selectedPartner.partner_id);
@@ -1087,11 +1109,15 @@ export default function StudentDashboard() {
 
     // 3. Fast active chat polling (1.0s) to guarantee instant receipt alongside WebSockets
     const pollTimer = setInterval(() => {
-      fetchMessagesForPartner(selectedPartner.partner_id);
+      if (getAuthToken()) {
+        fetchMessagesForPartner(selectedPartner.partner_id);
+      } else {
+        clearInterval(pollTimer);
+      }
     }, 1000);
 
     const handleFocus = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === 'visible' && getAuthToken()) {
         fetchMessagesForPartner(selectedPartner.partner_id);
       }
     };
