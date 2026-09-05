@@ -116,6 +116,19 @@ export default function StudentDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [newMsgText, setNewMsgText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
+
+  // Mobile back button / swipe gesture support (WhatsApp-style back navigation)
+  useEffect(() => {
+    if (!selectedPartner) return;
+    const handlePopState = () => {
+      setSelectedPartner(null);
+    };
+    window.history.pushState({ chatOpen: true }, '');
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [selectedPartner]);
   
   // My AI & Memory Vault State
   const [aiMessages, setAiMessages] = useState([]);
@@ -1406,7 +1419,7 @@ export default function StudentDashboard() {
       <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-w-7xl pb-24 md:pb-8">
         
         {/* Mobile Top Header (Facebook style top bar for small screens) */}
-        <div className="md:hidden flex items-center justify-between pb-3 mb-4 border-b border-slate-200">
+        <div className={`items-center justify-between pb-3 mb-4 border-b border-slate-200 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
           <Link to="/" className="flex items-center space-x-2">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-xs">
               CL
@@ -2592,7 +2605,7 @@ export default function StudentDashboard() {
         {activeTab === 'messages' && (
           <div className="space-y-4">
             {/* WhatsApp-Style Campus Status Tray */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs">
+            <div className={`bg-white rounded-3xl border border-slate-200 p-4 shadow-xs ${selectedPartner ? 'hidden md:block' : 'block'}`}>
               <div className="flex items-center justify-between mb-3 px-1">
                 <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
                   <Sparkles className="w-4 h-4 text-emerald-500" />
@@ -2664,10 +2677,10 @@ export default function StudentDashboard() {
             </div>
 
             {/* Chat Box Container */}
-            <div className="h-[calc(100vh-17rem)] min-h-[500px] flex flex-col bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+            <div className={`flex flex-col bg-white border border-slate-200 overflow-hidden shadow-xs ${selectedPartner && messageSubtab === 'chats' ? 'h-[calc(100dvh-2rem)] md:h-[calc(100vh-17rem)] rounded-2xl md:rounded-3xl' : 'h-[calc(100vh-17rem)] min-h-[500px] rounded-3xl'}`}>
               
               {/* Top Sub-Switcher */}
-              <div className="p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className={`p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
               <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto text-xs">
                 <button
                   onClick={() => setMessageSubtab('chats')}
@@ -2772,7 +2785,7 @@ export default function StudentDashboard() {
               {messageSubtab === 'chats' && (
                 <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
                   {/* Left Column: Conversations List */}
-                  <div className="w-full md:w-84 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 overflow-hidden bg-white">
+                  <div className={`w-full md:w-84 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                     <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
                       {/* PINNED: CampusLink AI Assistant */}
                       <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/40 to-white">
@@ -2879,10 +2892,54 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Right Column: Live Chat Window */}
-                  <div className="flex-1 flex flex-col justify-between bg-slate-50/50 overflow-hidden">
+                  <div className={`flex-1 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                     {selectedPartner ? (
                       selectedPartner.is_ai ? (
                         <>
+                          {/* AI Chat Mobile/Desktop WhatsApp-style Header */}
+                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPartner(null)}
+                                className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer"
+                                title="Back to conversation list"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">CampusLink AI Assistant</h4>
+                                  <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-full font-bold shrink-0">24/7 AI</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate">Academics, CGPA, hostel notes & advice</p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setMemoryModalOpen(true)}
+                                className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                title="View stored memories & notes"
+                              >
+                                <Brain className="w-3.5 h-3.5 text-blue-600" />
+                                <span className="hidden sm:inline">Memory ({aiMemories.length})</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleClearAiChat}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors"
+                                title="Clear conversation"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+
                           {/* AI Chat Messages */}
                           <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
                             {aiMessages.length > 0 ? (
@@ -3036,6 +3093,77 @@ export default function StudentDashboard() {
                         </>
                       ) : (
                         <>
+                          {/* Peer Chat Mobile/Desktop WhatsApp-style Header */}
+                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPartner(null)}
+                                className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer"
+                                title="Back to conversations"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <div className="relative shrink-0">
+                                {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (
+                                  <img
+                                    src={selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar}
+                                    alt={selectedPartner.partner_name || selectedPartner.name || 'User'}
+                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm">
+                                    {(selectedPartner.partner_name || selectedPartner.name || 'U').charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">
+                                    {selectedPartner.partner_name || selectedPartner.name || selectedPartner.full_name || 'Chat Partner'}
+                                  </h4>
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
+                                    (selectedPartner.partner_role || selectedPartner.role) === 'Vendor' || (selectedPartner.partner_role || selectedPartner.role) === 'Seller'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : (selectedPartner.partner_role || selectedPartner.role) === 'Agent'
+                                        ? 'bg-purple-100 text-purple-800'
+                                        : 'bg-sky-100 text-sky-800'
+                                  }`}>
+                                    {selectedPartner.partner_role || selectedPartner.role || 'Student'}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                                  <span>Online • Active now</span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0">
+                              {(selectedPartner.phone || selectedPartner.whatsapp_phone) && (
+                                <a
+                                  href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                  title="Chat on WhatsApp"
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">WhatsApp</span>
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPartner(null)}
+                                className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                                title="Close chat"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
                           {/* Chat Messages */}
                           <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-3">
                           {chatMessages.length > 0 ? (
@@ -5360,7 +5488,7 @@ export default function StudentDashboard() {
       </AnimatePresence>
 
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Compact Icons for Small Screens) --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 flex items-center justify-around shadow-lg">
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
         {/* Market */}
         <button
           onClick={() => { setActiveTab('marketplace'); setMarketType('products'); }}

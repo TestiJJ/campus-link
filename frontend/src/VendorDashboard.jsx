@@ -182,6 +182,19 @@ export default function VendorDashboard() {
     }
   }, [navigate]);
 
+  // Mobile back button / swipe gesture support (WhatsApp-style back navigation)
+  useEffect(() => {
+    if (!selectedPartner) return;
+    const handlePopState = () => {
+      setSelectedPartner(null);
+    };
+    window.history.pushState({ chatOpen: true }, '');
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [selectedPartner]);
+
   useEffect(() => {
     if (chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -1127,7 +1140,7 @@ export default function VendorDashboard() {
       </aside>
 
       {/* --- MOBILE TOP HEADER (Sticky, Compact, Responsive & Install App) --- */}
-      <header className="md:hidden sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-4 py-2 flex items-center justify-between shadow-2xs gap-2">
+      <header className={`sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-3 sm:px-4 py-2 items-center justify-between shadow-2xs gap-2 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
         <div className="flex items-center space-x-2 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-md shadow-sky-500/20 shrink-0">
             CL
@@ -1178,7 +1191,7 @@ export default function VendorDashboard() {
         
         {/* Live Store Announcement Banner (Always visible if configured) */}
         {storeBroadcast && (
-          <div className="mb-5 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-sky-500/10 via-blue-500/10 to-indigo-500/10 border border-sky-200/80 flex items-center justify-between text-xs text-sky-900">
+          <div className={`mb-5 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-sky-500/10 via-blue-500/10 to-indigo-500/10 border border-sky-200/80 items-center justify-between text-xs text-sky-900 ${selectedPartner && activeTab === 'messages' ? 'hidden md:flex' : 'flex'}`}>
             <div className="flex items-center space-x-2.5 overflow-hidden">
               <span className="flex h-2 w-2 relative shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
@@ -1528,7 +1541,7 @@ export default function VendorDashboard() {
           <div className="space-y-4">
             
             {/* Header & Subtabs */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className={`flex-col sm:flex-row sm:items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                   Chats, Stories & Network
@@ -1588,7 +1601,7 @@ export default function VendorDashboard() {
             </div>
 
             {/* WHATSAPP-STYLE CAMPUS STATUS STORIES RAIL (Visible at the top of Chats) */}
-            <div className="p-4 bg-white border border-slate-200 rounded-3xl shadow-xs">
+            <div className={`p-4 bg-white border border-slate-200 rounded-3xl shadow-xs ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:block' : 'block'}`}>
               <div className="flex items-center justify-between mb-3 px-1">
                 <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
@@ -1654,7 +1667,7 @@ export default function VendorDashboard() {
 
             {/* --- SUBTAB A: ACTIVE INQUIRIES & CHAT INTERFACE --- */}
             {messageSubtab === 'chats' && (
-              <div className="h-[calc(100vh-18rem)] min-h-[500px] flex flex-col md:flex-row bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-xs">
+              <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs ${selectedPartner ? 'h-[calc(100dvh-2rem)] md:h-[calc(100vh-18rem)] rounded-2xl md:rounded-3xl' : 'h-[calc(100vh-18rem)] min-h-[500px] rounded-3xl'}`}>
                 
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
@@ -3322,7 +3335,7 @@ export default function VendorDashboard() {
       {/* ========================================================================= */}
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
       {/* ========================================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 shadow-lg safe-bottom">
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 shadow-lg safe-bottom ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
         <div className="grid grid-cols-7 w-full max-w-lg mx-auto items-center">
           {/* Tab 1: Products */}
           <button
