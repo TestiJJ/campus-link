@@ -71,17 +71,23 @@ DEFAULT_CATEGORIES = [
 ]
 
 def seed_database():
-    print("Seeding Nigerian Universities, Polytechnics & Marketplace Categories...")
     db: Session = SessionLocal()
-    
     try:
+        # Fast-path check: if already seeded, skip redundant network roundtrips
+        existing_uni_count = db.query(models.University).count()
+        existing_cat_count = db.query(models.Category).count()
+        if existing_uni_count >= len(NIGERIAN_INSTITUTIONS) and existing_cat_count >= len(DEFAULT_CATEGORIES):
+            print(f"[Database] Universities ({existing_uni_count}) and Categories ({existing_cat_count}) already seeded.")
+            return
+
+        print("Seeding Nigerian Universities, Polytechnics & Marketplace Categories...")
         models.Base.metadata.create_all(bind=engine)
         
         # 1. Seed Institutions
         uni_count = 0
+        existing_unis = {u.name for u in db.query(models.University.name).all()}
         for item in NIGERIAN_INSTITUTIONS:
-            existing = db.query(models.University).filter(models.University.name == item["name"]).first()
-            if not existing:
+            if item["name"] not in existing_unis:
                 uni = models.University(
                     name=item["name"],
                     state=item.get("state", "Nigeria"),
@@ -92,9 +98,9 @@ def seed_database():
 
         # 2. Seed Categories
         cat_count = 0
+        existing_cats = {c.name for c in db.query(models.Category.name).all()}
         for cat in DEFAULT_CATEGORIES:
-            existing_cat = db.query(models.Category).filter(models.Category.name == cat["name"]).first()
-            if not existing_cat:
+            if cat["name"] not in existing_cats:
                 category_entry = models.Category(
                     name=cat["name"],
                     icon=cat["icon"],

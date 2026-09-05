@@ -20,6 +20,8 @@ services:
         value: testimonyjokotoye65@gmail.com
       - key: SMTP_PASSWORD
         value: ilon yrpn hlwa fdgs
+      - key: DATABASE_URL
+        value: postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:6543/postgres
 
   # 2. CampusLink Vite Frontend SPA
   - type: static-site

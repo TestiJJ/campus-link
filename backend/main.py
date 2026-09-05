@@ -28,35 +28,33 @@ def clean_legacy_image_urls():
     try:
         from sqlalchemy import text
         live_backend = os.getenv("BACKEND_URL", "https://campus-link-backend-vhxr.onrender.com").rstrip("/")
-        with database.engine.connect() as conn:
-            for tbl, col in [
-                ("users", "profile_picture_url"),
-                ("vendors", "logo"),
-                ("vendors", "cover_image"),
-                ("products", "image"),
-                ("services", "image"),
-                ("posts", "image_url"),
-                ("messages", "media_url"),
-                ("reels", "media_url"),
-                ("campus_statuses", "media_url"),
-                ("campus_notices", "image_url"),
-            ]:
-                try:
+        for tbl, col in [
+            ("users", "profile_picture_url"),
+            ("vendors", "logo"),
+            ("vendors", "cover_image"),
+            ("products", "image"),
+            ("services", "image"),
+            ("posts", "image_url"),
+            ("messages", "media_url"),
+            ("reels", "media_url"),
+            ("campus_statuses", "media_url"),
+            ("campus_notices", "image_url"),
+        ]:
+            try:
+                with database.engine.begin() as conn:
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://127.0.0.1:8000', '{live_backend}') WHERE {col} LIKE '%127.0.0.1:8000%'"))
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://localhost:8000', '{live_backend}') WHERE {col} LIKE '%localhost:8000%'"))
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'https://campuslink-backend.onrender.com', '{live_backend}') WHERE {col} LIKE '%campuslink-backend.onrender.com%'"))
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://campuslink-backend.onrender.com', '{live_backend}') WHERE {col} LIKE '%campuslink-backend.onrender.com%'"))
                     conn.execute(text(f"UPDATE {tbl} SET {col} = REPLACE({col}, 'http://campus-link-backend-vhxr.onrender.com', '{live_backend}') WHERE {col} LIKE '%http://campus-link-backend-vhxr%'"))
-                except Exception:
-                    pass
-            conn.commit()
+            except Exception:
+                pass
     except Exception as _err:
         print(f"[CampusLink] Legacy URL migration status: {_err}")
 
-try:
-    clean_legacy_image_urls()
-except Exception:
-    pass
+
+# clean_legacy_image_urls runs in background on app startup to prevent blocking import
+
 
 app = FastAPI(title="CampusLink API")
 
@@ -138,7 +136,10 @@ async def keep_render_awake_loop():
 
 @app.on_event("startup")
 async def on_app_startup():
-    # Only launch on production Render cloud instances
+    # Asynchronously clean legacy image URLs in background without blocking server boot
+    asyncio.create_task(asyncio.to_thread(clean_legacy_image_urls))
+
+    # Only launch keep-alive loop on production Render cloud instances
     if os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL"):
         asyncio.create_task(keep_render_awake_loop())
 
