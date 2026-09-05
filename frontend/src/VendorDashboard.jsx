@@ -2131,58 +2131,107 @@ export default function VendorDashboard() {
               </div>
 
               <div className="flex items-center space-x-4 overflow-x-auto pb-1 scrollbar-none">
-                {/* 1. My Status (Tap to Add Status) */}
-                <div
-                  onClick={() => setCreateStatusModalOpen(true)}
-                  className="flex flex-col items-center shrink-0 cursor-pointer group"
-                >
-                  <div className="relative w-14 h-14 rounded-full p-0.5 border-2 border-dashed border-sky-400 group-hover:border-sky-600 transition-all flex items-center justify-center bg-slate-50 overflow-visible">
-                    {user?.profile_picture_url || vendorStore?.logo ? (
-                      <SafeImage
-                        src={user?.profile_picture_url || vendorStore?.logo}
-                        alt="My Status"
-                        fallbackType="avatar"
-                        className="w-full h-full rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
-                        {user?.full_name?.charAt(0) || 'V'}
-                      </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs">
-                      <Plus className="w-3 h-3 stroke-[3]" />
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-800 mt-1.5">My Status</span>
-                  <span className="text-[9px] text-slate-400">Post drop</span>
-                </div>
+                {/* 1. My Story (Tap to Add Status) */}
+                {(() => {
+                  const selfGroup = statusGroups.find(g => g.is_self);
+                  const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
 
-                {/* 2. Campus Stories from Students & Vendors */}
-                {statusGroups.map((group, uIdx) => (
-                  <div
-                    key={group.user_id}
-                    onClick={() => setActiveStatusViewer({ userIdx: uIdx, itemIdx: 0 })}
-                    className="flex flex-col items-center shrink-0 cursor-pointer group"
-                  >
-                    <div className="w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 via-teal-400 to-sky-500 shadow-xs group-hover:scale-105 transition-transform flex items-center justify-center">
-                      <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
-                        {group.user_avatar ? (
-                          <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
-                            {group.user_name.charAt(0)}
-                          </div>
-                        )}
+                  return (
+                    <div className="flex flex-col items-center shrink-0 cursor-pointer group">
+                      <div
+                        onClick={() => {
+                          if (hasMyStory) {
+                            const selfIdx = statusGroups.findIndex(g => g.is_self);
+                            setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
+                          } else {
+                            setCreateStatusModalOpen(true);
+                          }
+                        }}
+                        className={`relative w-14 h-14 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 overflow-visible ${
+                          hasMyStory
+                            ? 'bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 shadow-xs'
+                            : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
+                        }`}
+                      >
+                        <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
+                          {user?.profile_picture_url || vendorStore?.logo ? (
+                            <SafeImage
+                              src={user?.profile_picture_url || vendorStore?.logo}
+                              alt="My Status"
+                              fallbackType="avatar"
+                              className="w-full h-full rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
+                              {user?.full_name?.charAt(0) || 'V'}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCreateStatusModalOpen(true);
+                          }}
+                          className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
+                          title="Post new story drop"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                        </button>
                       </div>
+                      <span className="text-[11px] font-bold text-slate-800 mt-1.5">My Story</span>
+                      <span className="text-[9px] text-slate-400">
+                        {hasMyStory ? `${selfGroup.items.length} update${selfGroup.items.length > 1 ? 's' : ''}` : 'Post drop'}
+                      </span>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[70px] text-center">
-                      {group.is_self ? 'You' : group.user_name.split(' ')[0]}
-                    </span>
-                    <span className="text-[9px] text-emerald-600 font-semibold">
-                      {group.items.length} update{group.items.length > 1 ? 's' : ''}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })()}
+
+                {/* 2. Peer Campus Stories (Instagram-style vibrant vs faded rings) */}
+                {statusGroups
+                  .filter(g => !g.is_self)
+                  .map((group) => {
+                    const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
+                    const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
+
+                    return (
+                      <div
+                        key={group.user_id}
+                        onClick={() => {
+                          const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
+                          setActiveStatusViewer({
+                            userIdx: origIdx !== -1 ? origIdx : 0,
+                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                          });
+                        }}
+                        className="flex flex-col items-center shrink-0 cursor-pointer group"
+                      >
+                        <div
+                          className={`w-14 h-14 rounded-full p-0.5 transition-transform group-hover:scale-105 flex items-center justify-center ${
+                            isUnviewed
+                              ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs'
+                              : 'bg-slate-200 border border-slate-300 opacity-60'
+                          }`}
+                        >
+                          <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
+                            {group.user_avatar ? (
+                              <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                                {group.user_name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[70px] text-center">
+                          {group.is_self ? 'You' : group.user_name.split(' ')[0]}
+                        </span>
+                        <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-rose-500' : 'text-slate-400'}`}>
+                          {isUnviewed ? 'New story' : 'Viewed'}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
 
@@ -2257,67 +2306,92 @@ export default function VendorDashboard() {
                       </button>
                     </div>
 
-                    {conversations.length > 0 ? (
-                      conversations.map((c) => (
-                        <button
-                          key={c.partner_id || c.user_id}
-                          onClick={() => handleSelectPartner(c)}
-                          className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
-                            selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                          }`}
-                        >
-                          <div
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenProfile(c.partner_id || c.user_id);
-                            }}
-                            title="View Profile"
-                            className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm hover:ring-2 hover:ring-sky-500 transition-all overflow-hidden relative"
+                    {conversations.map((c) => {
+                        const pid = c.partner_id || c.user_id;
+                        const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                        const hasStory = partnerStoryIdx !== -1;
+                        const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                        const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+
+                        return (
+                          <button
+                            key={pid}
+                            onClick={() => handleSelectPartner(c)}
+                            className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                              selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                            }`}
                           >
-                            {c.partner_avatar ? (
-                              <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                            ) : (
-                              c.partner_name?.charAt(0) || 'S'
-                            )}
-                          </div>
-                          <div className="flex-1 overflow-hidden">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                              <div className="flex items-center space-x-1.5 shrink-0">
-                                {c.unread_count > 0 && (
-                                  <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                                    {c.unread_count}
-                                  </span>
+                            {/* WhatsApp-Style Clickable Story Avatar */}
+                            <div
+                              onClick={(e) => {
+                                if (hasStory) {
+                                  e.stopPropagation();
+                                  const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                  setActiveStatusViewer({
+                                    userIdx: partnerStoryIdx,
+                                    itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                  });
+                                } else {
+                                  e.stopPropagation();
+                                  handleOpenProfile(pid);
+                                }
+                              }}
+                              title={hasStory ? `Tap to view ${c.partner_name}'s story` : 'View Profile'}
+                              className={`relative shrink-0 rounded-2xl transition-all ${
+                                hasStory
+                                  ? `p-0.5 cursor-pointer ${
+                                      hasUnviewedStory
+                                        ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                        : 'bg-slate-200 border border-slate-300 opacity-70'
+                                    }`
+                                  : ''
+                              }`}
+                            >
+                              <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                {c.partner_avatar ? (
+                                  <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                    {c.partner_name?.charAt(0) || 'S'}
+                                  </div>
                                 )}
-                                <span className="text-[10px] text-slate-400">
-                                  {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
-                                </span>
                               </div>
                             </div>
-                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                              {(() => {
-                                if (!c.last_message) return 'Inquired about product...';
-                                if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
-                                  const parsed = parseStatusReply(c.last_message);
-                                  return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
-                                }
-                                return c.last_message;
-                              })()}
-                            </p>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-xs text-slate-400 space-y-2">
-                        <MessageSquare className="w-8 h-8 mx-auto text-slate-300" />
-                        <p>No customer chats yet.</p>
-                        <p className="text-[11px] text-slate-400">When students ask about your products, their messages show here.</p>
-                        <button
-                          onClick={() => setMessageSubtab('friends')}
-                          className="mt-2 text-sky-600 font-bold text-[11px] hover:underline cursor-pointer"
-                        >
-                          Explore Campus Students & Vendors
-                        </button>
+
+                            <div className="flex-1 overflow-hidden">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                <div className="flex items-center space-x-1.5 shrink-0">
+                                  {c.unread_count > 0 && (
+                                    <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
+                                      {c.unread_count}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400">
+                                    {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                {(() => {
+                                  if (!c.last_message) return 'Inquired about product...';
+                                  if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
+                                    const parsed = parseStatusReply(c.last_message);
+                                    return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
+                                  }
+                                  return c.last_message;
+                                })()}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+
+                    {conversations.length === 0 && (
+                      <div className="p-6 text-center text-slate-400">
+                        <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        <p className="text-xs font-semibold text-slate-500">No customer chats yet</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">When customers message your store, they will appear here.</p>
                       </div>
                     )}
                   </div>
@@ -2380,17 +2454,17 @@ export default function VendorDashboard() {
                                   </div>
                                 )}
                                 <div
-                                  className={`max-w-sm sm:max-w-lg p-3.5 rounded-2xl text-xs leading-relaxed ${
+                                  className={`max-w-[85%] sm:max-w-md p-3.5 rounded-2xl text-xs leading-relaxed shadow-2xs ${
                                     msg.sender === 'user'
-                                      ? 'bg-blue-600 text-white rounded-br-none shadow-xs'
-                                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                      ? 'bg-blue-600 text-white rounded-br-none'
+                                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
                                   }`}
                                 >
                                   <p className="whitespace-pre-wrap">{msg.content}</p>
-                                  <span className={`block text-[9px] mt-1.5 text-right ${
+                                  <span className={`block text-[9px] mt-1 text-right ${
                                     msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
                                   }`}>
-                                    {safeTime(msg.created_at, 'Just now')}
+                                    {safeTime(msg.created_at, 'Now')}
                                   </span>
                                 </div>
                               </div>
@@ -2452,15 +2526,16 @@ export default function VendorDashboard() {
                         >
                           <input
                             type="text"
-                            placeholder="Ask CampusLink AI anything (reply ideas, promo copy, grammar, math)..."
+                            placeholder="Ask CampusLink AI for customer replies, marketing tips or anything..."
                             value={newMsgText}
                             onChange={(e) => setNewMsgText(e.target.value)}
-                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-blue-500"
+                            disabled={isAiTyping}
+                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
                           />
                           <button
                             type="submit"
                             disabled={!newMsgText.trim() || isAiTyping}
-                            className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer disabled:opacity-50 transition-colors shadow-xs"
+                            className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer disabled:opacity-50"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -2484,29 +2559,65 @@ export default function VendorDashboard() {
                                 </span>
                               )}
                             </button>
+
+                            {/* WhatsApp-Style Clickable Avatar with Story Ring */}
+                            {(() => {
+                              const pid = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+                              const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                              const hasStory = partnerStoryIdx !== -1;
+                              const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                              const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+
+                              return (
+                                <div
+                                  onClick={() => {
+                                    if (hasStory) {
+                                      const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                      setActiveStatusViewer({
+                                        userIdx: partnerStoryIdx,
+                                        itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                      });
+                                    } else {
+                                      handleOpenProfile(pid);
+                                    }
+                                  }}
+                                  title={hasStory ? `Tap to view ${selectedPartner.partner_name}'s story` : 'Click to view profile'}
+                                  className={`relative shrink-0 rounded-2xl transition-all cursor-pointer ${
+                                    hasStory
+                                      ? `p-0.5 ${
+                                          hasUnviewedStory
+                                            ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                            : 'bg-slate-200 border border-slate-300 opacity-70'
+                                        }`
+                                      : ''
+                                  }`}
+                                >
+                                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                    {selectedPartner.partner_avatar ? (
+                                      <SafeImage src={selectedPartner.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs">
+                                        {selectedPartner.partner_name?.charAt(0) || 'U'}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
                             <div
                               onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                              className="flex items-center space-x-2 sm:space-x-2.5 cursor-pointer group min-w-0"
-                              title="Click to view full profile"
+                              className="min-w-0 cursor-pointer group"
                             >
-                              <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs overflow-hidden group-hover:ring-2 group-hover:ring-sky-500 transition-all shrink-0">
-                                {selectedPartner.partner_avatar ? (
-                                  <SafeImage src={selectedPartner.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  selectedPartner.partner_name?.charAt(0) || 'U'
-                                )}
+                              <div className="flex items-center space-x-1.5">
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">
+                                  {selectedPartner.partner_name}
+                                </h4>
+                                <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
+                                  {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
+                                </span>
                               </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center space-x-1.5">
-                                  <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">
-                                    {selectedPartner.partner_name}
-                                  </h4>
-                                  <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
-                                    {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-slate-400 truncate">Tap to view profile</p>
-                              </div>
+                              <p className="text-[10px] text-slate-400 truncate">Tap to view profile</p>
                             </div>
                           </div>
 

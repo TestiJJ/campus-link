@@ -3355,54 +3355,131 @@ export default function StudentDashboard() {
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
           <div className="space-y-4">
-            {/* Sleek, Compact Campus Story Strip */}
+            {/* Instagram-Style Campus Stories Rail */}
             {!selectedPartner && (
-              <div className="bg-white rounded-2xl border border-slate-200 px-4 py-2.5 shadow-2xs flex items-center justify-between gap-3 overflow-x-auto">
-                <div className="flex items-center space-x-2 shrink-0">
-                  <div className="w-6 h-6 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                    <Camera className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-800 shrink-0">Campus Stories</span>
-                </div>
-
-                <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5">
-                  {/* Quick Status Creator Button */}
-                  <button
-                    type="button"
-                    onClick={() => setCreateStatusModalOpen(true)}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 text-[11px] font-bold transition-all shrink-0 cursor-pointer shadow-2xs active:scale-95"
-                    title="Share a campus story or status drop"
-                  >
-                    <Plus className="w-3 h-3 stroke-[3]" />
-                    <span>Add Story</span>
-                  </button>
-
-                  {/* Peer Status Pills */}
-                  {statusGroups.map((group, uIdx) => (
+              <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Camera className="w-3.5 h-3.5 text-sky-500" />
+                    <span>Campus Stories</span>
+                  </span>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
                     <button
-                      key={group.user_id}
                       type="button"
-                      onClick={() => setActiveStatusViewer({ userIdx: uIdx, itemIdx: 0 })}
-                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 transition-colors shrink-0 cursor-pointer text-[11px] group"
-                      title={`View ${group.user_name}'s story`}
+                      onClick={() => setStatusPrivacyModalOpen(true)}
+                      className="text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
                     >
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping" />
-                      <span className="font-semibold text-slate-800 truncate max-w-[70px]">
-                        {group.is_self ? 'You' : group.user_name.split(' ')[0]}
-                      </span>
+                      Privacy
                     </button>
-                  ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center space-x-2 shrink-0 ml-auto">
-                  <button
-                    type="button"
-                    onClick={() => setStatusPrivacyModalOpen(true)}
-                    className="text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
-                    title="Status privacy"
-                  >
-                    Privacy: {statusPrivacy === 'friends' ? 'Friends' : statusPrivacy === 'campus' ? 'Campus' : 'Selected'}
-                  </button>
+                <div className="flex items-center space-x-4 overflow-x-auto pb-1 scrollbar-none">
+                  {/* 1. My Story (Your Story Bubble) */}
+                  {(() => {
+                    const selfGroup = statusGroups.find(g => g.is_self);
+                    const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
+                    return (
+                      <div className="flex flex-col items-center shrink-0 cursor-pointer group">
+                        <div
+                          onClick={() => {
+                            if (hasMyStory) {
+                              const selfIdx = statusGroups.findIndex(g => g.is_self);
+                              setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
+                            } else {
+                              setCreateStatusModalOpen(true);
+                            }
+                          }}
+                          className={`relative w-14 h-14 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 ${
+                            hasMyStory
+                              ? 'bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 shadow-xs'
+                              : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
+                          }`}
+                        >
+                          <div className="w-full h-full rounded-full bg-white p-0.5 overflow-hidden flex items-center justify-center">
+                            {currentUser?.profile_picture_url ? (
+                              <SafeImage
+                                src={currentUser.profile_picture_url}
+                                alt="Your Story"
+                                fallbackType="avatar"
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                {currentUser?.full_name?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCreateStatusModalOpen(true);
+                            }}
+                            className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
+                            title="Add to story"
+                          >
+                            <Plus className="w-3 h-3 stroke-[3]" />
+                          </button>
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-800 mt-1.5">Your Story</span>
+                        <span className="text-[9px] text-slate-400">
+                          {hasMyStory ? `${selfGroup.items.length} drop${selfGroup.items.length > 1 ? 's' : ''}` : 'Add story'}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 2. Peer Campus Stories (Instagram-style rings, faded when viewed) */}
+                  {statusGroups
+                    .filter(g => !g.is_self)
+                    .map((group) => {
+                      const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
+                      const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
+                      return (
+                        <div
+                          key={group.user_id}
+                          onClick={() => {
+                            const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
+                            setActiveStatusViewer({
+                              userIdx: origIdx !== -1 ? origIdx : 0,
+                              itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                            });
+                          }}
+                          className="flex flex-col items-center shrink-0 cursor-pointer group"
+                        >
+                          <div
+                            className={`w-14 h-14 rounded-full p-0.5 transition-transform group-hover:scale-105 flex items-center justify-center ${
+                              isUnviewed
+                                ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs'
+                                : 'bg-slate-200 border border-slate-300 opacity-60'
+                            }`}
+                          >
+                            <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
+                              {group.user_avatar ? (
+                                <SafeImage
+                                  src={group.user_avatar}
+                                  alt={group.user_name}
+                                  fallbackType="avatar"
+                                  className="w-full h-full rounded-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                                  {group.user_name.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[65px] text-center">
+                            {group.user_name.split(' ')[0]}
+                          </span>
+                          <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-rose-500' : 'text-slate-400'}`}>
+                            {isUnviewed ? 'New story' : 'Viewed'}
+                          </span>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
             )}
@@ -3567,49 +3644,80 @@ export default function StudentDashboard() {
                         </button>
                       </div>
 
-                      {conversations.length > 0 ? (
-                        conversations.map((c) => (
-                          <button
-                            key={c.partner_id}
-                            onClick={() => {
-                              if (selectedPartner?.partner_id !== c.partner_id) {
-                                setChatMessages([]);
-                              }
-                              isSwitchingPartnerRef.current = true;
-                              setSelectedPartner(c);
-                              fetchMessagesForPartner(c.partner_id);
-                            }}
-                            className={`w-full p-4 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
-                              selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="relative">
-                              {c.partner_avatar ? (
-                                <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-10 h-10 rounded-xl object-cover" />
-                              ) : (
-                                <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                                  {c.partner_name?.charAt(0) || 'U'}
+                        {conversations.length > 0 ? (
+                        conversations.map((c) => {
+                          const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(c.partner_id));
+                          const hasStory = partnerStoryIdx !== -1;
+                          const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                          const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+
+                          return (
+                            <button
+                              key={c.partner_id}
+                              onClick={() => {
+                                if (selectedPartner?.partner_id !== c.partner_id) {
+                                  setChatMessages([]);
+                                }
+                                isSwitchingPartnerRef.current = true;
+                                setSelectedPartner(c);
+                                fetchMessagesForPartner(c.partner_id);
+                              }}
+                              className={`w-full p-3.5 sm:p-4 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              {/* WhatsApp-Style Clickable Story Avatar */}
+                              <div
+                                onClick={(e) => {
+                                  if (hasStory) {
+                                    e.stopPropagation();
+                                    const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                    setActiveStatusViewer({
+                                      userIdx: partnerStoryIdx,
+                                      itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                    });
+                                  }
+                                }}
+                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
+                                className={`relative shrink-0 rounded-2xl transition-all ${
+                                  hasStory
+                                    ? `p-0.5 cursor-pointer ${
+                                        hasUnviewedStory
+                                          ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                          : 'bg-slate-200 border border-slate-300 opacity-70'
+                                      }`
+                                    : ''
+                                }`}
+                              >
+                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                  {c.partner_avatar ? (
+                                    <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                      {c.partner_name?.charAt(0) || 'U'}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                              {/* Online presence dot */}
-                              <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                              {c.unread_count > 0 && (
-                                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                                  {c.unread_count}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex-1 overflow-hidden">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                <span className="text-[10px] font-medium text-slate-400">
-                                  {c.partner_role}
-                                </span>
+                                {/* Online presence dot */}
+                                <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                {c.unread_count > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
+                                    {c.unread_count}
+                                  </span>
+                                )}
                               </div>
-                              <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message}</p>
-                            </div>
-                          </button>
-                        ))
+                              <div className="flex-1 overflow-hidden">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                  <span className="text-[10px] font-medium text-slate-400">
+                                    {c.partner_role}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message}</p>
+                              </div>
+                            </button>
+                          );
+                        })
                       ) : (
                         <div className="p-8 text-center text-xs text-slate-400">
                           <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -3619,19 +3727,19 @@ export default function StudentDashboard() {
                             onClick={() => setMessageSubtab('friends')}
                             className="mt-3 px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded-xl cursor-pointer"
                           >
-                            Find Campus Friends
+                            Explore Campus Directory
                           </button>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Right Column: Live Chat Window */}
-                  <div className={`flex-1 min-h-0 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                  {/* Right Column: Chat View */}
+                  <div className={`flex-1 flex flex-col justify-between overflow-hidden bg-white ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                     {selectedPartner ? (
                       selectedPartner.is_ai ? (
                         <>
-                          {/* AI Chat Mobile/Desktop WhatsApp-style Header */}
+                          {/* AI Chat Header */}
                           <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
                             <div className="flex items-center space-x-2.5 min-w-0">
                               <button

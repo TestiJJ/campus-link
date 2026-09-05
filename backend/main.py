@@ -3445,6 +3445,8 @@ def get_campus_statuses(
         except Exception:
             viewers_list = []
 
+        is_viewed_by_me = any(v.get("user_id") == current_user.user_id for v in viewers_list) if isinstance(viewers_list, list) else False
+
         user_status_map[uid]["items"].append({
             "id": st.id,
             "media_url": st.media_url,
@@ -3456,11 +3458,32 @@ def get_campus_statuses(
             "origin_university_abbr": u_uni_abbr,
             "views_count": len(viewers_list),
             "viewers": viewers_list if is_self else None,
+            "is_viewed": is_viewed_by_me,
             "created_at": st.created_at
         })
 
+    for g in user_status_map.values():
+        if g["is_self"]:
+            g["has_unviewed"] = False
+            g["all_viewed"] = True
+        else:
+            g["has_unviewed"] = any(not it.get("is_viewed") for it in g["items"])
+            g["all_viewed"] = not g["has_unviewed"]
+
     groups = list(user_status_map.values())
-    groups.sort(key=lambda g: (not g["is_self"], str(g["last_updated"])), reverse=False)
+    def sort_status_groups(g):
+        # 0: Current user's own status
+        # 1: Peers with new/unviewed stories (newest first)
+        # 2: Peers with all stories viewed (newest first)
+        rank = 0 if g["is_self"] else (1 if g.get("has_unviewed") else 2)
+        ts = g["last_updated"].isoformat() if hasattr(g["last_updated"], "isoformat") else str(g["last_updated"])
+        return (rank, "" if rank == 0 else f"-{ts}")
+
+    # Sort so self is index 0, then unviewed stories by recent update, then fully viewed stories
+    groups.sort(key=lambda g: (
+        0 if g["is_self"] else (1 if g.get("has_unviewed") else 2),
+        -(g["last_updated"].timestamp() if hasattr(g["last_updated"], "timestamp") else 0)
+    ))
     return groups
 
 @app.post("/api/campus/statuses", response_model=schemas.CampusStatusOut)
