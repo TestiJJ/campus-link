@@ -1,0 +1,23 @@
+name: Keep Backend Alive 24/7
+
+on:
+  schedule:
+    # Run every 10 minutes to prevent Render free-tier instance from sleeping
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-backend:
+    name: Ping Render Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Health Endpoint
+        run: |
+          echo "Pinging CampusLink Render Backend to keep instance warm..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --max-time 20 "https://campus-link-backend-vhxr.onrender.com/api/health" || echo "failed")
+          echo "Response HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ CampusLink backend is warm and healthy."
+          else
+            echo "⚠️ Backend responded with status $HTTP_STATUS (it may be waking up)."
+          fi
