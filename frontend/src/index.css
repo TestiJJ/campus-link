@@ -1,6 +1,22 @@
 @import "tailwindcss";
 @import "lenis/dist/lenis.css";
 
+/* Lock mobile viewport scaling (iPhone & Android) to prevent accidental shrink/zoom */
+html, body {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent iOS Safari from auto-zooming the page when tapping on inputs */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
 @layer utilities {
   @keyframes marquee {
     0% {

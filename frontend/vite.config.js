@@ -21,7 +21,7 @@ function spaFallbackPlugin() {
       fs.writeFileSync(path.join(distDir, '404.html'), indexHtml);
 
       // 2. Pre-generate index.html for all primary SPA routes
-      const routes = ['login', 'signup', 'dashboard', 'vendor', 'admin', 'auth'];
+      const routes = ['login', 'signup', 'dashboard', 'vendor', 'admin', 'auth', 'student-dashboard', 'vendor-dashboard', 'admin-dashboard'];
       for (const route of routes) {
         const routeDir = path.join(distDir, route);
         if (!fs.existsSync(routeDir)) {
