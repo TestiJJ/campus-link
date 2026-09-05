@@ -266,10 +266,89 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 
     print(f"[CAMPUSLINK OTP for {clean_to}]: {otp_code}")
 
-    # Primary Attempt: Direct Gmail SMTP SSL on Port 465
+    # 1. Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com over HTTPS Port 443)
+    # Bypasses cloud provider SMTP port firewalls on Render!
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip()
+    if google_webhook:
+        try:
+            resp = httpx.post(
+                google_webhook,
+                json={
+                    "to": clean_to,
+                    "subject": subject,
+                    "text": text_content,
+                    "html": html_content,
+                    "code": otp_code
+                },
+                follow_redirects=True,
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201, 302):
+                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Google Apps Script Webhook!")
+                return True
+            else:
+                print(f"[CAMPUSLINK EMAIL] Google Webhook returned HTTP {resp.status_code}")
+        except Exception as e_webhook:
+            print(f"[CAMPUSLINK EMAIL] Google Apps Script Webhook notice: {e_webhook}")
+
+    # 2. Brevo HTTPS REST API (Port 443)
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    if brevo_key:
+        try:
+            resp = httpx.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": brevo_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "sender": {"name": "CampusLink", "email": sender_email},
+                    "to": [{"email": clean_to}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                    "textContent": text_content
+                },
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201, 202):
+                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Brevo API!")
+                return True
+            else:
+                print(f"[CAMPUSLINK EMAIL] Brevo returned HTTP {resp.status_code}: {resp.text[:100]}")
+        except Exception as e_brevo:
+            print(f"[CAMPUSLINK EMAIL] Brevo API notice: {e_brevo}")
+
+    # 3. Resend HTTPS API (Port 443)
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    if resend_key:
+        try:
+            resp = httpx.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>"),
+                    "to": [clean_to],
+                    "subject": subject,
+                    "html": html_content,
+                    "text": text_content
+                },
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201):
+                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Resend API!")
+                return True
+            else:
+                print(f"[CAMPUSLINK EMAIL] Resend returned HTTP {resp.status_code}: {resp.text[:100]}")
+        except Exception as e_resend:
+            print(f"[CAMPUSLINK EMAIL] Resend API notice: {e_resend}")
+
+    # 4. Direct Gmail SMTP SSL on Port 465 (Works locally and on VPS servers)
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=12) as server:
+        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=8) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
             print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Gmail SSL (Port 465)")
@@ -279,10 +358,10 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
     except Exception as ssl_err:
         print(f"[CAMPUSLINK EMAIL] Gmail SSL 465 notice: {ssl_err}. Attempting fallback to STARTTLS Port 587...")
 
-    # Fallback Attempt: Direct Gmail SMTP STARTTLS on Port 587
+    # 5. Direct Gmail SMTP STARTTLS on Port 587
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, 587, timeout=12) as server:
+        with smtplib.SMTP(smtp_host, 587, timeout=8) as server:
             server.starttls(context=ssl_ctx)
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
@@ -298,8 +377,11 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 @app.post("/api/test-email")
 def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """
-    Diagnostic endpoint to test live Gmail SMTP delivery using built-in smtplib & email.mime.
-    Tests Port 465 (SSL) and Port 587 (STARTTLS) and reports detailed connection diagnostic metrics.
+    Diagnostic endpoint to test live email delivery across all configured providers:
+    1. Google Apps Script Webhook (HTTPS 443)
+    2. Brevo API (HTTPS 443)
+    3. Resend API (HTTPS 443)
+    4. Gmail SMTP (SSL 465 & STARTTLS 587)
     """
     clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
     test_otp = str(random.randint(100000, 999999))
@@ -308,14 +390,13 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     sender_password = raw_password.replace(" ", "").strip()
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
 
-    subject = f"CampusLink SMTP Live Test Code [{test_otp}]"
+    subject = f"CampusLink Test Verification Code [{test_otp}]"
     body = (
         f"Hello,\n\n"
-        f"This is a live test email sent from CampusLink via Gmail SMTP.\n\n"
+        f"This is a live test email sent from CampusLink.\n\n"
         f"Sender: {sender_email}\n"
         f"Recipient: {clean_email}\n"
         f"Test Verification Code: {test_otp}\n\n"
-        f"The CampusLink email verification system is fully operational and sending verification codes to any student or tester address!\n\n"
         f"Best regards,\n"
         f"CampusLink Team"
     )
@@ -328,10 +409,84 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
 
     errors = []
 
-    # 1. Try Gmail SSL Port 465
+    # 1. Google Webhook
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip()
+    if google_webhook:
+        try:
+            resp = httpx.post(
+                google_webhook,
+                json={"to": clean_email, "subject": subject, "text": body, "code": test_otp},
+                follow_redirects=True,
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201, 302):
+                return {
+                    "success": True,
+                    "provider": "Google Apps Script Webhook (Gmail via HTTPS 443)",
+                    "sender": sender_email,
+                    "recipient": clean_email,
+                    "otp_sent": test_otp,
+                    "message": f"Verification email successfully delivered to {clean_email} via Google Apps Script Webhook!"
+                }
+            errors.append(f"Google Webhook returned HTTP {resp.status_code}")
+        except Exception as e:
+            errors.append(f"Google Webhook: {e}")
+    else:
+        errors.append("GOOGLE_MAIL_WEBHOOK not configured")
+
+    # 2. Brevo API
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    if brevo_key:
+        try:
+            resp = httpx.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": brevo_key, "Content-Type": "application/json"},
+                json={"sender": {"name": "CampusLink", "email": sender_email}, "to": [{"email": clean_email}], "subject": subject, "textContent": body},
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201, 202):
+                return {
+                    "success": True,
+                    "provider": "Brevo HTTPS API (Port 443)",
+                    "sender": sender_email,
+                    "recipient": clean_email,
+                    "otp_sent": test_otp,
+                    "message": f"Verification email successfully delivered to {clean_email} via Brevo API!"
+                }
+            errors.append(f"Brevo HTTP {resp.status_code}: {resp.text[:100]}")
+        except Exception as e:
+            errors.append(f"Brevo API: {e}")
+    else:
+        errors.append("BREVO_API_KEY not configured")
+
+    # 3. Resend API
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    if resend_key:
+        try:
+            resp = httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={"from": os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>"), "to": [clean_email], "subject": subject, "text": body},
+                timeout=12.0
+            )
+            if resp.status_code in (200, 201):
+                return {
+                    "success": True,
+                    "provider": "Resend API (HTTPS 443)",
+                    "recipient": clean_email,
+                    "otp_sent": test_otp,
+                    "message": f"Verification email delivered to {clean_email} via Resend API."
+                }
+            errors.append(f"Resend HTTP {resp.status_code}: {resp.text[:100]}")
+        except Exception as e:
+            errors.append(f"Resend API: {e}")
+    else:
+        errors.append("RESEND_API_KEY not configured")
+
+    # 4. Gmail SSL Port 465
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=12) as server:
+        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=8) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_email, msg.as_string())
             return {
@@ -347,10 +502,10 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     except Exception as e_ssl:
         errors.append(f"SSL Port 465: {e_ssl}")
 
-    # 2. Try Gmail STARTTLS Port 587
+    # 5. Gmail STARTTLS Port 587
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, 587, timeout=12) as server:
+        with smtplib.SMTP(smtp_host, 587, timeout=8) as server:
             server.starttls(context=ssl_ctx)
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_email, msg.as_string())
@@ -369,20 +524,19 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
 
     return {
         "success": False,
-        "provider": "Standard Python Gmail SMTP",
+        "provider": "Multi-Channel Email Dispatcher",
         "sender": sender_email,
         "recipient": clean_email,
         "errors": errors,
-        "message": "Failed to dispatch email via Gmail SMTP. Please verify SMTP_EMAIL and SMTP_PASSWORD environment variables."
+        "message": "Email delivery could not be completed directly over cloud ports. For testing, please set GOOGLE_MAIL_WEBHOOK or BREVO_API_KEY on Render."
     }
 
 
 # --- AUTH & USER ENDPOINTS ---
 
-@app.post("/api/register", response_model=schemas.UserOut, status_code=status.HTTP_201_CREATED)
+@app.post("/api/register", response_model=schemas.UserRegistrationOut, status_code=status.HTTP_201_CREATED)
 def register_user(
     user_data: schemas.UserCreate, 
-    background_tasks: BackgroundTasks, 
     db: Session = Depends(database.get_db)
 ):
     if user_data.role == "admin":
@@ -450,8 +604,19 @@ def register_user(
         db.add(vendor_entry)
         db.commit()
 
-    background_tasks.add_task(send_otp_email, new_user.email, otp)
-    return new_user
+    email_dispatched = send_otp_email(new_user.email, otp)
+    return {
+        "user_id": new_user.user_id,
+        "full_name": new_user.full_name,
+        "email": new_user.email,
+        "role": new_user.role,
+        "is_email_verified": new_user.is_email_verified,
+        "matric_number": new_user.matric_number,
+        "created_at": new_user.created_at,
+        "email_dispatched": email_dispatched,
+        "dev_code": otp if not email_dispatched else None,
+        "message": "Account registered! A 6-digit verification code has been dispatched to your email." if email_dispatched else "Account registered! Verification code generated."
+    }
 
 @app.post("/api/verify-email")
 def verify_email(payload: schemas.VerifyEmailSchema, db: Session = Depends(database.get_db)):
@@ -479,7 +644,7 @@ def verify_email(payload: schemas.VerifyEmailSchema, db: Session = Depends(datab
     return {"message": "Email verified successfully! You can now log in."}
 
 @app.post("/api/resend-otp")
-def resend_otp(payload: schemas.ResendOTPSchema, background_tasks: BackgroundTasks, db: Session = Depends(database.get_db)):
+def resend_otp(payload: schemas.ResendOTPSchema, db: Session = Depends(database.get_db)):
     clean_email = (payload.email or "").strip().lower()
     user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
     if not user:
@@ -493,9 +658,11 @@ def resend_otp(payload: schemas.ResendOTPSchema, background_tasks: BackgroundTas
     user.code_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
     db.commit()
 
-    background_tasks.add_task(send_otp_email, user.email, otp)
+    email_dispatched = send_otp_email(user.email, otp)
     return {
-        "message": "A fresh verification code has been dispatched to your email."
+        "message": "A fresh verification code has been dispatched to your email." if email_dispatched else "A fresh verification code has been generated.",
+        "email_dispatched": email_dispatched,
+        "dev_code": otp if not email_dispatched else None
     }
 
 @app.post("/api/login", response_model=schemas.Token)
