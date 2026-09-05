@@ -11,13 +11,30 @@ import {
   UserPlus, UserCheck, UserX, Eye, Mail, Star, Laptop, BookOpen, Scissors,
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
-  Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, Sliders, EyeOff,
+  Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
+import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import {
+  getCachedThreadMessages,
+  setCachedThreadMessages,
+  mergeThreadMessages,
+  appendThreadMessage,
+  updateThreadMessage,
+  primeConversationsCache,
+  revalidateThreadMessages,
+  smartScrollToBottom,
+  isUserNearBottom
+} from './chatCache';
+
+// Aliases for compatibility
+const getCachedChatMessages = getCachedThreadMessages;
+const setCachedChatMessages = setCachedThreadMessages;
+const prefetchRecentConversations = primeConversationsCache;
 
 const renderCategoryIcon = (name) => {
   const n = (name || '').toLowerCase();
@@ -63,7 +80,7 @@ export const parseChatReply = (msg) => {
         return {
           isChatReply: true,
           replyToId: parsed.reply_to_id,
-          replyToSender: parsed.reply_to_sender || 'Peer',
+          replyToSender: parsed.reply_to_sender || 'Campus Peer',
           replyToText: parsed.reply_to_text || '',
           text: parsed.text || ''
         };
@@ -79,8 +96,11 @@ export const parseChatReply = (msg) => {
 const safeTime = (dateStr, fallback = 'Recently') => {
   if (!dateStr) return fallback;
   try {
-    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
-    const d = new Date(cleanStr);
+    let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
+    if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
     return isNaN(d.getTime()) ? fallback : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
     return fallback;
@@ -90,32 +110,47 @@ const safeTime = (dateStr, fallback = 'Recently') => {
 const safeDate = (dateStr, fallback = 'Recent') => {
   if (!dateStr) return fallback;
   try {
-    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
-    const d = new Date(cleanStr);
-    return isNaN(d.getTime()) ? fallback : d.toLocaleDateString();
+    let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
+    if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   } catch {
     return fallback;
   }
 };
 
-// Presence: format last seen or active now
+// Presence: format accurate last seen or active now (with rock-solid UTC timezone handling)
 const formatLastSeen = (lastSeenIso, isOnline) => {
   if (isOnline) return { label: 'Active now', online: true };
-  if (!lastSeenIso) return { label: 'Last seen recently', online: false };
+  if (!lastSeenIso) return { label: 'Offline', online: false };
   try {
-    const then = new Date(lastSeenIso.includes('T') ? lastSeenIso : lastSeenIso.replace(' ', 'T'));
-    if (isNaN(then.getTime())) return { label: 'Last seen recently', online: false };
-    const diffMs = Date.now() - then.getTime();
+    let raw = String(lastSeenIso).trim();
+    let iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    // Naive timestamps from server are UTC
+    if (!iso.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(iso)) {
+      iso += 'Z';
+    }
+    const targetDate = new Date(iso);
+    if (isNaN(targetDate.getTime())) return { label: 'Offline', online: false };
+
+    let diffMs = Date.now() - targetDate.getTime();
+    // Allow slight tolerance if client clock is slightly behind server
+    if (diffMs < 120000 && diffMs > -180000) return { label: 'Active now', online: true };
+    if (diffMs < 0) diffMs = 0;
+
     const diffMin = Math.floor(diffMs / 60000);
-    const diffHr  = Math.floor(diffMs / 3600000);
-    if (diffMin < 1)  return { label: 'Last seen just now', online: false };
+    const diffHr = Math.floor(diffMs / 3600000);
+
+    if (diffMin < 1) return { label: 'Active now', online: true };
     if (diffMin < 60) return { label: `Last seen ${diffMin}m ago`, online: false };
-    if (diffHr  < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
-    if (diffHr  < 48) return { label: 'Last seen yesterday', online: false };
+    if (diffHr < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
+    if (diffHr < 48) return { label: 'Last seen yesterday', online: false };
     const opts = { day: 'numeric', month: 'short' };
-    return { label: `Last seen ${then.toLocaleDateString([], opts)}`, online: false };
+    return { label: `Last seen ${targetDate.toLocaleDateString([], opts)}`, online: false };
   } catch {
-    return { label: 'Last seen recently', online: false };
+    return { label: 'Offline', online: false };
   }
 };
 
@@ -180,10 +215,12 @@ export default function StudentDashboard() {
   const [reelPosting, setReelPosting] = useState(false);
   const [activeCommentsReelId, setActiveCommentsReelId] = useState(null);
   const [newCommentText, setNewCommentText] = useState('');
+  const [replyingToComment, setReplyingToComment] = useState(null);
   const [postingComment, setPostingComment] = useState(false);
   const [activePostMenuId, setActivePostMenuId] = useState(null);
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
   const reelFileInputRef = useRef(null);
+  const commentInputRef = useRef(null);
 
   // Synchronize activeTab and marketType with browser URL and localStorage
   useEffect(() => {
@@ -246,8 +283,11 @@ export default function StudentDashboard() {
   const [statusGroups, setStatusGroups] = useState(() => getCachedData('statusGroups', []));
   const [activeStatusViewer, setActiveStatusViewer] = useState(null); // { userIdx: 0, itemIdx: 0 }
   const [createStatusModalOpen, setCreateStatusModalOpen] = useState(false);
+  const [statusMode, setStatusMode] = useState('media'); // 'media' | 'text'
+  const [statusMediaFile, setStatusMediaFile] = useState(null);
+  const [statusMediaPreview, setStatusMediaPreview] = useState(null);
   const [newStatusForm, setNewStatusForm] = useState({
-    media_type: 'text',
+    media_type: 'image',
     caption: '',
     background_color: 'from-emerald-600 to-teal-800',
     media_url: ''
@@ -287,11 +327,14 @@ export default function StudentDashboard() {
   const activeTabRef = useRef(activeTab);
   const isSwitchingPartnerRef = useRef(false);
 
-  // Manual & Live Auto-Refresh State
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
 
   // Chat Swipe-to-Reply State
   const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [pendingMediaFile, setPendingMediaFile] = useState(null);
+  const [showMediaEditor, setShowMediaEditor] = useState(false);
   const chatInputRef = useRef(null);
 
   useEffect(() => {
@@ -436,6 +479,10 @@ export default function StudentDashboard() {
               const newM = data.message;
               const isFromMe = newM.sender_id === currentUser.user_id;
 
+              // Immediately append to thread cache
+              appendThreadMessage(newM.sender_id, newM);
+              appendThreadMessage(newM.recipient_id, newM);
+
               if (!isFromMe) {
                 const isCurrentChatOpen = selectedPartnerRef.current && 
                   String(selectedPartnerRef.current.partner_id) === String(newM.sender_id) &&
@@ -446,7 +493,9 @@ export default function StudentDashboard() {
                     if (prev.some(m => m.id === newM.id)) return prev;
                     return [...prev, newM];
                   });
-                  setTimeout(() => scrollToChatBottom(false), 50);
+                  if (isUserNearBottom(chatContainerRef.current)) {
+                    smartScrollToBottom(chatContainerRef.current, true);
+                  }
                 } else {
                   // Pop up in-app notification banner across Reels, Marketplace, etc.
                   setInAppBanner({
@@ -494,7 +543,7 @@ export default function StudentDashboard() {
         socket.onclose = () => {
           clearInterval(pingInterval);
           if (isMounted) {
-            setTimeout(connectWs, 4000);
+            setTimeout(connectWs, 1500);
           }
         };
 
@@ -519,30 +568,12 @@ export default function StudentDashboard() {
     setInAppBanner(null);
     setActiveTab('messages');
     setMessageSubtab('chats');
-    setChatMessages([]);
-    isSwitchingPartnerRef.current = true;
     const existing = conversations.find(c => String(c.partner_id) === String(senderId));
     if (existing) {
-      setSelectedPartner(existing);
+      handleSelectPartner(existing);
     } else {
-      API.get(`/students`)
-        .then(res => {
-          const student = (res.data || []).find(s => String(s.user_id || s.id) === String(senderId));
-          if (student) {
-            setSelectedPartner({
-              partner_id: student.user_id || student.id,
-              partner_name: student.full_name,
-              partner_avatar: student.profile_picture_url,
-              partner_role: 'Student',
-              is_friend: true
-            });
-          } else {
-            setSelectedPartner({ partner_id: senderId, partner_name: 'Campus Peer' });
-          }
-        })
-        .catch(() => {
-          setSelectedPartner({ partner_id: senderId, partner_name: 'Campus Peer' });
-        });
+      const partner = { partner_id: senderId, partner_name: 'Campus Peer' };
+      handleSelectPartner(partner);
     }
   };
 
@@ -743,6 +774,9 @@ export default function StudentDashboard() {
       setCampusStudents(fetchedStudents);
       setMyOrders(fetchedOrders);
       setAiMemories(fetchedMemories);
+
+      // Instantly prefetch top conversations in the background for 0ms chat loading
+      prefetchRecentConversations(fetchedConvs);
 
       setCachedData('conversations', fetchedConvs);
       setCachedData('notices', fetchedNotices);
@@ -963,28 +997,27 @@ export default function StudentDashboard() {
       setCampusStudents(studRes.data || []);
       setPendingRequests(reqRes.data || []);
       setMyFriends(friendsRes.data || []);
-      setConversations(convRes.data || []);
+      const convs = convRes.data || [];
+      setConversations(convs);
+      primeConversationsCache(convs);
     } catch (err) {
       console.error('Error reloading social data:', err);
     }
   };
 
-  // Chat Polling & Message History (Auto-marks as read and updates conversations)
+  // Chat Stale-While-Revalidate (Auto-marks as read and updates conversations)
   const fetchMessagesForPartner = async (partnerId) => {
     if (!partnerId) return;
     try {
-      const res = await API.get(`/messages/${partnerId}`);
-      const msgs = res.data || [];
-      setChatMessages(msgs);
+      await revalidateThreadMessages(partnerId, API, (fresh) => {
+        setChatMessages(fresh);
+        if (isUserNearBottom(chatContainerRef.current)) {
+          smartScrollToBottom(chatContainerRef.current, false);
+        }
+      });
       setConversations(prev =>
         prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
       );
-      // Instant snap to bottom to guarantee recent message visibility
-      requestAnimationFrame(() => {
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      });
     } catch (err) {
       console.error('Error loading chat messages:', err);
     }
@@ -993,15 +1026,47 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!selectedPartner?.partner_id) return;
     if (selectedPartner.is_ai) return;
+
+    // 1. Instantly load cached messages in 0ms to eliminate delay
+    const cached = getCachedThreadMessages(selectedPartner.partner_id);
+    setChatMessages(cached);
+    setIsLoadingChatMessages(false);
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 2. Fetch latest messages from server in background without blocking UI
     fetchMessagesForPartner(selectedPartner.partner_id);
 
-    // Fallback sync every 10 seconds while chat window is active (WebSockets handle instant push)
+    // 3. Fast active chat polling (1.0s) to guarantee instant receipt alongside WebSockets
     const pollTimer = setInterval(() => {
       fetchMessagesForPartner(selectedPartner.partner_id);
-    }, 10000);
+    }, 1000);
 
-    return () => clearInterval(pollTimer);
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchMessagesForPartner(selectedPartner.partner_id);
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(pollTimer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
   }, [selectedPartner?.partner_id]);
+
+  // Instant 0ms Chat Selection (Loads cached messages immediately on click without any lag)
+  const handleSelectPartner = (c) => {
+    if (!c) return;
+    const partnerId = c.partner_id || c.user_id || c.id;
+    const cached = getCachedThreadMessages(partnerId);
+    setChatMessages(cached);
+    setIsLoadingChatMessages(false);
+    isSwitchingPartnerRef.current = true;
+    setSelectedPartner(c);
+    smartScrollToBottom(chatContainerRef.current, false);
+  };
 
   // Trigger Swipe-to-Reply or Click-to-Reply
   const handleStartReply = (msg) => {
@@ -1030,7 +1095,23 @@ export default function StudentDashboard() {
     }, 60);
   };
 
-  // Send Message (Real DB API with friendship enforcement & quote replies)
+  // Jump to and highlight original replied-to message in chat thread
+  const handleScrollToQuotedMessage = (targetId) => {
+    if (!targetId) return;
+    const targetElement = document.getElementById(`chat-msg-${targetId}`) || document.querySelector(`[data-msg-id="${targetId}"]`);
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(targetId);
+      try {
+        if (navigator.vibrate) navigator.vibrate(20);
+      } catch {}
+      setTimeout(() => {
+        setHighlightedMessageId(prev => (prev === targetId ? null : prev));
+      }, 2500);
+    }
+  };
+
+  // Send Message (Instant Zero-Latency Optimistic Delivery)
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (selectedPartner?.is_ai) {
@@ -1046,15 +1127,18 @@ export default function StudentDashboard() {
 
     const messageText = newMsgText.trim();
     const currentReply = replyingToMessage;
+    const partnerId = selectedPartner.partner_id;
+
+    // 1. Instantly clear input field and reply preview (0ms latency)
     setNewMsgText('');
     setReplyingToMessage(null);
 
-    // Optimistic UI Update: Prepend message into active thread immediately
-    const tempId = `temp_${Date.now()}`;
+    // 2. Optimistic UI Update: Render message into active thread IMMEDIATELY
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const optimisticMsg = {
       id: tempId,
       sender_id: currentUser?.user_id,
-      recipient_id: selectedPartner.partner_id,
+      recipient_id: partnerId,
       content: messageText,
       message_type: currentReply ? 'reply' : 'text',
       reply_to_id: currentReply?.id || null,
@@ -1065,13 +1149,26 @@ export default function StudentDashboard() {
       is_optimistic: true
     };
 
+    appendThreadMessage(partnerId, optimisticMsg);
     setChatMessages(prev => [...prev, optimisticMsg]);
-    setTimeout(() => scrollToChatBottom(false), 20);
-    setSendingMsg(true);
 
+    // 3. Immediately update the conversation row in sidebar to top
+    setConversations(prev => {
+      const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
+      if (idx !== -1) {
+        const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      }
+      return prev;
+    });
+
+    // 4. Instant scroll to bottom
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 5. Fire network request in background without blocking next user input
     try {
       const payload = {
-        recipient_id: selectedPartner.partner_id,
+        recipient_id: partnerId,
         content: messageText,
         message_type: currentReply ? 'reply' : 'text',
         reply_to_id: currentReply?.id || null,
@@ -1080,18 +1177,13 @@ export default function StudentDashboard() {
       };
 
       const res = await API.post('/messages', payload);
-      setChatMessages(prev => prev.map(m => (m.id === tempId ? res.data : m)));
-      
-      // Background update conversations list silently
-      API.get('/conversations')
-        .then(convRes => setConversations(convRes.data || []))
-        .catch(() => {});
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
     } catch (err) {
-      // Revert optimistic message on failure
+      console.error('Failed to deliver message:', err);
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send message.');
-    } finally {
-      setSendingMsg(false);
     }
   };
 
@@ -1119,7 +1211,8 @@ export default function StudentDashboard() {
   const handleStopAndSendAudio = async () => {
     if (!mediaRecorderRef.current) return;
     clearInterval(recordingTimerRef.current);
-    const duration = recordingSeconds;
+    const duration = recordingSeconds || 1;
+    const partnerId = selectedPartner?.partner_id;
     
     mediaRecorderRef.current.onstop = async () => {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
@@ -1129,27 +1222,54 @@ export default function StudentDashboard() {
       setIsRecordingAudio(false);
       setRecordingSeconds(0);
 
+      // 1. Optimistic 0ms Render: Create local blob audio for immediate playback
+      const localAudioUrl = URL.createObjectURL(audioBlob);
+      const tempId = `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const optimisticMsg = {
+        id: tempId,
+        sender_id: currentUser?.user_id,
+        recipient_id: partnerId,
+        content: 'Voice note',
+        message_type: 'audio',
+        media_url: localAudioUrl,
+        duration: duration,
+        created_at: new Date().toISOString(),
+        is_read: false,
+        is_optimistic: true
+      };
+
+      appendThreadMessage(partnerId, optimisticMsg);
+      setChatMessages(prev => [...prev, optimisticMsg]);
+      setConversations(prev => {
+        const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
+        if (idx !== -1) {
+          const updated = { ...prev[idx], last_message: '🎤 Voice note', last_timestamp: new Date().toISOString() };
+          return [updated, ...prev.filter((_, i) => i !== idx)];
+        }
+        return prev;
+      });
+      smartScrollToBottom(chatContainerRef.current, false);
+
+      // 2. Upload & Send in background
       try {
-        setSendingMsg(true);
         const formData = new FormData();
         formData.append('file', audioBlob, 'voice_note.webm');
         const uploadRes = await API.post('/upload', formData);
         const audioUrl = uploadRes.data.url;
 
         const res = await API.post('/messages', {
-          recipient_id: selectedPartner.partner_id,
+          recipient_id: partnerId,
           content: 'Voice note',
           message_type: 'audio',
           media_url: audioUrl,
-          duration: duration || 1
+          duration: duration
         });
-        setChatMessages(prev => [...prev, res.data]);
-        const convRes = await API.get('/conversations');
-        setConversations(convRes.data);
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
       } catch (err) {
+        setChatMessages(prev => prev.filter(m => m.id !== tempId));
         alert(err.response?.data?.detail || 'Failed to send voice note.');
-      } finally {
-        setSendingMsg(false);
       }
     };
     mediaRecorderRef.current.stop();
@@ -1175,27 +1295,82 @@ export default function StudentDashboard() {
       alert('Please select an image or video file.');
       return;
     }
+    setPendingMediaFile(file);
+    setShowMediaEditor(true);
+    if (chatMediaInputRef.current) chatMediaInputRef.current.value = '';
+  };
+
+  const handleConfirmSendChatMedia = async (file, caption = '') => {
+    setShowMediaEditor(false);
+    setPendingMediaFile(null);
+    if (!file || !selectedPartner?.partner_id) return;
+
+    const isVid = file.type?.startsWith('video');
+    const partnerId = selectedPartner.partner_id;
+    const currentReply = replyingToMessage;
+    setReplyingToMessage(null);
+
+    // 1. Optimistic 0ms Render: Create local preview URL
+    const localMediaUrl = URL.createObjectURL(file);
+    const tempId = `temp_media_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const displayCaption = caption?.trim() || (isVid ? 'Video' : 'Photo');
+
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: currentUser?.user_id,
+      recipient_id: partnerId,
+      content: displayCaption,
+      message_type: isVid ? 'video' : 'image',
+      media_url: localMediaUrl,
+      reply_to_id: currentReply?.id || null,
+      reply_to_sender: currentReply?.sender_name || null,
+      reply_to_text: currentReply?.preview || null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true
+    };
+
+    appendThreadMessage(partnerId, optimisticMsg);
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setConversations(prev => {
+      const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
+      if (idx !== -1) {
+        const updated = {
+          ...prev[idx],
+          last_message: caption?.trim() ? `📷 ${caption.trim()}` : (isVid ? '📹 Video' : '📷 Photo'),
+          last_timestamp: new Date().toISOString()
+        };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      }
+      return prev;
+    });
+
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 2. Upload & Send in background
     try {
-      setSendingMsg(true);
       const formData = new FormData();
       formData.append('file', file);
       const uploadRes = await API.post('/upload', formData);
       const mediaUrl = uploadRes.data.url;
 
-      const res = await API.post('/messages', {
-        recipient_id: selectedPartner.partner_id,
-        content: isVid ? 'Video' : 'Photo',
+      const payload = {
+        recipient_id: partnerId,
+        content: displayCaption,
         message_type: isVid ? 'video' : 'image',
-        media_url: mediaUrl
-      });
-      setChatMessages(prev => [...prev, res.data]);
-      const convRes = await API.get('/conversations');
-      setConversations(convRes.data);
+        media_url: mediaUrl,
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null
+      };
+
+      const res = await API.post('/messages', payload);
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
     } catch (err) {
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send media.');
-    } finally {
-      setSendingMsg(false);
-      if (chatMediaInputRef.current) chatMediaInputRef.current.value = '';
     }
   };
 
@@ -1419,35 +1594,53 @@ export default function StudentDashboard() {
 
   const handleCreateStatus = async (e) => {
     if (e) e.preventDefault();
-    if (!newStatusForm.caption?.trim()) {
-      alert('Please enter a campus status update or thought.');
+    if (statusMode === 'text' && !newStatusForm.caption?.trim()) {
+      alert('Please enter a status thought or update.');
+      return;
+    }
+    if (statusMode === 'media' && !statusMediaFile) {
+      alert('Please select a photo or video to share to your campus story.');
       return;
     }
     setSubmittingStatus(true);
     try {
+      let mediaUrl = null;
+      let mediaType = 'text';
+
+      if (statusMode === 'media' && statusMediaFile) {
+        const isVid = (
+          (statusMediaFile.type && statusMediaFile.type.startsWith('video')) ||
+          Boolean(statusMediaFile.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
+        );
+        mediaType = isVid ? 'video' : 'image';
+        mediaUrl = await uploadFile(statusMediaFile);
+      }
+
       const payload = {
-        media_type: 'text',
-        caption: newStatusForm.caption.trim(),
-        background_color: newStatusForm.background_color || 'from-emerald-600 to-teal-800',
-        media_url: null,
+        media_type: mediaType,
+        caption: newStatusForm.caption?.trim() || '',
+        background_color: statusMode === 'text' ? (newStatusForm.background_color || 'from-emerald-600 to-teal-800') : null,
+        media_url: mediaUrl,
         privacy_setting: statusPrivacy,
         allowed_user_ids: statusPrivacy === 'custom' ? selectedAudienceFriends : []
       };
       await API.post('/campus/statuses', payload);
       setToast({ 
-        text: 'Campus status updated! Visible to your campus peers.', 
+        text: 'Story shared! Visible to your campus circle.', 
         type: 'success' 
       });
       setCreateStatusModalOpen(false);
+      setStatusMediaFile(null);
+      setStatusMediaPreview(null);
       setNewStatusForm({
-        media_type: 'text',
+        media_type: 'image',
         caption: '',
         background_color: 'from-emerald-600 to-teal-800',
         media_url: ''
       });
       fetchCampusStatuses();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post status.');
+      alert(err.response?.data?.detail || 'Failed to post story.');
     } finally {
       setSubmittingStatus(false);
     }
@@ -1615,38 +1808,48 @@ export default function StudentDashboard() {
     }
   };
 
-  // 6. Start Chat from Profile or Student Card
+  // 6. Start Chat from Profile or Student Card (Instant Cache Render)
   const handleStartChatWithStudent = (student) => {
-    const partner = {
-      partner_id: student.user_id || student.id,
-      partner_name: student.full_name,
-      partner_phone: student.phone_number,
-      partner_avatar: student.profile_picture_url,
-      partner_role: 'Student',
-      department: student.department,
-      level: student.level
-    };
-    setChatMessages([]);
-    isSwitchingPartnerRef.current = true;
-    setSelectedPartner(partner);
+    const partnerId = student.user_id || student.id;
+    const existing = conversations.find(c => String(c.partner_id) === String(partnerId));
+    if (existing) {
+      handleSelectPartner(existing);
+    } else {
+      const partner = {
+        partner_id: partnerId,
+        partner_name: student.full_name,
+        partner_phone: student.phone_number,
+        partner_avatar: student.profile_picture_url,
+        partner_role: 'Student',
+        department: student.department,
+        level: student.level
+      };
+      handleSelectPartner(partner);
+    }
     setActiveTab('messages');
     setMessageSubtab('chats');
     setProfileModalOpen(false);
   };
 
-  // 7. Start Chat with Vendor from Marketplace
+  // 7. Start Chat with Vendor from Marketplace (Instant Cache Render)
   const handleStartVendorChat = (productOrService) => {
-    const partnerId = productOrService.vendor_user_id || `v_${productOrService.vendor_id || productOrService.vendor_name}`;
-    const partner = {
-      partner_id: partnerId,
-      partner_name: productOrService.vendor_name || 'Campus Merchant',
-      partner_phone: productOrService.vendor_phone,
-      partner_role: 'Vendor',
-      location: productOrService.vendor_location || productOrService.location
-    };
-    setChatMessages([]);
-    isSwitchingPartnerRef.current = true;
-    setSelectedPartner(partner);
+    const existing = conversations.find(c => 
+      (productOrService.vendor_user_id && String(c.partner_id) === String(productOrService.vendor_user_id)) ||
+      (productOrService.vendor_name && c.partner_name === productOrService.vendor_name)
+    );
+    if (existing) {
+      handleSelectPartner(existing);
+    } else {
+      const partnerId = productOrService.vendor_user_id || `v_${productOrService.vendor_id || productOrService.vendor_name}`;
+      const partner = {
+        partner_id: partnerId,
+        partner_name: productOrService.vendor_name || 'Campus Merchant',
+        partner_phone: productOrService.vendor_phone,
+        partner_role: 'Vendor',
+        location: productOrService.vendor_location || productOrService.location
+      };
+      handleSelectPartner(partner);
+    }
     setActiveTab('messages');
     setMessageSubtab('chats');
   };
@@ -1673,16 +1876,55 @@ export default function StudentDashboard() {
     }
   };
 
-  // Submit Comment on Post
+  // Submit Comment or Reply on Post (Instant Optimistic Update)
   const handlePostComment = async (reelId) => {
     if (!newCommentText.trim()) return;
+    const commentContent = newCommentText.trim();
+    const currentReply = replyingToComment;
+    const tempId = `temp_c_${Date.now()}`;
+
+    // 1. Instantly clear input and reply target
+    setNewCommentText('');
+    setReplyingToComment(null);
+
+    // 2. Optimistic insert
+    const optimisticComment = {
+      id: tempId,
+      reel_id: reelId,
+      user_id: currentUser?.user_id || currentUser?.id,
+      content: commentContent,
+      author_name: currentUser?.full_name || 'Campus Student',
+      author_avatar: currentUser?.profile_picture_url || null,
+      author_role: currentUser?.role === 'vendor' ? 'Vendor' : 'Student',
+      reply_to_comment_id: currentReply?.commentId || null,
+      reply_to_author: currentReply?.authorName || null,
+      created_at: new Date().toISOString(),
+      is_optimistic: true
+    };
+
+    setReels(prev => prev.map(r => {
+      if (r.id === reelId) {
+        const currentComments = r.comments || [];
+        const updatedComments = [...currentComments, optimisticComment];
+        return {
+          ...r,
+          comments: updatedComments,
+          comments_count: updatedComments.length
+        };
+      }
+      return r;
+    }));
+
     setPostingComment(true);
     try {
-      const res = await API.post(`/reels/${reelId}/comments`, { content: newCommentText.trim() });
+      const payload = {
+        content: commentContent,
+        reply_to_comment_id: currentReply?.commentId || null
+      };
+      const res = await API.post(`/reels/${reelId}/comments`, payload);
       setReels(prev => prev.map(r => {
         if (r.id === reelId) {
-          const currentComments = r.comments || [];
-          const updatedComments = [...currentComments, res.data];
+          const updatedComments = (r.comments || []).map(c => c.id === tempId ? res.data : c);
           return {
             ...r,
             comments: updatedComments,
@@ -1691,9 +1933,19 @@ export default function StudentDashboard() {
         }
         return r;
       }));
-      setNewCommentText('');
-      setToast({ text: 'Comment added to campus post!', type: 'success' });
+      setToast({ text: currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment added to campus post!', type: 'success' });
     } catch (err) {
+      setReels(prev => prev.map(r => {
+        if (r.id === reelId) {
+          const updatedComments = (r.comments || []).filter(c => c.id !== tempId);
+          return {
+            ...r,
+            comments: updatedComments,
+            comments_count: updatedComments.length
+          };
+        }
+        return r;
+      }));
       alert(err.response?.data?.detail || 'Failed to post comment.');
     } finally {
       setPostingComment(false);
@@ -2000,7 +2252,7 @@ export default function StudentDashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
+    <div className="h-screen max-h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
       {/* Floating In-App Chat Notification Alert */}
       <InAppChatBanner
         banner={inAppBanner}
@@ -2009,7 +2261,7 @@ export default function StudentDashboard() {
       />
       
       {/* Desktop Sidebar Navigation (Hidden on small screens) */}
-      <aside className="hidden md:flex flex-col md:w-64 bg-white border-r border-slate-200 p-5 justify-between shrink-0 shadow-xs">
+      <aside className="hidden md:flex flex-col md:w-64 bg-white border-r border-slate-200 p-5 justify-between shrink-0 shadow-xs h-full overflow-y-auto">
         <div>
           <Link to="/" className="flex items-center space-x-2.5 mb-8">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-sm text-white shadow-md shadow-sky-500/20">
@@ -2816,11 +3068,36 @@ export default function StudentDashboard() {
                             return (
                             <div key={comment.id || idx} className="p-3 bg-white rounded-2xl border border-slate-100 shadow-2xs text-xs">
                               <div className="flex items-center justify-between mb-1">
-                                <span className="font-bold text-slate-900">{comment.author_name}</span>
+                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                  <span className="font-bold text-slate-900">{comment.author_name}</span>
+                                  {comment.reply_to_author && (
+                                    <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                                      <Reply className="w-2.5 h-2.5" />
+                                      <span>@{comment.reply_to_author}</span>
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex items-center space-x-2">
                                   <span className="text-[10px] text-slate-400">
                                     {safeTime(comment.created_at, 'Just now')}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReplyingToComment({
+                                        reelId: reel.id,
+                                        commentId: comment.id,
+                                        authorName: comment.author_name,
+                                        text: comment.content
+                                      });
+                                      setTimeout(() => commentInputRef.current?.focus(), 60);
+                                    }}
+                                    className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold"
+                                    title="Reply to this comment"
+                                  >
+                                    <Reply className="w-3 h-3" />
+                                    <span>Reply</span>
+                                  </button>
                                   {canDeleteComment && (
                                     <button
                                       type="button"
@@ -2833,7 +3110,7 @@ export default function StudentDashboard() {
                                   )}
                                 </div>
                               </div>
-                              <p className="text-slate-700 leading-relaxed">{comment.content}</p>
+                              <p className="text-slate-700 leading-relaxed pl-0.5">{comment.content}</p>
                             </div>
                             );
                           })
@@ -2844,6 +3121,26 @@ export default function StudentDashboard() {
                         )}
                       </div>
 
+                      {/* Replying Indicator Banner */}
+                      {replyingToComment && replyingToComment.reelId === reel.id && (
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-200/80 rounded-xl text-xs text-sky-800">
+                          <div className="flex items-center space-x-1.5 overflow-hidden">
+                            <Reply className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                            <span className="truncate">
+                              Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setReplyingToComment(null)}
+                            className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer"
+                            title="Cancel reply"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+
                       {/* Comment Input Form */}
                       <form
                         onSubmit={(e) => {
@@ -2853,8 +3150,9 @@ export default function StudentDashboard() {
                         className="flex items-center space-x-2 pt-2 border-t border-slate-200/60"
                       >
                         <input
+                          ref={commentInputRef}
                           type="text"
-                          placeholder="Write a comment on this post..."
+                          placeholder={replyingToComment && replyingToComment.reelId === reel.id ? `Reply to @${replyingToComment.authorName}...` : "Write a comment on this post..."}
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
                           className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
@@ -2865,7 +3163,7 @@ export default function StudentDashboard() {
                           className="p-2.5 px-3.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50 flex items-center space-x-1"
                         >
                           <Send className="w-3.5 h-3.5" />
-                          <span>Reply</span>
+                          <span>{replyingToComment && replyingToComment.reelId === reel.id ? 'Reply' : 'Post'}</span>
                         </button>
                       </form>
                     </div>
@@ -3654,14 +3952,7 @@ export default function StudentDashboard() {
                           return (
                             <button
                               key={c.partner_id}
-                              onClick={() => {
-                                if (selectedPartner?.partner_id !== c.partner_id) {
-                                  setChatMessages([]);
-                                }
-                                isSwitchingPartnerRef.current = true;
-                                setSelectedPartner(c);
-                                fetchMessagesForPartner(c.partner_id);
-                              }}
+                              onClick={() => handleSelectPartner(c)}
                               className={`w-full p-3.5 sm:p-4 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
                                 selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
                               }`}
@@ -4022,15 +4313,39 @@ export default function StudentDashboard() {
 
                           {/* Chat Messages */}
                           <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3">
-                          {chatMessages.length > 0 ? (
+                          {isLoadingChatMessages && chatMessages.length === 0 ? (
+                            <div className="space-y-4 py-3 animate-pulse">
+                              <div className="flex justify-start">
+                                <div className="h-10 bg-slate-200/80 rounded-2xl rounded-bl-none w-48 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-end">
+                                <div className="h-14 bg-sky-200/70 rounded-2xl rounded-br-none w-56 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-start">
+                                <div className="h-8 bg-slate-200/80 rounded-2xl rounded-bl-none w-36 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-end">
+                                <div className="h-12 bg-sky-200/70 rounded-2xl rounded-br-none w-44 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-center my-3">
+                                <div className="flex items-center space-x-2 text-[11px] text-slate-500 bg-white/90 px-3.5 py-1.5 rounded-full border border-slate-200/80 shadow-xs">
+                                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                                  <span className="font-semibold">Loading messages...</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : chatMessages.length > 0 ? (
                             chatMessages.map((msg) => {
                               const isMine = msg.sender_id === currentUser.user_id;
                               const chatReply = parseChatReply(msg);
+                              const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
 
                               return (
                                 <div
                                   key={msg.id}
-                                  className={`relative flex items-center group select-none ${
+                                  id={`chat-msg-${msg.id}`}
+                                  data-msg-id={msg.id}
+                                  className={`relative flex items-center group select-none transition-all duration-300 ${
                                     isMine ? 'justify-end' : 'justify-start'
                                   }`}
                                 >
@@ -4048,7 +4363,9 @@ export default function StudentDashboard() {
                                         handleStartReply(msg);
                                       }
                                     }}
-                                    className={`relative max-w-sm sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-colors cursor-grab active:cursor-grabbing ${
+                                    className={`relative max-w-sm sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-all cursor-grab active:cursor-grabbing ${
+                                      isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                    } ${
                                       isMine
                                         ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
                                         : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
@@ -4069,14 +4386,22 @@ export default function StudentDashboard() {
                                       <Reply className="w-3 h-3" />
                                     </button>
 
-                                    {/* Quoted Message Card (if this message is replying to another) */}
+                                    {/* Quoted Message Card (Clickable to jump to original message) */}
                                     {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
                                       <div
-                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left ${
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                          if (targetId) {
+                                            handleScrollToQuotedMessage(targetId);
+                                          }
+                                        }}
+                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left cursor-pointer hover:opacity-85 active:scale-[0.98] ${
                                           isMine
-                                            ? 'bg-sky-600/50 border-white text-sky-100 shadow-inner'
-                                            : 'bg-slate-100 border-sky-500 text-slate-700'
+                                            ? 'bg-sky-600/60 border-white text-sky-100 shadow-inner'
+                                            : 'bg-slate-100 border-sky-500 text-slate-700 hover:bg-slate-200/80'
                                         }`}
+                                        title="Click to jump to original message"
                                       >
                                         <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
                                           <Reply className="w-2.5 h-2.5 shrink-0" />
@@ -4156,11 +4481,22 @@ export default function StudentDashboard() {
                                     ) : (
                                       <p>{msg.content || msg.text}</p>
                                     )}
-                                    <span className={`block text-[9px] mt-1 text-right ${
+                                    <div className={`flex items-center justify-end space-x-1 text-[9px] mt-1 ${
                                       isMine ? 'text-sky-100' : 'text-slate-400'
                                     }`}>
-                                      {safeTime(msg.created_at, 'Just now')}
-                                    </span>
+                                      <span>{safeTime(msg.created_at, 'Just now')}</span>
+                                      {isMine && (
+                                        <span className="inline-flex items-center ml-0.5">
+                                          {msg.is_optimistic ? (
+                                            <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                          ) : msg.is_read ? (
+                                            <CheckCheck className="w-3 h-3 text-sky-200" />
+                                          ) : (
+                                            <Check className="w-2.5 h-2.5 opacity-80" />
+                                          )}
+                                        </span>
+                                      )}
+                                    </div>
                                   </motion.div>
                                 </div>
                               );
@@ -4288,7 +4624,7 @@ export default function StudentDashboard() {
 
                                   <button
                                     type="submit"
-                                    disabled={sendingMsg || !newMsgText.trim()}
+                                    disabled={!newMsgText.trim()}
                                     className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer transition-colors disabled:opacity-50"
                                   >
                                     <Send className="w-4 h-4" />
@@ -5514,46 +5850,65 @@ export default function StudentDashboard() {
                         <ChevronRight className="w-6 h-6 group-hover:translate-x-0.5 transition-transform stroke-[2.5]" />
                       </button>
 
-                      {currentItem.media_type === 'image' ? (
-                        <div className="w-full h-full flex items-center justify-center p-2 relative">
-                          <SafeImage
-                            src={currentItem.media_url}
-                            alt="Status"
-                            fallbackType="product"
-                            className="max-h-full max-w-full object-contain"
-                          />
-                          {currentItem.caption && (
-                            <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-xs p-3 rounded-2xl text-center text-white text-xs z-20">
-                              {currentItem.caption}
+                      {(() => {
+                        const mediaUrl = currentItem.media_url ? getMediaUrl(currentItem.media_url) : null;
+                        const isVideo = (
+                          currentItem.media_type === 'video' ||
+                          (currentItem.media_url && Boolean(currentItem.media_url.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)(\?.*)?$/i))) ||
+                          (currentItem.media_url && currentItem.media_url.includes('/video/upload/'))
+                        );
+
+                        if (isVideo && mediaUrl) {
+                          return (
+                            <div className="w-full h-full flex items-center justify-center p-2 relative bg-black">
+                              <video
+                                key={mediaUrl}
+                                src={mediaUrl}
+                                autoPlay
+                                playsInline
+                                controls
+                                className="max-h-full max-w-full object-contain rounded-xl"
+                              />
+                              {currentItem.caption && (
+                                <div className="absolute bottom-4 left-4 right-4 bg-black/70 backdrop-blur-xs p-3 rounded-2xl text-center text-white text-xs z-20">
+                                  {currentItem.caption}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ) : currentItem.media_type === 'video' ? (
-                        <div className="w-full h-full flex items-center justify-center p-2 relative">
-                          <video
-                            src={currentItem.media_url}
-                            autoPlay
-                            controls
-                            className="max-h-full max-w-full"
-                          />
-                          {currentItem.caption && (
-                            <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-xs p-3 rounded-2xl text-center text-white text-xs z-20">
-                              {currentItem.caption}
+                          );
+                        }
+
+                        if (currentItem.media_type === 'image' || mediaUrl) {
+                          return (
+                            <div className="w-full h-full flex items-center justify-center p-2 relative">
+                              <SafeImage
+                                src={mediaUrl}
+                                alt="Status"
+                                fallbackType="product"
+                                className="max-h-full max-w-full object-contain"
+                              />
+                              {currentItem.caption && (
+                                <div className="absolute bottom-4 left-4 right-4 bg-black/60 backdrop-blur-xs p-3 rounded-2xl text-center text-white text-xs z-20">
+                                  {currentItem.caption}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ) : (
-                        /* Full Screen Vibrant Text Status */
-                        <div
-                          className={`w-full h-full flex flex-col items-center justify-center p-8 text-center text-white bg-gradient-to-tr ${
-                            currentItem.background_color || 'from-emerald-600 to-teal-800'
-                          }`}
-                        >
-                          <p className="text-xl sm:text-2xl font-black leading-relaxed max-w-xs drop-shadow-md">
-                            {currentItem.caption}
-                          </p>
-                        </div>
-                      )}
+                          );
+                        }
+
+                        return (
+                          /* Full Screen Vibrant Text Status */
+                          <div
+                            className={`w-full h-full flex flex-col items-center justify-center p-8 text-center text-white bg-gradient-to-tr ${
+                              currentItem.background_color || 'from-emerald-600 to-teal-800'
+                            }`}
+                          >
+                            <p className="text-xl sm:text-2xl font-black leading-relaxed max-w-xs drop-shadow-md">
+                              {currentItem.caption}
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Bottom: Viewers pill for own story, or Quick Reaction & Reply for peer story */}
@@ -5617,113 +5972,219 @@ export default function StudentDashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- CREATE STATUS STORY MODAL WITH PRIVACY SELECTOR --- */}
+      {/* --- CREATE STATUS STORY MODAL (PHOTO, VIDEO & TEXT) --- */}
       <AnimatePresence>
         {createStatusModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl relative border border-slate-200"
+              className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative border border-slate-200 my-auto"
             >
               <button
-                onClick={() => setCreateStatusModalOpen(false)}
-                className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 cursor-pointer"
+                onClick={() => {
+                  setCreateStatusModalOpen(false);
+                  setStatusMediaFile(null);
+                  setStatusMediaPreview(null);
+                }}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 p-1 rounded-full cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 leading-tight">Campus Status & Vibe</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Fast text updates that keep your campus circle connected without using device storage.
-                  </p>
-                </div>
+              <div className="mb-4">
+                <h3 className="text-base font-black text-slate-900 leading-tight">Create Campus Story</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">Share with your campus circle (disappears in 24h).</p>
               </div>
 
-              {/* Story Audience Pill (Blue & White Campus Theme) */}
-              <div className="mb-4 flex items-center justify-between p-2.5 bg-sky-50/70 border border-sky-200 rounded-xl text-xs">
-                <div className="flex items-center space-x-1.5 text-sky-950 font-semibold">
-                  <Lock className="w-3.5 h-3.5 text-sky-600" />
-                  <span>Audience:</span>
-                  <span className="font-bold text-sky-700">
-                    {statusPrivacy === 'friends' ? 'My Friends (Default)' : statusPrivacy === 'campus' ? 'All Campus Peers' : 'Selected Friends'}
+              {/* Tab Selector: Photo/Video vs Text */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4 font-bold text-xs">
+                <button
+                  type="button"
+                  onClick={() => setStatusMode('media')}
+                  className={`py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                    statusMode === 'media'
+                      ? 'bg-white text-sky-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Camera className="w-4 h-4 text-sky-500" />
+                  <span>Photo / Video</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusMode('text')}
+                  className={`py-2 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                    statusMode === 'text'
+                      ? 'bg-white text-sky-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Edit3 className="w-4 h-4 text-emerald-500" />
+                  <span>Text / Vibe</span>
+                </button>
+              </div>
+
+              {/* Story Audience Pill */}
+              <div className="mb-4 flex items-center justify-between p-2.5 bg-sky-50/80 border border-sky-200/80 rounded-xl text-xs">
+                <div className="flex items-center space-x-1.5 text-sky-950 font-semibold truncate">
+                  <Lock className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                  <span className="text-slate-600">Audience:</span>
+                  <span className="font-bold text-sky-700 truncate">
+                    {statusPrivacy === 'friends' ? 'My Friends' : statusPrivacy === 'campus' ? 'All Campus Peers' : 'Selected Friends'}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setStatusPrivacyModalOpen(true)}
-                  className="text-[11px] font-bold text-sky-700 hover:text-sky-900 hover:underline cursor-pointer"
+                  className="text-[11px] font-bold text-sky-700 hover:text-sky-900 hover:underline cursor-pointer shrink-0 ml-2"
                 >
                   Change
                 </button>
               </div>
 
-              <form onSubmit={handleCreateStatus} className="space-y-4 text-xs">
-                <div className="space-y-3">
-                  {/* Live Preview of Gradient Status */}
-                  <div
-                    className={`h-36 rounded-2xl bg-gradient-to-tr ${newStatusForm.background_color} p-4 flex items-center justify-center text-center text-white shadow-inner relative`}
-                  >
-                    <p className="font-bold text-sm leading-relaxed max-w-xs break-words">
-                      {newStatusForm.caption || 'Type your status text below...'}
-                    </p>
-                  </div>
+              <form onSubmit={handleCreateStatus} className="space-y-3.5 text-xs">
+                {statusMode === 'media' ? (
+                  <div className="space-y-3">
+                    <input
+                      ref={statusFileInputRef}
+                      type="file"
+                      accept="image/*,video/*,video/mp4,video/quicktime,video/webm,video/x-m4v"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setStatusMediaFile(file);
+                          setStatusMediaPreview(URL.createObjectURL(file));
+                        }
+                      }}
+                    />
 
-                  <textarea
-                    rows={3}
-                    maxLength={140}
-                    placeholder="What's on your mind today? Share a campus thought or vibe..."
-                    value={newStatusForm.caption}
-                    onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-emerald-500 resize-none"
-                  />
+                    {statusMediaPreview ? (
+                      <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 h-48 flex items-center justify-center group">
+                        {((statusMediaFile?.type && statusMediaFile.type.startsWith('video')) || Boolean(statusMediaFile?.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))) ? (
+                          <video src={statusMediaPreview} controls playsInline autoPlay muted className="h-full w-full object-contain" />
+                        ) : (
+                          <img src={statusMediaPreview} alt="Story preview" className="h-full w-full object-contain" />
+                        )}
+                        <div className="absolute top-2 right-2 flex items-center space-x-1.5 bg-slate-900/70 backdrop-blur-xs p-1 rounded-xl">
+                          <button
+                            type="button"
+                            onClick={() => statusFileInputRef.current?.click()}
+                            className="px-2.5 py-1 bg-white/90 hover:bg-white text-slate-800 text-[10px] font-bold rounded-lg cursor-pointer transition-colors"
+                          >
+                            Change
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStatusMediaFile(null);
+                              setStatusMediaPreview(null);
+                            }}
+                            className="p-1 bg-rose-500 hover:bg-rose-600 text-white rounded-lg cursor-pointer transition-colors"
+                            title="Remove"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => statusFileInputRef.current?.click()}
+                        className="h-44 border-2 border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/50 hover:bg-sky-50 rounded-2xl flex flex-col items-center justify-center p-4 cursor-pointer transition-all text-center group"
+                      >
+                        <div className="w-12 h-12 rounded-2xl bg-white shadow-2xs border border-sky-100 flex items-center justify-center text-sky-600 mb-2 group-hover:scale-110 transition-transform">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <span className="font-bold text-slate-700 text-xs">Tap to select photo or video</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">Supports JPG, PNG, MP4 clips up to 60s</span>
+                      </div>
+                    )}
 
-                  {/* Gradient Theme Picker */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">Choose Color Theme</label>
-                    <div className="flex items-center space-x-2">
-                      {[
-                        { id: 'from-emerald-600 to-teal-800', name: 'Emerald' },
-                        { id: 'from-indigo-600 to-purple-800', name: 'Indigo' },
-                        { id: 'from-rose-600 to-pink-800', name: 'Rose' },
-                        { id: 'from-sky-500 to-blue-700', name: 'Sky' },
-                        { id: 'from-amber-500 to-orange-700', name: 'Amber' },
-                        { id: 'from-slate-800 to-slate-950', name: 'Midnight' }
-                      ].map((bg) => (
-                        <button
-                          key={bg.id}
-                          type="button"
-                          onClick={() => setNewStatusForm(prev => ({ ...prev, background_color: bg.id }))}
-                          className={`w-7 h-7 rounded-full bg-gradient-to-tr ${bg.id} cursor-pointer transition-transform ${
-                            newStatusForm.background_color === bg.id ? 'scale-125 ring-2 ring-emerald-400 ring-offset-2' : 'hover:scale-110'
-                          }`}
-                          title={bg.name}
-                        />
-                      ))}
+                    <div>
+                      <input
+                        type="text"
+                        maxLength={140}
+                        placeholder="Add a caption (optional)..."
+                        value={newStatusForm.caption}
+                        onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                      />
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Live Preview of Gradient Status */}
+                    <div
+                      className={`h-36 rounded-2xl bg-gradient-to-tr ${newStatusForm.background_color} p-4 flex items-center justify-center text-center text-white shadow-inner relative`}
+                    >
+                      <p className="font-bold text-sm leading-relaxed max-w-xs break-words">
+                        {newStatusForm.caption || 'Type your vibe or thought...'}
+                      </p>
+                    </div>
+
+                    <textarea
+                      rows={3}
+                      maxLength={140}
+                      placeholder="What's on your mind? Share a campus thought..."
+                      value={newStatusForm.caption}
+                      onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 resize-none"
+                    />
+
+                    {/* Gradient Theme Picker */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">Color Gradient</label>
+                      <div className="flex items-center space-x-2">
+                        {[
+                          { id: 'from-emerald-600 to-teal-800', name: 'Emerald' },
+                          { id: 'from-sky-500 to-blue-700', name: 'Sky' },
+                          { id: 'from-indigo-600 to-purple-800', name: 'Indigo' },
+                          { id: 'from-rose-600 to-pink-800', name: 'Rose' },
+                          { id: 'from-amber-500 to-orange-700', name: 'Amber' },
+                          { id: 'from-slate-800 to-slate-950', name: 'Midnight' }
+                        ].map((bg) => (
+                          <button
+                            key={bg.id}
+                            type="button"
+                            onClick={() => setNewStatusForm(prev => ({ ...prev, background_color: bg.id }))}
+                            className={`w-7 h-7 rounded-full bg-gradient-to-tr ${bg.id} cursor-pointer transition-transform ${
+                              newStatusForm.background_color === bg.id ? 'scale-125 ring-2 ring-sky-500 ring-offset-2' : 'hover:scale-110'
+                            }`}
+                            title={bg.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 flex items-center space-x-2">
                   <button
                     type="button"
-                    onClick={() => setCreateStatusModalOpen(false)}
+                    onClick={() => {
+                      setCreateStatusModalOpen(false);
+                      setStatusMediaFile(null);
+                      setStatusMediaPreview(null);
+                    }}
                     className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={submittingStatus}
-                    className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer transition-colors disabled:opacity-50"
+                    disabled={submittingStatus || (statusMode === 'media' && !statusMediaFile) || (statusMode === 'text' && !newStatusForm.caption?.trim())}
+                    className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer transition-colors disabled:opacity-50 flex items-center justify-center space-x-1.5"
                   >
-                    {submittingStatus ? 'Sharing...' : 'Share to Status'}
+                    {submittingStatus ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Sharing Story...</span>
+                      </>
+                    ) : (
+                      <span>Share to Story</span>
+                    )}
                   </button>
                 </div>
               </form>
@@ -6270,6 +6731,16 @@ export default function StudentDashboard() {
         )}
       </AnimatePresence>
 
+      {/* --- MEDIA PREVIEW & PHOTO/VIDEO EDITOR MODAL --- */}
+      <MediaPreviewEditorModal
+        isOpen={showMediaEditor}
+        file={pendingMediaFile}
+        onClose={() => {
+          setShowMediaEditor(false);
+          setPendingMediaFile(null);
+        }}
+        onConfirm={handleConfirmSendChatMedia}
+      />
 
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Compact Icons for Small Screens) --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>

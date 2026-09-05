@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -178,6 +178,8 @@ class ReelComment(Base):
     reel_id = Column(Integer, ForeignKey("reels.id"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
     content = Column(Text, nullable=False)
+    reply_to_comment_id = Column(Integer, nullable=True)
+    reply_to_author = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
@@ -306,18 +308,24 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    sender_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
-    recipient_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
+    sender_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    recipient_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
     post_id = Column(Integer, ForeignKey("posts.id"), nullable=True)
     content = Column(Text, nullable=False)
     message_type = Column(String(20), default="text") # text, audio, image, video
     media_url = Column(String(550), nullable=True)
     duration = Column(Integer, nullable=True) # seconds for voice note
-    is_read = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False, index=True)
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     reply_to_sender = Column(String(100), nullable=True)
     reply_to_text = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_messages_sender_recipient", "sender_id", "recipient_id"),
+        Index("ix_messages_recipient_sender", "recipient_id", "sender_id"),
+        Index("ix_messages_conv_created", "sender_id", "recipient_id", "created_at"),
+    )
 
     sender = relationship("User", foreign_keys=[sender_id])
     recipient = relationship("User", foreign_keys=[recipient_id])
@@ -372,8 +380,8 @@ class CampusStatus(Base):
     __tablename__ = "campus_statuses"
 
     id = Column(Integer, primary_key=True, index=True)
-    university_id = Column(Integer, ForeignKey("universities.id"), nullable=False)
-    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
     media_url = Column(String(550), nullable=True)
     media_type = Column(String(20), default="text")  # text, image, video
     caption = Column(Text, nullable=True)
@@ -381,8 +389,12 @@ class CampusStatus(Base):
     privacy_setting = Column(String(50), default="friends")  # friends, everyone, only_share_with
     allowed_user_ids = Column(Text, nullable=True)  # JSON or comma-separated user IDs
     viewers = Column(Text, default="[]")  # JSON string of viewer objects: [{"user_id": ..., "name": ..., "viewed_at": ...}]
-    created_at = Column(DateTime, default=datetime.utcnow)
-    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
+
+    __table_args__ = (
+        Index("ix_campus_statuses_active", "university_id", "expires_at"),
+    )
 
     user = relationship("User")
     university = relationship("University")
@@ -392,14 +404,14 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
     actor_id = Column(String(36), ForeignKey("users.user_id"), nullable=True)
     notification_type = Column(String(50), nullable=False)  # like, comment, friend_request, friend_accept, order, status_reply, notice
     title = Column(String(200), nullable=False)
     message = Column(Text, nullable=False)
     reference_id = Column(String(100), nullable=True)
-    is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    is_read = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     user = relationship("User", foreign_keys=[user_id])
     actor = relationship("User", foreign_keys=[actor_id])

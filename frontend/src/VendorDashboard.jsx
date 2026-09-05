@@ -16,6 +16,23 @@ import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
+import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import {
+  getCachedThreadMessages,
+  setCachedThreadMessages,
+  mergeThreadMessages,
+  appendThreadMessage,
+  updateThreadMessage,
+  primeConversationsCache,
+  revalidateThreadMessages,
+  smartScrollToBottom,
+  isUserNearBottom
+} from './chatCache';
+
+// Aliases for compatibility
+const getCachedChatMessages = getCachedThreadMessages;
+const setCachedChatMessages = setCachedThreadMessages;
+const prefetchRecentConversations = primeConversationsCache;
 
 // Chat Reply Parser for Quoted Messages
 export const parseChatReply = (msg) => {
@@ -60,11 +77,15 @@ const setCachedData = (key, value) => {
   } catch {}
 };
 
-// Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit)
+// Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit and ensures accurate UTC handling)
 const safeTime = (dateStr, fallback = 'Recently') => {
   if (!dateStr) return fallback;
   try {
-    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    let iso = String(dateStr).trim();
+    if (!iso.endsWith('Z') && !iso.includes('+') && !iso.includes('-', 10)) {
+      iso += 'Z';
+    }
+    const cleanStr = iso.includes('T') ? iso : iso.replace(' ', 'T');
     const d = new Date(cleanStr);
     return isNaN(d.getTime()) ? fallback : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
@@ -75,11 +96,45 @@ const safeTime = (dateStr, fallback = 'Recently') => {
 const safeDate = (dateStr, fallback = 'Recent') => {
   if (!dateStr) return fallback;
   try {
-    const cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+    let iso = String(dateStr).trim();
+    if (!iso.endsWith('Z') && !iso.includes('+') && !iso.includes('-', 10)) {
+      iso += 'Z';
+    }
+    const cleanStr = iso.includes('T') ? iso : iso.replace(' ', 'T');
     const d = new Date(cleanStr);
     return isNaN(d.getTime()) ? fallback : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   } catch {
     return fallback;
+  }
+};
+
+// Presence: format accurate last seen or active now (with rock-solid UTC timezone handling)
+const formatLastSeen = (lastSeenIso, isOnline) => {
+  if (isOnline) return { label: 'Active now', online: true };
+  if (!lastSeenIso) return { label: 'Offline', online: false };
+  try {
+    let raw = String(lastSeenIso).trim();
+    let iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    if (!iso.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(iso)) {
+      iso += 'Z';
+    }
+    const targetDate = new Date(iso);
+    if (isNaN(targetDate.getTime())) return { label: 'Offline', online: false };
+    
+    let diffMs = Date.now() - targetDate.getTime();
+    if (diffMs < 120000 && diffMs > -180000) return { label: 'Active now', online: true };
+    if (diffMs < 0) diffMs = 0;
+
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr  = Math.floor(diffMs / 3600000);
+    if (diffMin < 1) return { label: 'Active now', online: true };
+    if (diffMin < 60) return { label: `Last seen ${diffMin}m ago`, online: false };
+    if (diffHr  < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
+    if (diffHr  < 48) return { label: 'Last seen yesterday', online: false };
+    const opts = { day: 'numeric', month: 'short' };
+    return { label: `Last seen ${targetDate.toLocaleDateString([], opts)}`, online: false };
+  } catch {
+    return { label: 'Offline', online: false };
   }
 };
 
@@ -166,7 +221,11 @@ export default function VendorDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [newMsgText, setNewMsgText] = useState('');
   const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [pendingMediaFile, setPendingMediaFile] = useState(null);
+  const [showMediaEditor, setShowMediaEditor] = useState(false);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
+  const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
   const [communitySearch, setCommunitySearch] = useState('');
@@ -174,6 +233,8 @@ export default function VendorDashboard() {
   const [friendsList, setFriendsList] = useState(() => getCachedData('friendsList', []));
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const chatBottomRef = useRef(null);
+  const chatContainerRef = useRef(null);
+  const chatMediaInputRef = useRef(null);
 
   // Synchronize activeTab with URL query params and localStorage
   useEffect(() => {
@@ -229,7 +290,9 @@ export default function VendorDashboard() {
   const [reelFeedFilter, setReelFeedFilter] = useState('all'); // 'all' | 'my_drops'
   const [activeCommentsReelId, setActiveCommentsReelId] = useState(null);
   const [newCommentText, setNewCommentText] = useState('');
+  const [replyingToComment, setReplyingToComment] = useState(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
+  const commentInputRef = useRef(null);
 
   // Modals State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -338,7 +401,6 @@ export default function VendorDashboard() {
     };
   }, [selectedPartner]);
 
-  const chatContainerRef = useRef(null);
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
@@ -505,7 +567,7 @@ export default function VendorDashboard() {
         socket.onclose = () => {
           clearInterval(pingInterval);
           if (isMounted) {
-            setTimeout(connectWs, 4000);
+            setTimeout(connectWs, 1500);
           }
         };
 
@@ -567,36 +629,58 @@ export default function VendorDashboard() {
     };
   }, [totalUnreadChatCount]);
 
-  // Active chat fallback auto-polling every 10 seconds for vendor (WebSockets handle instant push)
+  // Active chat fast fallback auto-polling (1.0s) for vendor (WebSockets handle instant push)
   useEffect(() => {
     const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
     if (!pid || selectedPartner?.is_ai) return;
 
+    // 1. Instantly load cached messages in 0ms (memory or localStorage)
+    const cached = getCachedThreadMessages(pid);
+    setChatMessages(cached);
+    setIsLoadingChatMessages(false);
+    smartScrollToBottom(chatContainerRef.current, false);
+
     const pollChat = async () => {
       try {
-        const res = await API.get(`/messages/${pid}`);
-        const list = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
-        setChatMessages(list);
+        await revalidateThreadMessages(pid, API, (fresh) => {
+          setChatMessages(fresh);
+          if (isUserNearBottom(chatContainerRef.current)) {
+            smartScrollToBottom(chatContainerRef.current, false);
+          }
+        });
         setConversations(prev =>
           prev.map(c => (String(c.partner_id) === String(pid) ? { ...c, unread_count: 0 } : c))
         );
-        requestAnimationFrame(() => {
-          if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-          }
-        });
       } catch {}
     };
 
-    const timer = setInterval(pollChat, 10000);
-    return () => clearInterval(timer);
+    pollChat();
+    const timer = setInterval(pollChat, 1000);
+
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        pollChat();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
   }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
 
   // Background live sync for vendor data (conversations, orders, statuses, requests)
   useEffect(() => {
     const syncVendorData = () => {
       API.get('/conversations')
-        .then(res => setConversations(res.data || []))
+        .then(res => {
+          const convs = res.data || [];
+          setConversations(convs);
+          primeConversationsCache(convs);
+        })
         .catch(() => {});
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
@@ -705,6 +789,7 @@ export default function VendorDashboard() {
         const convs = results[4].value.data || [];
         setConversations(convs);
         setCachedData('conversations', convs);
+        prefetchRecentConversations(convs);
       }
       if (results[5].status === 'fulfilled') {
         const rls = results[5].value.data || [];
@@ -756,13 +841,19 @@ export default function VendorDashboard() {
     setIsPublishingStatus(true);
     try {
       let mediaUrl = null;
+      let mediaType = 'text';
       if (statusMediaFile) {
+        const isVid = (
+          (statusMediaFile.type && statusMediaFile.type.startsWith('video')) ||
+          Boolean(statusMediaFile.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
+        );
+        mediaType = isVid ? 'video' : 'image';
         mediaUrl = await uploadFile(statusMediaFile);
       }
 
       await API.post('/campus/statuses', {
         media_url: mediaUrl,
-        media_type: statusMediaFile ? (statusMediaFile.type.startsWith('video') ? 'video' : 'image') : 'text',
+        media_type: mediaType,
         caption: statusCaption.trim(),
         background_color: statusBgColor,
         privacy_setting: statusPrivacy
@@ -964,31 +1055,30 @@ export default function VendorDashboard() {
   };
 
   // --- MESSAGING & CHAT ACTIONS ---
-  const handleSelectPartner = async (partner) => {
-    const prevPid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
-    const newPid = partner?.partner_id || partner?.user_id || partner?.id;
-    if (String(prevPid) !== String(newPid)) {
-      setChatMessages([]);
+  const handleScrollToQuotedMessage = (targetId) => {
+    if (!targetId) return;
+    const targetElement = document.getElementById(`chat-msg-${targetId}`) || document.querySelector(`[data-msg-id="${targetId}"]`);
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(targetId);
+      try {
+        if (navigator.vibrate) navigator.vibrate(20);
+      } catch {}
+      setTimeout(() => {
+        setHighlightedMessageId(prev => (prev === targetId ? null : prev));
+      }, 2500);
     }
+  };
+
+  const handleSelectPartner = (partner) => {
+    if (!partner) return;
+    const newPid = partner.partner_id || partner.user_id || partner.id;
+    const cached = getCachedThreadMessages(newPid);
+    setChatMessages(cached);
+    setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
     setSelectedPartner(partner);
-    try {
-      const partnerId = newPid;
-      const res = await API.get(`/messages/${partnerId}`);
-      const list = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
-      setChatMessages(list);
-      setConversations(prev =>
-        prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
-      );
-      requestAnimationFrame(() => {
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      });
-    } catch (err) {
-      console.error('Failed to load partner messages:', err);
-      setChatMessages([]);
-    }
+    smartScrollToBottom(chatContainerRef.current, false);
   };
 
   // --- CAMPUSLINK AI CHAT HANDLERS FOR VENDORS ---
@@ -1088,18 +1178,20 @@ export default function VendorDashboard() {
     }
 
     const text = customContent || newMsgText;
-    if (!text.trim() || !selectedPartner || isSendingMsg) return;
+    if (!text.trim() || !selectedPartner) return;
 
     const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
     const currentReply = replyingToMessage;
     const messageText = text.trim();
 
+    // 1. Instantly clear input field and reply preview (0ms latency)
     if (!customContent) {
       setNewMsgText('');
       setReplyingToMessage(null);
     }
 
-    const tempId = `temp_${Date.now()}`;
+    // 2. Optimistic UI Update: Render message into active thread IMMEDIATELY
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const optimisticMsg = {
       id: tempId,
       sender_id: user?.user_id || user?.id,
@@ -1114,15 +1206,23 @@ export default function VendorDashboard() {
       is_optimistic: true
     };
 
+    appendThreadMessage(partnerId, optimisticMsg);
     setChatMessages(prev => [...prev, optimisticMsg]);
-    setIsSendingMsg(true);
 
-    requestAnimationFrame(() => {
-      if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    // 3. Immediately update the conversation row in sidebar to top
+    setConversations(prev => {
+      const idx = prev.findIndex(c => String(c.partner_id || c.user_id) === String(partnerId));
+      if (idx !== -1) {
+        const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
       }
+      return prev;
     });
 
+    // 4. Instant scroll to bottom
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 5. Fire network request in background without blocking next user input
     try {
       const res = await API.post('/messages', {
         recipient_id: partnerId,
@@ -1133,16 +1233,101 @@ export default function VendorDashboard() {
         reply_to_text: currentReply?.preview || null
       });
 
-      setChatMessages(prev => prev.map(m => (m.id === tempId ? res.data : m)));
-
-      API.get('/conversations')
-        .then(convRes => setConversations(convRes.data || []))
-        .catch(() => {});
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
     } catch (err) {
+      console.error('Failed to deliver message:', err);
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send message.');
-    } finally {
-      setIsSendingMsg(false);
+    }
+  };
+
+  const handleChatMediaSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedPartner) return;
+    const isVid = file.type.startsWith('video');
+    const isImg = file.type.startsWith('image');
+    if (!isVid && !isImg) {
+      alert('Please select an image or video file.');
+      return;
+    }
+    setPendingMediaFile(file);
+    setShowMediaEditor(true);
+    if (chatMediaInputRef.current) chatMediaInputRef.current.value = '';
+  };
+
+  const handleConfirmSendChatMedia = async (file, caption = '') => {
+    setShowMediaEditor(false);
+    setPendingMediaFile(null);
+    if (!file || !selectedPartner) return;
+
+    const isVid = file.type?.startsWith('video');
+    const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    const currentReply = replyingToMessage;
+    setReplyingToMessage(null);
+
+    // 1. Optimistic 0ms Render: Create local preview URL
+    const localMediaUrl = URL.createObjectURL(file);
+    const tempId = `temp_media_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const displayCaption = caption?.trim() || (isVid ? 'Video' : 'Photo');
+
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: user?.user_id || user?.id,
+      recipient_id: partnerId,
+      content: displayCaption,
+      message_type: isVid ? 'video' : 'image',
+      media_url: localMediaUrl,
+      reply_to_id: currentReply?.id || null,
+      reply_to_sender: currentReply?.sender_name || null,
+      reply_to_text: currentReply?.preview || null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true
+    };
+
+    appendThreadMessage(partnerId, optimisticMsg);
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setConversations(prev => {
+      const idx = prev.findIndex(c => String(c.partner_id || c.user_id) === String(partnerId));
+      if (idx !== -1) {
+        const updated = {
+          ...prev[idx],
+          last_message: caption?.trim() ? `📷 ${caption.trim()}` : (isVid ? '📹 Video' : '📷 Photo'),
+          last_timestamp: new Date().toISOString()
+        };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      }
+      return prev;
+    });
+
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 2. Upload & Send in background
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await API.post('/upload', formData);
+      const mediaUrl = uploadRes.data.url;
+
+      const payload = {
+        recipient_id: partnerId,
+        content: displayCaption,
+        message_type: isVid ? 'video' : 'image',
+        media_url: mediaUrl,
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null
+      };
+
+      const res = await API.post('/messages', payload);
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+    } catch (err) {
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
+      alert(err.response?.data?.detail || 'Failed to send media.');
     }
   };
 
@@ -1250,13 +1435,52 @@ export default function VendorDashboard() {
 
   const handlePostReelComment = async (reelId) => {
     if (!newCommentText.trim()) return;
+    const content = newCommentText.trim();
+    const currentReply = replyingToComment;
+    const tempId = `temp_vcomm_${Date.now()}`;
+
+    // 1. Instantly clear input and reply target
+    setNewCommentText('');
+    setReplyingToComment(null);
+
+    // 2. Optimistic insert
+    const optimisticComment = {
+      id: tempId,
+      reel_id: reelId,
+      user_id: user?.user_id || user?.id,
+      content: content,
+      author_name: user?.business_name || user?.full_name || 'Campus Merchant',
+      author_avatar: user?.profile_picture_url || null,
+      author_role: 'Vendor',
+      reply_to_comment_id: currentReply?.commentId || null,
+      reply_to_author: currentReply?.authorName || null,
+      created_at: new Date().toISOString(),
+      is_optimistic: true
+    };
+
+    setAllReels(prev => prev.map(r => {
+      if (r.id === reelId) {
+        const currentComments = r.comments || [];
+        const updated = [...currentComments, optimisticComment];
+        return {
+          ...r,
+          comments: updated,
+          comments_count: updated.length
+        };
+      }
+      return r;
+    }));
+
     setIsPostingComment(true);
     try {
-      const res = await API.post(`/reels/${reelId}/comments`, { content: newCommentText.trim() });
+      const payload = {
+        content: content,
+        reply_to_comment_id: currentReply?.commentId || null
+      };
+      const res = await API.post(`/reels/${reelId}/comments`, payload);
       setAllReels(prev => prev.map(r => {
         if (r.id === reelId) {
-          const currentComments = r.comments || [];
-          const updated = [...currentComments, res.data];
+          const updated = (r.comments || []).map(c => c.id === tempId ? res.data : c);
           return {
             ...r,
             comments: updated,
@@ -1265,9 +1489,15 @@ export default function VendorDashboard() {
         }
         return r;
       }));
-      setNewCommentText('');
-      setFeedbackMsg({ type: 'success', text: 'Comment published on campus drop!' });
+      setFeedbackMsg({ type: 'success', text: currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment published on campus drop!' });
     } catch (err) {
+      setAllReels(prev => prev.map(r => {
+        if (r.id === reelId) {
+          const updated = (r.comments || []).filter(c => c.id !== tempId);
+          return { ...r, comments: updated, comments_count: updated.length };
+        }
+        return r;
+      }));
       alert(err.response?.data?.detail || 'Failed to post comment.');
     } finally {
       setIsPostingComment(false);
@@ -1496,7 +1726,7 @@ export default function VendorDashboard() {
     : allReels;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
+    <div className="h-screen max-h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
       {/* Floating In-App Chat Notification Alert */}
       <InAppChatBanner
         banner={inAppBanner}
@@ -1505,7 +1735,7 @@ export default function VendorDashboard() {
       />
       
       {/* --- DESKTOP SIDEBAR (Visible md and up) --- */}
-      <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs h-screen sticky top-0">
+      <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs h-full overflow-y-auto">
         <div>
           <Link to="/" className="flex items-center space-x-2.5 mb-6">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-sm text-white shadow-md shadow-sky-500/20">
@@ -2617,7 +2847,17 @@ export default function VendorDashboard() {
                                   {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
                                 </span>
                               </div>
-                              <p className="text-[10px] text-slate-400 truncate">Tap to view profile</p>
+                              <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
+                                {(() => {
+                                  const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
+                                  return (
+                                    <>
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 inline-block ${presence.online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      <span>{presence.label}</span>
+                                    </>
+                                  );
+                                })()}
+                              </p>
                             </div>
                           </div>
 
@@ -2656,20 +2896,46 @@ export default function VendorDashboard() {
 
                         {/* Chat Messages */}
                         <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3">
-                          {chatMessages.length > 0 ? (
+                          {isLoadingChatMessages && chatMessages.length === 0 ? (
+                            <div className="space-y-4 py-3 animate-pulse">
+                              <div className="flex justify-start">
+                                <div className="h-10 bg-slate-200/80 rounded-2xl rounded-bl-none w-48 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-end">
+                                <div className="h-14 bg-sky-200/70 rounded-2xl rounded-br-none w-56 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-start">
+                                <div className="h-8 bg-slate-200/80 rounded-2xl rounded-bl-none w-36 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-end">
+                                <div className="h-12 bg-sky-200/70 rounded-2xl rounded-br-none w-44 shadow-2xs" />
+                              </div>
+                              <div className="flex justify-center my-3">
+                                <div className="flex items-center space-x-2 text-[11px] text-slate-500 bg-white/90 px-3.5 py-1.5 rounded-full border border-slate-200/80 shadow-xs">
+                                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                                  <span className="font-semibold">Loading messages...</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
                               const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
                               const isStatusReply = msg.message_type === 'status_reply' || (typeof msg.content === 'string' && (msg.content.includes('"type":"status_reply"') || msg.content.startsWith('Replying to') || msg.content.startsWith('Reacted ')));
                               const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
                               const chatReply = parseChatReply(msg);
+                              const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
 
                               return (
                                 <div
                                   key={msg.id || idx}
-                                  className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
+                                  id={`chat-msg-${msg.id}`}
+                                  data-msg-id={msg.id}
+                                  className={`flex transition-all duration-300 ${isMine ? 'justify-end' : 'justify-start'}`}
                                 >
                                   <div
                                     className={`relative group max-w-xs sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-all ${
+                                      isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                    } ${
                                       isMine
                                         ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
                                         : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
@@ -2690,14 +2956,22 @@ export default function VendorDashboard() {
                                       <Reply className="w-3 h-3" />
                                     </button>
 
-                                    {/* Quoted Message Card */}
+                                    {/* Quoted Message Card (Clickable to jump to original message) */}
                                     {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
                                       <div
-                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left ${
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                          if (targetId) {
+                                            handleScrollToQuotedMessage(targetId);
+                                          }
+                                        }}
+                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left cursor-pointer hover:opacity-85 active:scale-[0.98] ${
                                           isMine
-                                            ? 'bg-sky-600/50 border-white text-sky-100 shadow-inner'
-                                            : 'bg-slate-100 border-sky-500 text-slate-700'
+                                            ? 'bg-sky-600/60 border-white text-sky-100 shadow-inner'
+                                            : 'bg-slate-100 border-sky-500 text-slate-700 hover:bg-slate-200/80'
                                         }`}
+                                        title="Click to jump to original message"
                                       >
                                         <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
                                           <Reply className="w-2.5 h-2.5 shrink-0" />
@@ -2711,12 +2985,50 @@ export default function VendorDashboard() {
                                       <StoryReplyBubble statusData={statusData} isMine={isMine} />
                                     ) : chatReply ? (
                                       <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
+                                    ) : msg.message_type === 'image' ? (
+                                      <div className="space-y-1.5">
+                                        <SafeImage
+                                          src={msg.media_url}
+                                          alt="Shared in chat"
+                                          fallbackType="product"
+                                          className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                          onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
+                                        />
+                                        {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
+                                      </div>
+                                    ) : msg.message_type === 'video' ? (
+                                      <div className="space-y-1.5">
+                                        <video
+                                          src={msg.media_url}
+                                          controls
+                                          className="rounded-xl max-h-64 w-full bg-black"
+                                        />
+                                        {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
+                                      </div>
+                                    ) : msg.message_type === 'audio' ? (
+                                      <div className="flex items-center space-x-2 py-1">
+                                        <span className="text-xs">🎤 Voice Note</span>
+                                        <audio src={msg.media_url} controls className="h-8 max-w-[200px]" />
+                                      </div>
                                     ) : (
                                       <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
                                     )}
-                                    <span className={`block text-[9px] mt-1 text-right ${isMine ? 'text-sky-100' : 'text-slate-400'}`}>
-                                      {safeTime(msg.created_at, 'Now')}
-                                    </span>
+                                    <div className={`flex items-center justify-end space-x-1 text-[9px] mt-1 ${
+                                      isMine ? 'text-sky-100' : 'text-slate-400'
+                                    }`}>
+                                      <span>{safeTime(msg.created_at, 'Now')}</span>
+                                      {isMine && (
+                                        <span className="inline-flex items-center ml-0.5">
+                                          {msg.is_optimistic ? (
+                                            <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                          ) : msg.is_read ? (
+                                            <CheckCheck className="w-3 h-3 text-sky-200" />
+                                          ) : (
+                                            <Check className="w-2.5 h-2.5 opacity-80" />
+                                          )}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -2788,6 +3100,21 @@ export default function VendorDashboard() {
                             className="flex items-center space-x-2"
                           >
                             <input
+                              ref={chatMediaInputRef}
+                              type="file"
+                              accept="image/*,video/*"
+                              onChange={handleChatMediaSelect}
+                              className="hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => chatMediaInputRef.current?.click()}
+                              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl cursor-pointer transition-colors shrink-0"
+                              title="Attach photo or video"
+                            >
+                              <Camera className="w-4 h-4" />
+                            </button>
+                            <input
                               type="text"
                               placeholder={`Reply to ${selectedPartner.partner_name}...`}
                               value={newMsgText}
@@ -2796,7 +3123,7 @@ export default function VendorDashboard() {
                             />
                             <button
                               type="submit"
-                              disabled={!newMsgText.trim() || isSendingMsg}
+                              disabled={!newMsgText.trim()}
                               className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50"
                             >
                               <Send className="w-4 h-4" />
@@ -3243,17 +3570,44 @@ export default function VendorDashboard() {
                       {/* Interactive Comments Drawer */}
                       {activeCommentsReelId === reel.id && (
                         <div className="p-3.5 bg-slate-50 border-t border-slate-100 space-y-2.5">
-                          <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
+                          <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
                             {reel.comments && reel.comments.length > 0 ? (
                               reel.comments.map((comment, idx) => (
                                 <div key={comment.id || idx} className="p-2.5 bg-white rounded-xl border border-slate-100 text-xs">
-                                  <div className="flex items-center justify-between mb-0.5">
-                                    <span className="font-bold text-slate-900 text-[11px]">{comment.author_name}</span>
-                                    <span className="text-[9px] text-slate-400">
-                                      {safeTime(comment.created_at, 'Just now')}
-                                    </span>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center space-x-1.5 flex-wrap">
+                                      <span className="font-bold text-slate-900 text-[11px]">{comment.author_name}</span>
+                                      {comment.reply_to_author && (
+                                        <span className="text-[9px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded-md flex items-center space-x-1">
+                                          <Reply className="w-2.5 h-2.5" />
+                                          <span>@{comment.reply_to_author}</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-[9px] text-slate-400">
+                                        {safeTime(comment.created_at, 'Just now')}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReplyingToComment({
+                                            reelId: reel.id,
+                                            commentId: comment.id,
+                                            authorName: comment.author_name,
+                                            text: comment.content
+                                          });
+                                          setTimeout(() => commentInputRef.current?.focus(), 60);
+                                        }}
+                                        className="text-slate-400 hover:text-sky-600 transition-colors cursor-pointer flex items-center space-x-0.5 text-[10px] font-semibold"
+                                        title="Reply to comment"
+                                      >
+                                        <Reply className="w-3 h-3" />
+                                        <span>Reply</span>
+                                      </button>
+                                    </div>
                                   </div>
-                                  <p className="text-slate-700 leading-snug">{comment.content}</p>
+                                  <p className="text-slate-700 leading-snug pl-0.5">{comment.content}</p>
                                 </div>
                               ))
                             ) : (
@@ -3263,6 +3617,26 @@ export default function VendorDashboard() {
                             )}
                           </div>
 
+                          {/* Replying Banner */}
+                          {replyingToComment && replyingToComment.reelId === reel.id && (
+                            <div className="flex items-center justify-between px-2.5 py-1 bg-sky-50 border border-sky-200/80 rounded-lg text-xs text-sky-800">
+                              <div className="flex items-center space-x-1 overflow-hidden">
+                                <Reply className="w-3 h-3 text-sky-600 shrink-0" />
+                                <span className="truncate text-[11px]">
+                                  Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingToComment(null)}
+                                className="p-0.5 text-sky-500 hover:text-sky-800 cursor-pointer"
+                                title="Cancel reply"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+
                           <form
                             onSubmit={(e) => {
                               e.preventDefault();
@@ -3271,8 +3645,9 @@ export default function VendorDashboard() {
                             className="flex items-center space-x-2 pt-2 border-t border-slate-200/80"
                           >
                             <input
+                              ref={commentInputRef}
                               type="text"
-                              placeholder="Write a comment..."
+                              placeholder={replyingToComment && replyingToComment.reelId === reel.id ? `Reply to @${replyingToComment.authorName}...` : "Write a comment..."}
                               value={newCommentText}
                               onChange={(e) => setNewCommentText(e.target.value)}
                               className="flex-1 p-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
@@ -3280,9 +3655,10 @@ export default function VendorDashboard() {
                             <button
                               type="submit"
                               disabled={!newCommentText.trim() || isPostingComment}
-                              className="p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50"
+                              className="p-2 px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50 flex items-center space-x-1 text-xs font-bold"
                             >
                               <Send className="w-3.5 h-3.5" />
+                              <span>{replyingToComment && replyingToComment.reelId === reel.id ? 'Reply' : 'Post'}</span>
                             </button>
                           </form>
                         </div>
@@ -4603,25 +4979,48 @@ export default function VendorDashboard() {
                         <ChevronRight className="w-6 h-6 group-hover:translate-x-0.5 transition-transform stroke-[2.5]" />
                       </button>
 
-                      {currentItem.media_type === 'video' ? (
-                        <video
-                          src={currentItem.media_url}
-                          controls
-                          autoPlay
-                          className="w-full h-full object-contain"
-                        />
-                      ) : currentItem.media_url ? (
-                        <SafeImage
-                          src={currentItem.media_url}
-                          alt="Story"
-                          fallbackType="product"
-                          className="w-full h-full object-contain"
-                        />
-                      ) : (
-                        <div className={`w-full h-full bg-gradient-to-br ${currentItem.background_color || 'from-emerald-600 to-teal-800'} flex items-center justify-center p-8 text-center text-white text-base font-bold leading-relaxed`}>
-                          {currentItem.caption}
-                        </div>
-                      )}
+                      {(() => {
+                        const mediaUrl = currentItem.media_url ? getMediaUrl(currentItem.media_url) : null;
+                        const isVideo = (
+                          currentItem.media_type === 'video' ||
+                          (currentItem.media_url && Boolean(currentItem.media_url.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)(\?.*)?$/i))) ||
+                          (currentItem.media_url && currentItem.media_url.includes('/video/upload/'))
+                        );
+
+                        if (isVideo && mediaUrl) {
+                          return (
+                            <div className="w-full h-full flex items-center justify-center p-2 relative bg-black">
+                              <video
+                                key={mediaUrl}
+                                src={mediaUrl}
+                                autoPlay
+                                playsInline
+                                controls
+                                className="w-full h-full object-contain rounded-xl"
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (currentItem.media_type === 'image' || mediaUrl) {
+                          return (
+                            <div className="w-full h-full flex items-center justify-center p-2 relative">
+                              <SafeImage
+                                src={mediaUrl}
+                                alt="Story"
+                                fallbackType="product"
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className={`w-full h-full bg-gradient-to-br ${currentItem.background_color || 'from-emerald-600 to-teal-800'} flex items-center justify-center p-8 text-center text-white text-base font-bold leading-relaxed`}>
+                            {currentItem.caption}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Caption & Fast Reply Bar */}
@@ -4725,9 +5124,9 @@ export default function VendorDashboard() {
                     <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Upload Photo or Clip</label>
                     <input
                       type="file"
-                      accept="image/*,video/*"
+                      accept="image/*,video/*,video/mp4,video/quicktime,video/webm,video/x-m4v"
                       onChange={(e) => {
-                        const file = e.target.files[0];
+                        const file = e.target.files?.[0];
                         if (file) {
                           setStatusMediaFile(file);
                           setStatusMediaPreview(URL.createObjectURL(file));
@@ -4737,10 +5136,10 @@ export default function VendorDashboard() {
                     />
                     {statusMediaPreview && (
                       <div className="mt-2 h-36 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
-                        {statusMediaFile?.type?.startsWith('video') ? (
-                          <video src={getMediaUrl(statusMediaPreview)} className="h-36 w-full object-contain" controls />
+                        {((statusMediaFile?.type && statusMediaFile.type.startsWith('video')) || Boolean(statusMediaFile?.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))) ? (
+                          <video src={statusMediaPreview} className="h-36 w-full object-contain" playsInline autoPlay muted controls />
                         ) : (
-                          <SafeImage src={statusMediaPreview} alt="Preview" fallbackType="product" className="h-36 w-full object-contain" />
+                          <img src={statusMediaPreview} alt="Preview" className="h-36 w-full object-contain" />
                         )}
                       </div>
                     )}
@@ -5073,6 +5472,17 @@ export default function VendorDashboard() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* --- MEDIA PREVIEW & PHOTO/VIDEO EDITOR MODAL --- */}
+      <MediaPreviewEditorModal
+        isOpen={showMediaEditor}
+        file={pendingMediaFile}
+        onClose={() => {
+          setShowMediaEditor(false);
+          setPendingMediaFile(null);
+        }}
+        onConfirm={handleConfirmSendChatMedia}
+      />
 
       {/* --- FACEBOOK/WHATSAPP-STYLE MOBILE BOTTOM NAVIGATION BAR FOR MERCHANTS --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>

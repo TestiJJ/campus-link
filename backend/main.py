@@ -24,7 +24,16 @@ try:
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
-            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);"
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
+            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
+            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_id ON messages (recipient_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_sender_recipient ON messages (sender_id, recipient_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
+            "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
+            "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
         ]:
             try:
                 _conn.execute(_sql_text(col_stmt))
@@ -427,7 +436,8 @@ def presence_heartbeat(
     Called by the frontend every 30 s to keep the user marked as online.
     Also passively marks users whose last_seen is > 2 min ago as offline.
     """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(timezone.utc)
+    now = now_utc.replace(tzinfo=None)
     current_user.is_online = True
     current_user.last_seen = now
     # Passive cleanup: mark stale users as offline (last_seen > 2 min ago)
@@ -438,7 +448,7 @@ def presence_heartbeat(
         models.User.user_id != current_user.user_id
     ).update({"is_online": False}, synchronize_session=False)
     db.commit()
-    return {"status": "online", "last_seen": now.isoformat()}
+    return {"status": "online", "last_seen": now_utc.isoformat()}
 
 
 @app.post("/api/presence/offline")
@@ -447,11 +457,12 @@ def presence_offline(
     db: Session = Depends(database.get_db)
 ):
     """Called when the user closes the tab or hides the app."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(timezone.utc)
+    now = now_utc.replace(tzinfo=None)
     current_user.is_online = False
     current_user.last_seen = now
     db.commit()
-    return {"status": "offline", "last_seen": now.isoformat()}
+    return {"status": "offline", "last_seen": now_utc.isoformat()}
 
 
 # --- AUTH & USER ENDPOINTS ---
@@ -2130,6 +2141,8 @@ def get_reels(request: Request, db: Session = Depends(database.get_db)):
                 "author_name": c_user.full_name if c_user else "Campus Member",
                 "author_avatar": c_user.profile_picture_url if c_user else None,
                 "author_role": "Vendor" if (c_user and c_user.role == "vendor") else "Student",
+                "reply_to_comment_id": getattr(c, "reply_to_comment_id", None),
+                "reply_to_author": getattr(c, "reply_to_author", None),
                 "created_at": c.created_at
             })
 
@@ -2260,23 +2273,46 @@ def add_reel_comment(
     if not content:
         raise HTTPException(status_code=400, detail="Comment cannot be empty.")
 
+    reply_to_author = None
+    reply_target_user_id = None
+    if comment_data.reply_to_comment_id:
+        parent_comment = db.query(models.ReelComment).filter(models.ReelComment.id == comment_data.reply_to_comment_id).first()
+        if parent_comment and parent_comment.user:
+            reply_to_author = parent_comment.user.full_name
+            reply_target_user_id = parent_comment.user_id
+
     comment = models.ReelComment(
         reel_id=reel_id,
         user_id=current_user.user_id,
-        content=content
+        content=content,
+        reply_to_comment_id=comment_data.reply_to_comment_id,
+        reply_to_author=reply_to_author
     )
     db.add(comment)
     db.commit()
     db.refresh(comment)
 
+    # 1. Notify reel owner if not the commenter
     if reel.user_id != current_user.user_id:
         create_notification(
             db=db,
             user_id=reel.user_id,
             actor_id=current_user.user_id,
             notification_type="comment",
-            title="New Comment on your Reel",
+            title="New Comment on your Post",
             message=f"{current_user.full_name} commented: \"{content[:60]}\"",
+            reference_id=str(reel.id)
+        )
+
+    # 2. Notify replied commenter if someone replied to their comment
+    if reply_target_user_id and reply_target_user_id != current_user.user_id and reply_target_user_id != reel.user_id:
+        create_notification(
+            db=db,
+            user_id=reply_target_user_id,
+            actor_id=current_user.user_id,
+            notification_type="comment",
+            title="Reply to your Comment",
+            message=f"{current_user.full_name} replied to your comment: \"{content[:60]}\"",
             reference_id=str(reel.id)
         )
 
@@ -2288,6 +2324,8 @@ def add_reel_comment(
         "author_name": current_user.full_name,
         "author_avatar": current_user.profile_picture_url,
         "author_role": "Vendor" if current_user.role == "vendor" else "Student",
+        "reply_to_comment_id": comment.reply_to_comment_id,
+        "reply_to_author": comment.reply_to_author,
         "created_at": comment.created_at
     }
 
@@ -2689,6 +2727,15 @@ ws_manager = ConnectionManager()
 async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
     await ws_manager.connect(str(user_id), websocket)
     try:
+        with database.SessionLocal() as _db:
+            _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
+                "is_online": True,
+                "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
+            })
+            _db.commit()
+    except Exception:
+        pass
+    try:
         while True:
             data = await websocket.receive_text()
             try:
@@ -2699,8 +2746,26 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
                 pass
     except WebSocketDisconnect:
         ws_manager.disconnect(str(user_id), websocket)
+        try:
+            with database.SessionLocal() as _db:
+                _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
+                    "is_online": False,
+                    "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
+                })
+                _db.commit()
+        except Exception:
+            pass
     except Exception:
         ws_manager.disconnect(str(user_id), websocket)
+        try:
+            with database.SessionLocal() as _db:
+                _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
+                    "is_online": False,
+                    "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
+                })
+                _db.commit()
+        except Exception:
+            pass
 
 @app.post("/api/messages", response_model=schemas.MessageOut)
 async def send_message(
@@ -2811,6 +2876,7 @@ async def send_message(
 @app.get("/api/messages/{other_user_id}", response_model=List[schemas.MessageOut])
 def get_conversation(
     other_user_id: str,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
@@ -2824,11 +2890,17 @@ def get_conversation(
         ((models.Message.sender_id == target_uid) & (models.Message.recipient_id == current_user.user_id))
     ).order_by(models.Message.created_at.asc()).all()
 
-    # Bulk update unread messages in 1 query without ORM mutation loop
+    # Bulk update unread messages asynchronously without blocking HTTP response
     unread_ids = [m.id for m in msgs if m.recipient_id == current_user.user_id and not m.is_read]
     if unread_ids:
-        db.query(models.Message).filter(models.Message.id.in_(unread_ids)).update({"is_read": True}, synchronize_session=False)
-        db.commit()
+        def _mark_read(ids_to_update):
+            try:
+                with database.SessionLocal() as bg_db:
+                    bg_db.query(models.Message).filter(models.Message.id.in_(ids_to_update)).update({"is_read": True}, synchronize_session=False)
+                    bg_db.commit()
+            except Exception:
+                pass
+        background_tasks.add_task(_mark_read, unread_ids)
     return msgs
 
 @app.get("/api/conversations")
@@ -2866,8 +2938,28 @@ def get_conversations_list(
         friendship_map[other_id] = f.status
 
     conv_map = {}
+    conv_msgs_map = {}
     for m in msgs:
         partner_id = m.recipient_id if m.sender_id == user_id else m.sender_id
+        if partner_id not in conv_msgs_map:
+            conv_msgs_map[partner_id] = []
+        if len(conv_msgs_map[partner_id]) < 50:
+            conv_msgs_map[partner_id].append({
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "recipient_id": m.recipient_id,
+                "post_id": m.post_id,
+                "content": m.content,
+                "message_type": m.message_type or "text",
+                "media_url": m.media_url,
+                "duration": m.duration,
+                "reply_to_id": m.reply_to_id,
+                "reply_to_sender": m.reply_to_sender,
+                "reply_to_text": m.reply_to_text,
+                "is_read": m.is_read,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            })
+
         if partner_id not in conv_map:
             partner = partner_map.get(partner_id)
             vendor = partner.vendor_profile if partner else None
@@ -2906,11 +2998,16 @@ def get_conversations_list(
                 "last_timestamp": m.created_at,
                 "unread_count": 0,
                 # Presence fields — real-time online/offline status
-                "is_online": partner.is_online if partner else False,
-                "last_seen": partner.last_seen.isoformat() if partner and partner.last_seen else None,
+                "is_online": (str(partner_id) in ws_manager.active_connections) or (partner.is_online if partner else False),
+                "last_seen": (partner.last_seen.replace(tzinfo=timezone.utc).isoformat()) if partner and partner.last_seen else None,
             }
         if m.recipient_id == user_id and not m.is_read:
             conv_map[partner_id]["unread_count"] += 1
+
+    for p_id, item in conv_map.items():
+        partner_msgs = conv_msgs_map.get(p_id, [])
+        partner_msgs.reverse()
+        item["recent_messages"] = partner_msgs
 
     return list(conv_map.values())
 

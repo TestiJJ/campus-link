@@ -203,6 +203,7 @@ class ServiceOut(ServiceCreate):
 # --- Reel (Campus TikTok / Story) ---
 class ReelCommentCreate(BaseModel):
     content: str
+    reply_to_comment_id: Optional[int] = None
 
 class ReelCommentOut(BaseModel):
     id: int
@@ -212,6 +213,8 @@ class ReelCommentOut(BaseModel):
     author_name: str
     author_avatar: Optional[str] = None
     author_role: Optional[str] = "Student"
+    reply_to_comment_id: Optional[int] = None
+    reply_to_author: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

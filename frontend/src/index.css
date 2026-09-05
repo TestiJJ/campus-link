@@ -8,13 +8,28 @@
   --sar: env(safe-area-inset-right, 0px);
 }
 
-/* Lock mobile viewport scaling (iPhone & Android) to prevent accidental shrink/zoom */
-html, body {
+/* Lock viewport scaling & dimensions (Mobile, Tablet & Desktop) for native Facebook-style single page app experience */
+html, body, #root {
+  width: 100%;
+  min-height: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
   touch-action: pan-x pan-y;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  overscroll-behavior-y: none;
+  overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-drag: none;
+}
+
+/* Allow text selection inside readable text containers and form inputs, while keeping UI chrome static */
+input, textarea, [contenteditable="true"], .select-text, p, span, h1, h2, h3, h4, h5, h6 {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body {
   padding-top: env(safe-area-inset-top, 0px);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
