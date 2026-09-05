@@ -324,12 +324,12 @@ class PostOut(PostCreate):
 # --- Message & Friendship ---
 class MessageCreate(BaseModel):
     recipient_id: str
-    content: str
+    content: Optional[str] = ""
     post_id: Optional[int] = None
-    message_type: Optional[str] = "text"  # text, audio, image, video
+    message_type: Optional[str] = "text"  # text, audio, image, video, reply, status_reply
     media_url: Optional[str] = None
     duration: Optional[int] = None
-    reply_to_id: Optional[int] = None
+    reply_to_id: Optional[Union[int, str]] = None
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
 

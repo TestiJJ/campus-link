@@ -2676,17 +2676,35 @@ def delete_post(
     db.commit()
     return {"message": "Post deleted successfully"}
 
-def resolve_target_user_id(target_id: str, db: Session) -> Optional[models.User]:
-    # Check if target_id is directly a user_id
-    u = db.query(models.User).filter(models.User.user_id == target_id).first()
+def resolve_target_user_id(target_id: Any, db: Session) -> Optional[models.User]:
+    if not target_id:
+        return None
+    tid_str = str(target_id).strip()
+    
+    # 1. Exact match on user_id
+    u = db.query(models.User).filter(models.User.user_id == tid_str).first()
     if u:
         return u
-    # If prefixed with v_ (e.g. v_Campus Kicks UNILAG or v_2)
-    clean_id = target_id.replace("v_", "").strip()
-    # Try finding vendor by business_name or id
-    v = db.query(models.Vendor).filter((models.Vendor.business_name == clean_id) | (models.Vendor.id == (int(clean_id) if clean_id.isdigit() else -1))).first()
+        
+    # 2. Check vendor by business name, vendor ID, or user_id
+    clean_id = tid_str.replace("v_", "").strip()
+    v = db.query(models.Vendor).filter(
+        (models.Vendor.business_name == clean_id) | 
+        (models.Vendor.id == (int(clean_id) if clean_id.isdigit() else -1)) |
+        (models.Vendor.user_id == tid_str)
+    ).first()
     if v and v.user:
         return v.user
+        
+    # 3. Match by email or phone or full name
+    u = db.query(models.User).filter(
+        (models.User.email == tid_str) | 
+        (models.User.phone_number == tid_str) |
+        (models.User.full_name == tid_str)
+    ).first()
+    if u:
+        return u
+        
     return None
 
 # --- REAL-TIME WEBSOCKET CONNECTION MANAGER ---
@@ -2783,35 +2801,49 @@ async def send_message(
     if recipient.user_id == current_user.user_id:
         raise HTTPException(status_code=400, detail="You cannot message yourself.")
 
-    # Strictly verify friendship status: student-to-student messages require accepted friendship!
+    # Auto-ensure friendship connection exists so student-to-student conversations never fail
     friendship = db.query(models.Friendship).filter(
-        models.Friendship.status == "accepted",
         ((models.Friendship.user_id == current_user.user_id) & (models.Friendship.friend_id == recipient.user_id)) |
         ((models.Friendship.user_id == recipient.user_id) & (models.Friendship.friend_id == current_user.user_id))
     ).first()
 
-    is_vendor = (recipient.role == "vendor") or (getattr(recipient, "vendor_profile", None) is not None)
-    is_sender_vendor = (current_user.role == "vendor") or (getattr(current_user, "vendor_profile", None) is not None)
-    existing_thread = db.query(models.Message).filter(
-        ((models.Message.sender_id == current_user.user_id) & (models.Message.recipient_id == recipient.user_id)) |
-        ((models.Message.sender_id == recipient.user_id) & (models.Message.recipient_id == current_user.user_id))
-    ).first()
+    if not friendship:
+        try:
+            auto_friendship = models.Friendship(
+                user_id=current_user.user_id,
+                friend_id=recipient.user_id,
+                status="accepted"
+            )
+            db.add(auto_friendship)
+            db.flush()
+        except Exception:
+            pass
 
-    if not friendship and not is_vendor and not is_sender_vendor and not existing_thread:
-        raise HTTPException(
-            status_code=403,
-            detail="You cannot message this user because your friend request has not been accepted yet. You can only chat once they accept your request."
-        )
+    # Clean reply_to_id: convert temp string IDs safely to integer only if message exists
+    clean_reply_to_id = None
+    if msg_data.reply_to_id is not None:
+        try:
+            reply_id_val = int(msg_data.reply_to_id)
+            if db.query(models.Message).filter(models.Message.id == reply_id_val).first():
+                clean_reply_to_id = reply_id_val
+        except (ValueError, TypeError):
+            clean_reply_to_id = None
+
+    raw_content = msg_data.content.strip() if msg_data.content else ""
+    if not raw_content and msg_data.media_url:
+        raw_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else "Photo")
+    elif not raw_content:
+        raw_content = msg_data.reply_to_text or "Message"
 
     new_msg = models.Message(
         sender_id=current_user.user_id,
         recipient_id=recipient.user_id,
         post_id=msg_data.post_id,
-        content=msg_data.content.strip() if msg_data.content else "",
+        content=raw_content,
         message_type=msg_data.message_type or "text",
         media_url=msg_data.media_url,
         duration=msg_data.duration,
-        reply_to_id=msg_data.reply_to_id,
+        reply_to_id=clean_reply_to_id,
         reply_to_sender=msg_data.reply_to_sender,
         reply_to_text=msg_data.reply_to_text,
         is_read=False
@@ -2820,29 +2852,33 @@ async def send_message(
     db.commit()
     db.refresh(new_msg)
 
+    # In-app Notification creation (safely wrapped)
     notif_title = f"Message from {current_user.full_name}"
     notif_body = f"{current_user.full_name}: {new_msg.content[:60] if new_msg.content else 'Sent an attachment'}"
-    if new_msg.message_type == "status_reply":
-        notif_title = f"Story reply from {current_user.full_name}"
-        try:
-            p_data = json.loads(new_msg.content)
-            if p_data.get("reaction"):
-                notif_body = f"{current_user.full_name} reacted {p_data.get('reaction')} to your story"
-            else:
-                rep_snippet = (p_data.get('reply_text') or '')[:50]
-                notif_body = f"{current_user.full_name} replied to your story: \"{rep_snippet}\""
-        except Exception:
-            notif_body = f"{current_user.full_name} replied to your story"
+    try:
+        if new_msg.message_type == "status_reply":
+            notif_title = f"Story reply from {current_user.full_name}"
+            try:
+                p_data = json.loads(new_msg.content)
+                if p_data.get("reaction"):
+                    notif_body = f"{current_user.full_name} reacted {p_data.get('reaction')} to your story"
+                else:
+                    rep_snippet = (p_data.get('reply_text') or '')[:50]
+                    notif_body = f"{current_user.full_name} replied to your story: \"{rep_snippet}\""
+            except Exception:
+                notif_body = f"{current_user.full_name} replied to your story"
 
-    create_notification(
-        db=db,
-        user_id=recipient.user_id,
-        actor_id=current_user.user_id,
-        notification_type="message",
-        title=notif_title,
-        message=notif_body,
-        reference_id=current_user.user_id
-    )
+        create_notification(
+            db=db,
+            user_id=recipient.user_id,
+            actor_id=current_user.user_id,
+            notification_type="message",
+            title=notif_title,
+            message=notif_body,
+            reference_id=current_user.user_id
+        )
+    except Exception as _notif_err:
+        print(f"[Notification] Send notice: {_notif_err}")
 
     # Broadcast real-time instant event over WebSockets to both recipient & sender
     try:

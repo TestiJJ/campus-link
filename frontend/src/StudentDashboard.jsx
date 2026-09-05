@@ -1168,12 +1168,6 @@ export default function StudentDashboard() {
     }
     if (!newMsgText.trim() || !selectedPartner?.partner_id) return;
 
-    // Strict friendship check for student-to-student messaging
-    if (selectedPartner.partner_role === 'Student' && selectedPartner.is_friend === false && selectedPartner.friendship_status !== 'friends') {
-      alert(`You cannot message ${selectedPartner.partner_name} because your friend request has not been accepted yet. You can only chat once they accept your request.`);
-      return;
-    }
-
     const messageText = newMsgText.trim();
     const currentReply = replyingToMessage;
     const partnerId = selectedPartner.partner_id;
