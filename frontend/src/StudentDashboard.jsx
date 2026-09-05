@@ -3393,7 +3393,7 @@ export default function StudentDashboard() {
                           }}
                           className={`relative w-14 h-14 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 ${
                             hasMyStory
-                              ? 'bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 shadow-xs'
+                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                               : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
                           }`}
                         >
@@ -3417,7 +3417,7 @@ export default function StudentDashboard() {
                               e.stopPropagation();
                               setCreateStatusModalOpen(true);
                             }}
-                            className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
+                            className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
                             title="Add to story"
                           >
                             <Plus className="w-3 h-3 stroke-[3]" />
@@ -3431,7 +3431,7 @@ export default function StudentDashboard() {
                     );
                   })()}
 
-                  {/* 2. Peer Campus Stories (Instagram-style rings, faded when viewed) */}
+                  {/* 2. Peer Campus Stories (CampusLink Blue & White signature rings, faded when viewed) */}
                   {statusGroups
                     .filter(g => !g.is_self)
                     .map((group) => {
@@ -3452,7 +3452,7 @@ export default function StudentDashboard() {
                           <div
                             className={`w-14 h-14 rounded-full p-0.5 transition-transform group-hover:scale-105 flex items-center justify-center ${
                               isUnviewed
-                                ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs'
+                                ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                                 : 'bg-slate-200 border border-slate-300 opacity-60'
                             }`}
                           >
@@ -3474,7 +3474,7 @@ export default function StudentDashboard() {
                           <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[65px] text-center">
                             {group.user_name.split(' ')[0]}
                           </span>
-                          <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-rose-500' : 'text-slate-400'}`}>
+                          <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-sky-600' : 'text-slate-400'}`}>
                             {isUnviewed ? 'New story' : 'Viewed'}
                           </span>
                         </div>
@@ -3683,7 +3683,7 @@ export default function StudentDashboard() {
                                   hasStory
                                     ? `p-0.5 cursor-pointer ${
                                         hasUnviewedStory
-                                          ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                          ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
                                           : 'bg-slate-200 border border-slate-300 opacity-70'
                                       }`
                                     : ''
@@ -3901,21 +3901,53 @@ export default function StudentDashboard() {
                                   </span>
                                 )}
                               </button>
-                              <div className="relative shrink-0">
-                                {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (
-                                  <SafeImage
-                                    src={selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar}
-                                    alt={selectedPartner.partner_name || selectedPartner.name || 'User'}
-                                    fallbackType="avatar"
-                                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm">
-                                    {(selectedPartner.partner_name || selectedPartner.name || 'U').charAt(0).toUpperCase()}
+                              {(() => {
+                                const partnerPid = selectedPartner.partner_id || selectedPartner.id || selectedPartner.user_id;
+                                const headerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(partnerPid));
+                                const headerHasStory = headerStoryIdx !== -1;
+                                const headerStoryGroup = headerHasStory ? statusGroups[headerStoryIdx] : null;
+                                const headerHasUnviewed = headerHasStory && (headerStoryGroup.has_unviewed !== false && !headerStoryGroup.all_viewed);
+
+                                return (
+                                  <div
+                                    onClick={() => {
+                                      if (headerHasStory) {
+                                        const firstUnviewed = headerStoryGroup.items.findIndex(it => !it.is_viewed);
+                                        setActiveStatusViewer({
+                                          userIdx: headerStoryIdx,
+                                          itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                        });
+                                      }
+                                    }}
+                                    title={headerHasStory ? `Tap to view ${selectedPartner.partner_name || selectedPartner.name || 'user'}'s story` : ''}
+                                    className={`relative shrink-0 rounded-2xl transition-all ${
+                                      headerHasStory
+                                        ? `p-0.5 cursor-pointer ${
+                                            headerHasUnviewed
+                                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                              : 'bg-slate-200 border border-slate-300 opacity-70'
+                                          }`
+                                        : ''
+                                    }`}
+                                  >
+                                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                      {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (
+                                        <SafeImage
+                                          src={selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar}
+                                          alt={selectedPartner.partner_name || selectedPartner.name || 'User'}
+                                          fallbackType="avatar"
+                                          className="w-full h-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm">
+                                          {(selectedPartner.partner_name || selectedPartner.name || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
                                   </div>
-                                )}
-                                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
-                              </div>
+                                );
+                              })()}
                               <div className="min-w-0">
                                 <div className="flex items-center space-x-1.5">
                                   <h4 className="text-xs font-bold text-slate-900 truncate">

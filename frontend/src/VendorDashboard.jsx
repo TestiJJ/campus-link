@@ -2149,7 +2149,7 @@ export default function VendorDashboard() {
                         }}
                         className={`relative w-14 h-14 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 overflow-visible ${
                           hasMyStory
-                            ? 'bg-gradient-to-tr from-sky-500 via-indigo-500 to-purple-600 shadow-xs'
+                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                             : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
                         }`}
                       >
@@ -2173,7 +2173,7 @@ export default function VendorDashboard() {
                             e.stopPropagation();
                             setCreateStatusModalOpen(true);
                           }}
-                          className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
+                          className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90"
                           title="Post new story drop"
                         >
                           <Plus className="w-3 h-3 stroke-[3]" />
@@ -2187,7 +2187,7 @@ export default function VendorDashboard() {
                   );
                 })()}
 
-                {/* 2. Peer Campus Stories (Instagram-style vibrant vs faded rings) */}
+                {/* 2. Peer Campus Stories (CampusLink Blue & White signature rings, faded when viewed) */}
                 {statusGroups
                   .filter(g => !g.is_self)
                   .map((group) => {
@@ -2209,7 +2209,7 @@ export default function VendorDashboard() {
                         <div
                           className={`w-14 h-14 rounded-full p-0.5 transition-transform group-hover:scale-105 flex items-center justify-center ${
                             isUnviewed
-                              ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs'
+                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                               : 'bg-slate-200 border border-slate-300 opacity-60'
                           }`}
                         >
@@ -2226,7 +2226,7 @@ export default function VendorDashboard() {
                         <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[70px] text-center">
                           {group.is_self ? 'You' : group.user_name.split(' ')[0]}
                         </span>
-                        <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-rose-500' : 'text-slate-400'}`}>
+                        <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-sky-600' : 'text-slate-400'}`}>
                           {isUnviewed ? 'New story' : 'Viewed'}
                         </span>
                       </div>
@@ -2341,7 +2341,7 @@ export default function VendorDashboard() {
                                 hasStory
                                   ? `p-0.5 cursor-pointer ${
                                       hasUnviewedStory
-                                        ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                        ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
                                         : 'bg-slate-200 border border-slate-300 opacity-70'
                                     }`
                                   : ''
@@ -2586,7 +2586,7 @@ export default function VendorDashboard() {
                                     hasStory
                                       ? `p-0.5 ${
                                           hasUnviewedStory
-                                            ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 shadow-xs hover:scale-105'
+                                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
                                             : 'bg-slate-200 border border-slate-300 opacity-70'
                                         }`
                                       : ''
