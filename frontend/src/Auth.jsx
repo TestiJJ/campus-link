@@ -191,23 +191,37 @@ export default function Auth() {
           category_id: role === 'vendor' ? Number(formData.category_id) : null,
         };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
+        if (response.status === 408 || response.status === 504 || response.status === 502 || response.status === 503) {
+          throw new Error('Server is waking up. Please wait 10 seconds and try again.');
+        }
         if (response.status === 403 && data.detail && data.detail.includes('not verified')) {
           setPendingEmail(formData.email.trim());
           setShowOtpModal(true);
           setResendCooldown(30);
           throw new Error('Your email is not verified yet. Please enter the 6-digit code sent to your email.');
         }
-        throw new Error(data.detail || 'Authentication failed. Please check your credentials.');
+        throw new Error(data.detail || (isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
       }
 
       if (isLogin) {
@@ -233,27 +247,33 @@ export default function Auth() {
         setResendCooldown(60);
       }
     } catch (err) {
-      const msg = err?.message || '';
-      if (
-        err?.name === 'TypeError' &&
-        (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail'))
-      ) {
-        setErrorMessage('Cannot connect to CampusLink server. Please verify your internet connection or try again in a moment.');
-      } else {
-        setErrorMessage(msg || 'An error occurred during authentication.');
-      }
+      setErrorMessage(formatAuthError(err, 'An error occurred during authentication.'));
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
 
   const formatAuthError = (err, defaultMsg = 'Operation failed. Please try again.') => {
+    if (err?.name === 'AbortError') {
+      return 'Server is waking up. Please wait 10 seconds and try again.';
+    }
     const msg = err?.message || '';
     if (
-      err?.name === 'TypeError' &&
-      (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail'))
+      msg.includes('408') ||
+      msg.includes('504') ||
+      msg.includes('502') ||
+      msg.includes('503') ||
+      msg.toLowerCase().includes('timeout') ||
+      msg.toLowerCase().includes('waking up')
     ) {
-      return 'Cannot connect to CampusLink server. Please check your internet connection or try again.';
+      return 'Server is waking up. Please wait 10 seconds and try again.';
+    }
+    if (
+      err?.name === 'TypeError' &&
+      (msg.includes('fetch') || msg.includes('NetworkError') || msg.toLowerCase().includes('load fail') || msg.toLowerCase().includes('failed to fetch'))
+    ) {
+      return 'Server is waking up or connection was interrupted. Please wait a few seconds and try again.';
     }
     return msg || defaultMsg;
   };
@@ -263,14 +283,25 @@ export default function Auth() {
     setErrorMessage('');
     setLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/verify-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: pendingEmail, code: otpCode.trim() }),
+        signal: controller.signal
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
         throw new Error(data.detail || 'Invalid verification code. Please try again.');
@@ -285,6 +316,7 @@ export default function Auth() {
     } catch (err) {
       setErrorMessage(formatAuthError(err, 'Invalid verification code.'));
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -294,14 +326,25 @@ export default function Auth() {
     setResendLoading(true);
     setErrorMessage('');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/resend-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: pendingEmail }),
+        signal: controller.signal
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      let data = {};
+      try {
+        data = await response.json();
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to resend verification code.');
@@ -312,6 +355,7 @@ export default function Auth() {
     } catch (err) {
       setErrorMessage(formatAuthError(err, 'Failed to resend verification code.'));
     } finally {
+      clearTimeout(timeoutId);
       setResendLoading(false);
     }
   };

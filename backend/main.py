@@ -650,7 +650,15 @@ def resend_otp(payload: schemas.ResendOTPSchema, db: Session = Depends(database.
 @app.post("/api/login", response_model=schemas.Token)
 def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.get_db)):
     clean_email = (credentials.email or "").strip().lower()
-    user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    try:
+        user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    except Exception as db_err:
+        print(f"[Login Database Error] {db_err}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection is warming up. Please wait 5-10 seconds and try again."
+        )
+
     if not user or not auth.verify_password(credentials.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 

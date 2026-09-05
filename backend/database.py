@@ -26,7 +26,10 @@ if raw_db_url and raw_db_url.strip():
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
-        pool_recycle=300
+        pool_recycle=300,
+        pool_size=10,
+        max_overflow=20,
+        connect_args={"connect_timeout": 10}
     )
     # Log database host safely without printing sensitive passwords
     safe_db_name = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "Cloud Database"
