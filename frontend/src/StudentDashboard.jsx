@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
@@ -47,6 +47,32 @@ const setCachedData = (key, value) => {
   try {
     localStorage.setItem(`cl_cache_${key}`, JSON.stringify(value));
   } catch {}
+};
+
+// Chat Reply Parser for Quoted Messages
+export const parseChatReply = (msg) => {
+  if (!msg) return null;
+  const content = msg.content || msg.text || '';
+  if (
+    msg.message_type === 'reply' ||
+    (typeof content === 'string' && content.trim().startsWith('{') && content.includes('"type":"chat_reply"'))
+  ) {
+    try {
+      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+      if (parsed && parsed.type === 'chat_reply') {
+        return {
+          isChatReply: true,
+          replyToId: parsed.reply_to_id,
+          replyToSender: parsed.reply_to_sender || 'Peer',
+          replyToText: parsed.reply_to_text || '',
+          text: parsed.text || ''
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
 };
 
 // Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit)
@@ -196,8 +222,8 @@ export default function StudentDashboard() {
   }, []);
 
 
-  // Campus Notice Board & Lost/Found State
-  const [notices, setNotices] = useState([]);
+  // Campus Notice Board & Lost/Found State (SWR Instant Load)
+  const [notices, setNotices] = useState(() => getCachedData('notices', []));
   const [activeNoticeMenuId, setActiveNoticeMenuId] = useState(null);
   const [noticeType, setNoticeType] = useState('all'); // 'all' | 'lost' | 'found' | 'announcement'
   const [noticeCategory, setNoticeCategory] = useState('all');
@@ -216,8 +242,8 @@ export default function StudentDashboard() {
   const [submittingNotice, setSubmittingNotice] = useState(false);
   const [universityName, setUniversityName] = useState('University Campus');
 
-  // WhatsApp-Style Campus Status State
-  const [statusGroups, setStatusGroups] = useState([]);
+  // WhatsApp-Style Campus Status State (SWR Instant Load)
+  const [statusGroups, setStatusGroups] = useState(() => getCachedData('statusGroups', []));
   const [activeStatusViewer, setActiveStatusViewer] = useState(null); // { userIdx: 0, itemIdx: 0 }
   const [createStatusModalOpen, setCreateStatusModalOpen] = useState(false);
   const [newStatusForm, setNewStatusForm] = useState({
@@ -247,9 +273,9 @@ export default function StudentDashboard() {
   const [playingAudioId, setPlayingAudioId] = useState(null);
   const chatAudioElementRef = useRef(null);
 
-  // Messages, Friends & Social Graph State
+  // Messages, Friends & Social Graph State (SWR Instant Load)
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
-  const [conversations, setConversations] = useState([]);
+  const [conversations, setConversations] = useState(() => getCachedData('conversations', []));
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [newMsgText, setNewMsgText] = useState('');
@@ -260,6 +286,13 @@ export default function StudentDashboard() {
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
   const isSwitchingPartnerRef = useRef(false);
+
+  // Manual & Live Auto-Refresh State
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Chat Swipe-to-Reply State
+  const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const chatInputRef = useRef(null);
 
   useEffect(() => {
     selectedPartnerRef.current = selectedPartner;
@@ -551,9 +584,9 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner]);
 
-  // My AI & Memory Vault State
+  // My AI & Memory Vault State (SWR Instant Load)
   const [aiMessages, setAiMessages] = useState([]);
-  const [aiMemories, setAiMemories] = useState([]);
+  const [aiMemories, setAiMemories] = useState(() => getCachedData('aiMemories', []));
   const [memoryModalOpen, setMemoryModalOpen] = useState(false);
   const [memorySearch, setMemorySearch] = useState('');
   const [newMemoryForm, setNewMemoryForm] = useState({ title: '', content: '', category: 'academic' });
@@ -561,23 +594,23 @@ export default function StudentDashboard() {
   const [storeInfoToggled, setStoreInfoToggled] = useState(false);
   const [isAiTyping, setIsAiTyping] = useState(false);
   
-  // Campus Community Directory & Friends
-  const [communityUsers, setCommunityUsers] = useState([]);
+  // Campus Community Directory & Friends (SWR Instant Load)
+  const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
   const [friendsFilter, setFriendsFilter] = useState('all'); // 'all' | 'students' | 'sellers'
-  const [campusStudents, setCampusStudents] = useState([]);
-  const [myFriends, setMyFriends] = useState([]);
-  const [pendingRequests, setPendingRequests] = useState([]);
+  const [campusStudents, setCampusStudents] = useState(() => getCachedData('campusStudents', []));
+  const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
+  const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const [studentSearch, setStudentSearch] = useState('');
 
   // Student Profile Modal State
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  // Orders State
+  // Orders State (SWR Instant Load)
   const [orderModalItem, setOrderModalItem] = useState(null);
   const [orderDeliveryLocation, setOrderDeliveryLocation] = useState('');
   const [orderQuantity, setOrderQuantity] = useState(1);
-  const [myOrders, setMyOrders] = useState([]);
+  const [myOrders, setMyOrders] = useState(() => getCachedData('myOrders', []));
 
   // Profile Settings State
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -599,8 +632,8 @@ export default function StudentDashboard() {
   });
   const avatarInputRef = useRef(null);
 
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState(() => getCachedData('notifications', []));
+  const [unreadCount, setUnreadCount] = useState(() => getCachedData('unreadCount', 0));
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
 
@@ -691,20 +724,42 @@ export default function StudentDashboard() {
       setCachedData('services', fetchedSvcs);
       setCachedData('categories', fetchedCats);
       setCachedData('reels', fetchedReels);
-      setConversations(convRes.data || []);
-      setNotices(notRes.data || []);
-      setStatusGroups(statRes.data || []);
-      setCommunityUsers(commRes.data || []);
-      setPendingRequests(reqRes.data || []);
-      setMyFriends(friendsRes.data || []);
-      setCampusStudents(studRes.data || commRes.data || []);
-      setMyOrders(ordersRes.data || []);
-      setAiMemories(memsRes.data || []);
+      const fetchedConvs = convRes.data || [];
+      const fetchedNotices = notRes.data || [];
+      const fetchedStatuses = statRes.data || [];
+      const fetchedCommunity = commRes.data || [];
+      const fetchedRequests = reqRes.data || [];
+      const fetchedFriends = friendsRes.data || [];
+      const fetchedStudents = studRes.data || commRes.data || [];
+      const fetchedOrders = ordersRes.data || [];
+      const fetchedMemories = memsRes.data || [];
+
+      setConversations(fetchedConvs);
+      setNotices(fetchedNotices);
+      setStatusGroups(fetchedStatuses);
+      setCommunityUsers(fetchedCommunity);
+      setPendingRequests(fetchedRequests);
+      setMyFriends(fetchedFriends);
+      setCampusStudents(fetchedStudents);
+      setMyOrders(fetchedOrders);
+      setAiMemories(fetchedMemories);
+
+      setCachedData('conversations', fetchedConvs);
+      setCachedData('notices', fetchedNotices);
+      setCachedData('statusGroups', fetchedStatuses);
+      setCachedData('communityUsers', fetchedCommunity);
+      setCachedData('pendingRequests', fetchedRequests);
+      setCachedData('myFriends', fetchedFriends);
+      setCachedData('campusStudents', fetchedStudents);
+      setCachedData('myOrders', fetchedOrders);
+      setCachedData('aiMemories', fetchedMemories);
 
       const notifs = notifRes.data?.notifications || (Array.isArray(notifRes.data) ? notifRes.data : []);
       const unread = notifRes.data?.unread_count ?? notifs.filter(n => !n.is_read).length;
       setNotifications(notifs);
       setUnreadCount(unread);
+      setCachedData('notifications', notifs);
+      setCachedData('unreadCount', unread);
 
       if (meRes?.data) {
         const u = meRes.data;
@@ -808,9 +863,22 @@ export default function StudentDashboard() {
       }
     }
 
-    // Gentle background sync (WebSockets handle instant push; 12s heartbeat fallback)
+    // Gentle background sync (keeps reels/posts, statuses, chats and notices live without manual refresh)
     const syncDashboard = () => {
       fetchNotifications();
+      API.get('/reels')
+        .then(res => {
+          if (res.data && Array.isArray(res.data)) {
+            setReels(res.data);
+            setCachedData('reels', res.data);
+          }
+        })
+        .catch(() => {});
+      API.get('/campus/statuses')
+        .then(res => {
+          if (res.data && Array.isArray(res.data)) setStatusGroups(res.data);
+        })
+        .catch(() => {});
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
         .catch(() => {});
@@ -819,14 +887,69 @@ export default function StudentDashboard() {
         .catch(() => {});
     };
 
-    const interval = setInterval(syncDashboard, 12000);
-    window.addEventListener('focus', syncDashboard);
+    const interval = setInterval(syncDashboard, 15000);
+    const onWindowFocus = () => {
+      syncDashboard();
+    };
+    window.addEventListener('focus', onWindowFocus);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', syncDashboard);
+      window.removeEventListener('focus', onWindowFocus);
     };
   }, [navigate]);
+
+  // Manual In-App Refresh (Soft reload for posts, stories, notices, and chats)
+  const handleManualRefresh = async (showToast = true) => {
+    setIsRefreshing(true);
+    try {
+      const [reelsRes, statRes, notRes, convRes, notifRes, prodRes, svcRes] = await Promise.all([
+        API.get('/reels').catch(() => ({ data: [] })),
+        API.get('/campus/statuses').catch(() => ({ data: [] })),
+        API.get('/campus/notices').catch(() => ({ data: [] })),
+        API.get('/conversations').catch(() => ({ data: [] })),
+        API.get('/notifications').catch(() => ({ data: [] })),
+        API.get('/products').catch(() => ({ data: [] })),
+        API.get('/services').catch(() => ({ data: [] }))
+      ]);
+
+      if (reelsRes.data && Array.isArray(reelsRes.data)) {
+        setReels(reelsRes.data);
+        setCachedData('reels', reelsRes.data);
+      }
+      if (statRes.data && Array.isArray(statRes.data)) setStatusGroups(statRes.data);
+      if (notRes.data && Array.isArray(notRes.data)) setNotices(notRes.data);
+      if (convRes.data && Array.isArray(convRes.data)) setConversations(convRes.data);
+      if (prodRes.data && Array.isArray(prodRes.data)) {
+        setProducts(prodRes.data);
+        setCachedData('products', prodRes.data);
+      }
+      if (svcRes.data && Array.isArray(svcRes.data)) {
+        setServices(svcRes.data);
+        setCachedData('services', svcRes.data);
+      }
+
+      const notifs = notifRes.data?.notifications || (Array.isArray(notifRes.data) ? notifRes.data : []);
+      const unread = notifRes.data?.unread_count ?? notifs.filter(n => !n.is_read).length;
+      setNotifications(notifs);
+      setUnreadCount(unread);
+
+      if (selectedPartner?.partner_id) {
+        fetchMessagesForPartner(selectedPartner.partner_id);
+      }
+
+      if (showToast) {
+        setToast({ text: 'All posts, stories & chats updated! ✨', type: 'success' });
+      }
+    } catch (err) {
+      console.error('Manual refresh error:', err);
+      if (showToast) {
+        setToast({ text: 'Sync failed. Please check network.', type: 'error' });
+      }
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   // Reload Social Data (Friends & Requests)
   const reloadSocialData = async () => {
@@ -880,7 +1003,34 @@ export default function StudentDashboard() {
     return () => clearInterval(pollTimer);
   }, [selectedPartner?.partner_id]);
 
-  // Send Message (Real DB API with friendship enforcement)
+  // Trigger Swipe-to-Reply or Click-to-Reply
+  const handleStartReply = (msg) => {
+    if (!msg) return;
+    const isMine = msg.sender_id === currentUser.user_id;
+    const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
+    let preview = '';
+    if (msg.message_type === 'audio') preview = '🎤 Voice Note';
+    else if (msg.message_type === 'image') preview = '📷 Photo';
+    else if (msg.message_type === 'video') preview = '🎥 Video';
+    else {
+      const parsed = parseChatReply(msg);
+      preview = parsed ? parsed.text : (msg.content || msg.text || '');
+    }
+    setReplyingToMessage({
+      id: msg.id,
+      sender_name: senderName,
+      preview: preview.length > 70 ? preview.slice(0, 70) + '...' : preview,
+      message_type: msg.message_type
+    });
+    try {
+      if (navigator.vibrate) navigator.vibrate(25);
+    } catch {}
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 60);
+  };
+
+  // Send Message (Real DB API with friendship enforcement & quote replies)
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (selectedPartner?.is_ai) {
@@ -895,20 +1045,50 @@ export default function StudentDashboard() {
     }
 
     const messageText = newMsgText.trim();
+    const currentReply = replyingToMessage;
     setNewMsgText('');
+    setReplyingToMessage(null);
+
+    // Optimistic UI Update: Prepend message into active thread immediately
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: currentUser?.user_id,
+      recipient_id: selectedPartner.partner_id,
+      content: messageText,
+      message_type: currentReply ? 'reply' : 'text',
+      reply_to_id: currentReply?.id || null,
+      reply_to_sender: currentReply?.sender_name || null,
+      reply_to_text: currentReply?.preview || null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true
+    };
+
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setTimeout(() => scrollToChatBottom(false), 20);
     setSendingMsg(true);
 
     try {
-      const res = await API.post('/messages', {
+      const payload = {
         recipient_id: selectedPartner.partner_id,
-        content: messageText
-      });
-      setChatMessages(prev => [...prev, res.data]);
+        content: messageText,
+        message_type: currentReply ? 'reply' : 'text',
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null
+      };
+
+      const res = await API.post('/messages', payload);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? res.data : m)));
       
-      // Update conversations list
-      const convRes = await API.get('/conversations');
-      setConversations(convRes.data);
+      // Background update conversations list silently
+      API.get('/conversations')
+        .then(convRes => setConversations(convRes.data || []))
+        .catch(() => {});
     } catch (err) {
+      // Revert optimistic message on failure
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send message.');
     } finally {
       setSendingMsg(false);
@@ -1239,20 +1419,23 @@ export default function StudentDashboard() {
 
   const handleCreateStatus = async (e) => {
     if (e) e.preventDefault();
-    if (!newStatusForm.caption?.trim() && !newStatusForm.media_url) {
-      alert('Please enter a status text or select a photo/video.');
+    if (!newStatusForm.caption?.trim()) {
+      alert('Please enter a campus status update or thought.');
       return;
     }
     setSubmittingStatus(true);
     try {
       const payload = {
-        ...newStatusForm,
+        media_type: 'text',
+        caption: newStatusForm.caption.trim(),
+        background_color: newStatusForm.background_color || 'from-emerald-600 to-teal-800',
+        media_url: null,
         privacy_setting: statusPrivacy,
         allowed_user_ids: statusPrivacy === 'custom' ? selectedAudienceFriends : []
       };
       await API.post('/campus/statuses', payload);
       setToast({ 
-        text: `Status shared! Visible to ${statusPrivacy === 'friends' ? 'friends' : statusPrivacy === 'campus' ? 'campus peers' : 'selected friends'} for 24 hours.`, 
+        text: 'Campus status updated! Visible to your campus peers.', 
         type: 'success' 
       });
       setCreateStatusModalOpen(false);
@@ -1962,6 +2145,17 @@ export default function StudentDashboard() {
             <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg truncate max-w-[120px]">
               {universityName ? universityName.split(' ')[0] : 'Campus'}
             </span>
+            {/* In-App Manual Refresh Button (Mobile) */}
+            <button
+              onClick={() => handleManualRefresh(true)}
+              disabled={isRefreshing}
+              className={`p-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-sky-600 cursor-pointer shadow-2xs transition-all active:scale-95 ${
+                isRefreshing ? 'text-sky-600 bg-sky-50 border-sky-300' : ''
+              }`}
+              title="Refresh feeds, stories & chats"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
+            </button>
             <button
               onClick={() => setNotificationsOpen(true)}
               className="relative p-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-sky-600 cursor-pointer shadow-2xs"
@@ -2003,6 +2197,21 @@ export default function StudentDashboard() {
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* In-App Manual Refresh Button (Desktop) */}
+            <button
+              onClick={() => handleManualRefresh(true)}
+              disabled={isRefreshing}
+              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-sky-600 transition-all cursor-pointer shadow-xs active:scale-95 ${
+                isRefreshing ? 'text-sky-600 bg-sky-50 border-sky-300' : ''
+              }`}
+              title="Refresh feeds, stories & chats"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
+              <span className="text-xs font-bold hidden sm:inline">
+                {isRefreshing ? 'Syncing...' : 'Refresh'}
+              </span>
+            </button>
+
             {/* Live Notification Bell with Drawer Trigger */}
             <div className="relative">
               <button
@@ -2269,13 +2478,25 @@ export default function StudentDashboard() {
         {/* --- TAB 2: CAMPUS REELS --- */}
         {activeTab === 'reels' && (
           <div className="max-w-3xl mx-auto space-y-8">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                Campus Reels & Feed
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Watch student video drops, campus clips, and share updates across campus.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Campus Reels & Feed
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  Watch student video drops, campus clips, and share updates across campus.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleManualRefresh(true)}
+                disabled={isRefreshing}
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                title="Refresh feed & posts"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
+                <span className="hidden sm:inline">{isRefreshing ? 'Syncing...' : 'Refresh Feed'}</span>
+              </button>
             </div>
 
             {/* Facebook-Style Post Creator Card */}
@@ -3134,77 +3355,58 @@ export default function StudentDashboard() {
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
           <div className="space-y-4">
-            {/* WhatsApp-Style Campus Status Tray */}
-            <div className={`bg-white rounded-3xl border border-slate-200 p-4 shadow-xs ${selectedPartner ? 'hidden md:block' : 'block'}`}>
-              <div className="flex items-center justify-between mb-3 px-1">
-                <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                  <Sparkles className="w-4 h-4 text-emerald-500" />
-                  <span>Campus Stories & Status Updates (24h)</span>
-                </span>
-                <div className="flex items-center space-x-2">
+            {/* Sleek, Compact Campus Vibe & Status Strip (Decluttered, Zero Media Storage) */}
+            {!selectedPartner && (
+              <div className="bg-white rounded-2xl border border-slate-200 px-4 py-2.5 shadow-2xs flex items-center justify-between gap-3 overflow-x-auto">
+                <div className="flex items-center space-x-2 shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-800 shrink-0">Campus Vibes</span>
+                </div>
+
+                <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-0.5">
+                  {/* Quick Status Creator Button */}
+                  <button
+                    type="button"
+                    onClick={() => setCreateStatusModalOpen(true)}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-700 text-[11px] font-bold transition-all shrink-0 cursor-pointer shadow-2xs active:scale-95"
+                    title="Set your campus vibe or quick status"
+                  >
+                    <Plus className="w-3 h-3 stroke-[3]" />
+                    <span>My Vibe</span>
+                  </button>
+
+                  {/* Peer Status Pills */}
+                  {statusGroups.map((group, uIdx) => (
+                    <button
+                      key={group.user_id}
+                      type="button"
+                      onClick={() => setActiveStatusViewer({ userIdx: uIdx, itemIdx: 0 })}
+                      className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 transition-colors shrink-0 cursor-pointer text-[11px] group"
+                      title={`View ${group.user_name}'s vibe`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 group-hover:animate-ping" />
+                      <span className="font-semibold text-slate-800 truncate max-w-[70px]">
+                        {group.is_self ? 'You' : group.user_name.split(' ')[0]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center space-x-2 shrink-0 ml-auto">
                   <button
                     type="button"
                     onClick={() => setStatusPrivacyModalOpen(true)}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-800 text-[10px] font-bold transition-colors cursor-pointer shadow-2xs"
-                    title="Story Privacy Settings"
+                    className="text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
+                    title="Status privacy"
                   >
-                    <Lock className="w-3 h-3 text-sky-600" />
-                    <span>Privacy: {statusPrivacy === 'friends' ? 'My Friends' : statusPrivacy === 'campus' ? 'All Campus' : 'Selected'}</span>
+                    Privacy: {statusPrivacy === 'friends' ? 'Friends' : statusPrivacy === 'campus' ? 'Campus' : 'Selected'}
                   </button>
-                  <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} updates</span>
                 </div>
               </div>
+            )}
 
-              <div className="flex items-center space-x-4 overflow-x-auto pb-2 scrollbar-none">
-                {/* 1. My Status Card */}
-                <div
-                  onClick={() => setCreateStatusModalOpen(true)}
-                  className="flex flex-col items-center shrink-0 cursor-pointer group"
-                >
-                  <div className="relative w-15 h-15 rounded-full p-0.5 border-2 border-dashed border-sky-400 group-hover:border-sky-600 transition-all flex items-center justify-center bg-slate-50">
-                    {currentUser?.profile_picture_url ? (
-                      <SafeImage src={currentUser?.profile_picture_url} alt="My Status" fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
-                        {currentUser?.full_name?.charAt(0) || 'U'}
-                      </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-sky-500 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs">
-                      <Plus className="w-3 h-3 stroke-[3]" />
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-800 mt-1.5">My Status</span>
-                  <span className="text-[9px] text-slate-400">Tap to add</span>
-                </div>
-
-                {/* 2. Peer Status Stories */}
-                {statusGroups.map((group, uIdx) => (
-                  <div
-                    key={group.user_id}
-                    onClick={() => setActiveStatusViewer({ userIdx: uIdx, itemIdx: 0 })}
-                    className="flex flex-col items-center shrink-0 cursor-pointer group"
-                  >
-                    <div className="w-15 h-15 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 via-teal-400 to-sky-500 shadow-xs group-hover:scale-105 transition-transform flex items-center justify-center">
-                      <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
-                        {group.user_avatar ? (
-                          <SafeImage src={group.user_avatar} alt={group.user_name} fallbackType="avatar" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
-                            {group.user_name.charAt(0)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[65px] text-center">
-                      {group.is_self ? 'You' : group.user_name.split(' ')[0]}
-                    </span>
-                    <span className="text-[9px] text-emerald-600 font-semibold truncate max-w-[70px]">
-                      {group.user_university_abbr ? `📍 ${group.user_university_abbr}` : `${group.items.length} update${group.items.length > 1 ? 's' : ''}`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             {/* Chat Box Container */}
             <div className={`flex flex-col bg-white overflow-hidden ${selectedPartner && messageSubtab === 'chats' ? 'h-[100dvh] md:h-[calc(100vh-17rem)] rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'h-[calc(100vh-17rem)] min-h-[500px] rounded-3xl border border-slate-200 shadow-xs'}`}>
@@ -3681,95 +3883,148 @@ export default function StudentDashboard() {
                           {/* Chat Messages */}
                           <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3">
                           {chatMessages.length > 0 ? (
-                            chatMessages.map((msg) => (
-                              <div
-                                key={msg.id}
-                                className={`flex ${
-                                  msg.sender_id === currentUser.user_id ? 'justify-end' : 'justify-start'
-                                }`}
-                              >
+                            chatMessages.map((msg) => {
+                              const isMine = msg.sender_id === currentUser.user_id;
+                              const chatReply = parseChatReply(msg);
+
+                              return (
                                 <div
-                                  className={`max-w-sm sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed ${
-                                    msg.sender_id === currentUser.user_id
-                                      ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
-                                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                  key={msg.id}
+                                  className={`relative flex items-center group select-none ${
+                                    isMine ? 'justify-end' : 'justify-start'
                                   }`}
                                 >
-                                  {parseStatusReply(msg) ? (
-                                    <StoryReplyBubble
-                                      msg={msg}
-                                      isMine={msg.sender_id === currentUser.user_id}
-                                      onStoryClick={(statusId) => {
-                                        const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
-                                        if (gIdx !== -1) {
-                                          const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
-                                          setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
-                                        }
+                                  {/* Swipe to Reply Backing Indicator */}
+                                  <div className={`absolute ${isMine ? 'right-2' : 'left-2'} text-sky-500 opacity-0 group-hover:opacity-30 transition-opacity pointer-events-none flex items-center space-x-1 text-[11px] font-bold`}>
+                                    <Reply className="w-4 h-4 text-sky-500" />
+                                  </div>
+
+                                  <motion.div
+                                    drag="x"
+                                    dragConstraints={{ left: 0, right: 65 }}
+                                    dragElastic={0.25}
+                                    onDragEnd={(e, info) => {
+                                      if (info.offset.x > 35) {
+                                        handleStartReply(msg);
+                                      }
+                                    }}
+                                    className={`relative max-w-sm sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-colors cursor-grab active:cursor-grabbing ${
+                                      isMine
+                                        ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
+                                        : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                    }`}
+                                  >
+                                    {/* Desktop Hover Quick-Reply Button */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStartReply(msg);
                                       }}
-                                    />
-                                  ) : msg.message_type === 'audio' ? (
-                                    <div className="flex items-center space-x-3 py-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => handlePlayAudio(msg.id, msg.media_url)}
-                                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                                          msg.sender_id === currentUser.user_id ? 'bg-white text-sky-600 hover:bg-sky-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                      className={`hidden group-hover:flex absolute -top-2 ${
+                                        isMine ? '-left-6' : '-right-6'
+                                      } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
+                                      title="Reply to this message"
+                                    >
+                                      <Reply className="w-3 h-3" />
+                                    </button>
+
+                                    {/* Quoted Message Card (if this message is replying to another) */}
+                                    {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                      <div
+                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left ${
+                                          isMine
+                                            ? 'bg-sky-600/50 border-white text-sky-100 shadow-inner'
+                                            : 'bg-slate-100 border-sky-500 text-slate-700'
                                         }`}
                                       >
-                                        {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                                      </button>
-                                      <div>
-                                        <div className="flex items-center space-x-1 mb-1">
-                                          {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
-                                            <span
-                                              key={i}
-                                              className={`w-1 rounded-full transition-all ${
-                                                playingAudioId === msg.id
-                                                  ? 'animate-pulse bg-emerald-400'
-                                                  : msg.sender_id === currentUser.user_id
-                                                    ? 'bg-sky-200'
-                                                    : 'bg-slate-300'
-                                              }`}
-                                              style={{ height: `${h}px` }}
-                                            />
-                                          ))}
+                                        <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
+                                          <Reply className="w-2.5 h-2.5 shrink-0" />
+                                          <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Campus Peer'}</span>
                                         </div>
-                                        <span className={`text-[10px] font-semibold ${msg.sender_id === currentUser.user_id ? 'text-sky-100' : 'text-slate-500'}`}>
-                                          🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
-                                        </span>
+                                        <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
                                       </div>
-                                    </div>
-                                  ) : msg.message_type === 'image' ? (
-                                    <div className="space-y-1.5">
-                                      <SafeImage
-                                        src={msg.media_url}
-                                        alt="Shared in chat"
-                                        fallbackType="product"
-                                        className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                        onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
+                                    )}
+
+                                    {/* Bubble Body Content */}
+                                    {chatReply ? (
+                                      <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
+                                    ) : parseStatusReply(msg) ? (
+                                      <StoryReplyBubble
+                                        msg={msg}
+                                        isMine={isMine}
+                                        onStoryClick={(statusId) => {
+                                          const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
+                                          if (gIdx !== -1) {
+                                            const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
+                                            setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
+                                          }
+                                        }}
                                       />
-                                      {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
-                                    </div>
-                                  ) : msg.message_type === 'video' ? (
-                                    <div className="space-y-1.5">
-                                      <video
-                                        src={msg.media_url}
-                                        controls
-                                        className="rounded-xl max-h-64 w-full bg-black"
-                                      />
-                                      {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
-                                    </div>
-                                  ) : (
-                                    <p>{msg.content || msg.text}</p>
-                                  )}
-                                  <span className={`block text-[9px] mt-1 text-right ${
-                                    msg.sender_id === currentUser.user_id ? 'text-sky-100' : 'text-slate-400'
-                                  }`}>
-                                    {safeTime(msg.created_at, 'Just now')}
-                                  </span>
+                                    ) : msg.message_type === 'audio' ? (
+                                      <div className="flex items-center space-x-3 py-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePlayAudio(msg.id, msg.media_url)}
+                                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                            isMine ? 'bg-white text-sky-600 hover:bg-sky-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                          }`}
+                                        >
+                                          {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                        </button>
+                                        <div>
+                                          <div className="flex items-center space-x-1 mb-1">
+                                            {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
+                                              <span
+                                                key={i}
+                                                className={`w-1 rounded-full transition-all ${
+                                                  playingAudioId === msg.id
+                                                    ? 'animate-pulse bg-emerald-400'
+                                                    : isMine
+                                                      ? 'bg-sky-200'
+                                                      : 'bg-slate-300'
+                                                }`}
+                                                style={{ height: `${h}px` }}
+                                              />
+                                            ))}
+                                          </div>
+                                          <span className={`text-[10px] font-semibold ${isMine ? 'text-sky-100' : 'text-slate-500'}`}>
+                                            🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : msg.message_type === 'image' ? (
+                                      <div className="space-y-1.5">
+                                        <SafeImage
+                                          src={msg.media_url}
+                                          alt="Shared in chat"
+                                          fallbackType="product"
+                                          className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                          onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
+                                        />
+                                        {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
+                                      </div>
+                                    ) : msg.message_type === 'video' ? (
+                                      <div className="space-y-1.5">
+                                        <video
+                                          src={msg.media_url}
+                                          controls
+                                          className="rounded-xl max-h-64 w-full bg-black"
+                                        />
+                                        {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
+                                      </div>
+                                    ) : (
+                                      <p>{msg.content || msg.text}</p>
+                                    )}
+                                    <span className={`block text-[9px] mt-1 text-right ${
+                                      isMine ? 'text-sky-100' : 'text-slate-400'
+                                    }`}>
+                                      {safeTime(msg.created_at, 'Just now')}
+                                    </span>
+                                  </motion.div>
                                 </div>
-                              </div>
-                            ))
+                              );
+                            })
                           ) : (
                             <div className="py-20 text-center text-xs text-slate-400">
                               <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -3800,6 +4055,32 @@ export default function StudentDashboard() {
                           <>
                             {/* Message Input Form & VN Voice Recorder */}
                             <div className="p-3 bg-white border-t border-slate-200">
+                              {/* Quoted Swipe-to-Reply Banner */}
+                              {replyingToMessage && (
+                                <div className="flex items-center justify-between px-3.5 py-2 bg-sky-50 border border-sky-200 rounded-2xl mb-2.5 text-xs shadow-2xs">
+                                  <div className="flex items-center space-x-2.5 min-w-0">
+                                    <div className="w-1 h-7 rounded-full bg-sky-500 shrink-0" />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center space-x-1 text-sky-700 font-bold text-[11px]">
+                                        <Reply className="w-3 h-3" />
+                                        <span>Replying to {replyingToMessage.sender_name}</span>
+                                      </div>
+                                      <p className="text-slate-600 truncate text-[11px]">
+                                        {replyingToMessage.preview}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setReplyingToMessage(null)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
+                                    title="Cancel reply"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+
                               {isRecordingAudio ? (
                                 <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-2xl p-2 px-4">
                                   <div className="flex items-center space-x-3">
@@ -3847,8 +4128,9 @@ export default function StudentDashboard() {
                                   </button>
 
                                   <input
+                                    ref={chatInputRef}
                                     type="text"
-                                    placeholder={`Message ${selectedPartner.partner_name}...`}
+                                    placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                     value={newMsgText}
                                     onChange={(e) => setNewMsgText(e.target.value)}
                                     className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
@@ -5213,37 +5495,15 @@ export default function StudentDashboard() {
               </button>
 
               <div className="flex items-center space-x-3 mb-4">
-                <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-600 shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shrink-0">
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 leading-tight">Create Campus Status</h3>
+                  <h3 className="text-lg font-black text-slate-900 leading-tight">Campus Status & Vibe</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Disappears after 24 hours. Visible to your campus friends.
+                    Fast text updates that keep your campus circle connected without using device storage.
                   </p>
                 </div>
-              </div>
-
-              {/* Media Type Tabs */}
-              <div className="flex bg-slate-100 p-1 rounded-xl mb-3 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setNewStatusForm(prev => ({ ...prev, media_type: 'text' }))}
-                  className={`flex-1 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                    newStatusForm.media_type === 'text' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                  }`}
-                >
-                  Text Status
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewStatusForm(prev => ({ ...prev, media_type: 'image' }))}
-                  className={`flex-1 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                    newStatusForm.media_type === 'image' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                  }`}
-                >
-                  Photo / Video
-                </button>
               </div>
 
               {/* Story Audience Pill (Blue & White Campus Theme) */}
@@ -5265,111 +5525,50 @@ export default function StudentDashboard() {
               </div>
 
               <form onSubmit={handleCreateStatus} className="space-y-4 text-xs">
-                {newStatusForm.media_type === 'text' ? (
-                  <div className="space-y-3">
-                    {/* Live Preview of Gradient Status */}
-                    <div
-                      className={`h-40 rounded-2xl bg-gradient-to-tr ${newStatusForm.background_color} p-4 flex items-center justify-center text-center text-white shadow-inner relative`}
-                    >
-                      <p className="font-bold text-sm leading-relaxed max-w-xs break-words">
-                        {newStatusForm.caption || 'Type your status text below...'}
-                      </p>
-                    </div>
-
-                    <textarea
-                      rows={3}
-                      placeholder="What's on your mind today? Share a campus thought..."
-                      value={newStatusForm.caption}
-                      onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-emerald-500 resize-none"
-                    />
-
-                    {/* Gradient Theme Picker */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">Choose Color Theme</label>
-                      <div className="flex items-center space-x-2">
-                        {[
-                          { id: 'from-emerald-600 to-teal-800', name: 'Emerald' },
-                          { id: 'from-indigo-600 to-purple-800', name: 'Indigo' },
-                          { id: 'from-rose-600 to-pink-800', name: 'Rose' },
-                          { id: 'from-sky-500 to-blue-700', name: 'Sky' },
-                          { id: 'from-amber-500 to-orange-700', name: 'Amber' },
-                          { id: 'from-slate-800 to-slate-950', name: 'Midnight' }
-                        ].map((bg) => (
-                          <button
-                            key={bg.id}
-                            type="button"
-                            onClick={() => setNewStatusForm(prev => ({ ...prev, background_color: bg.id }))}
-                            className={`w-7 h-7 rounded-full bg-gradient-to-tr ${bg.id} cursor-pointer transition-transform ${
-                              newStatusForm.background_color === bg.id ? 'scale-125 ring-2 ring-emerald-400 ring-offset-2' : 'hover:scale-110'
-                            }`}
-                            title={bg.name}
-                          />
-                        ))}
-                      </div>
-                    </div>
+                <div className="space-y-3">
+                  {/* Live Preview of Gradient Status */}
+                  <div
+                    className={`h-36 rounded-2xl bg-gradient-to-tr ${newStatusForm.background_color} p-4 flex items-center justify-center text-center text-white shadow-inner relative`}
+                  >
+                    <p className="font-bold text-sm leading-relaxed max-w-xs break-words">
+                      {newStatusForm.caption || 'Type your status text below...'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <input
-                      ref={statusFileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const isVid = file.type.startsWith('video');
-                        try {
-                          const formData = new FormData();
-                          formData.append('file', file);
-                          const res = await API.post('/upload', formData);
-                          setNewStatusForm(prev => ({
-                            ...prev,
-                            media_type: isVid ? 'video' : 'image',
-                            media_url: res.data.url
-                          }));
-                        } catch (err) {
-                          alert('Failed to upload status media.');
-                        }
-                      }}
-                      className="hidden"
-                    />
 
-                    {newStatusForm.media_url ? (
-                      <div className="relative h-44 rounded-2xl bg-slate-100 overflow-hidden border border-slate-200">
-                        {newStatusForm.media_type === 'video' ? (
-                          <video src={getMediaUrl(newStatusForm.media_url)} controls className="w-full h-full object-cover" />
-                        ) : (
-                          <SafeImage src={newStatusForm.media_url} alt="Preview" fallbackType="product" className="w-full h-full object-cover" />
-                        )}
+                  <textarea
+                    rows={3}
+                    maxLength={140}
+                    placeholder="What's on your mind today? Share a campus thought or vibe..."
+                    value={newStatusForm.caption}
+                    onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-emerald-500 resize-none"
+                  />
+
+                  {/* Gradient Theme Picker */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">Choose Color Theme</label>
+                    <div className="flex items-center space-x-2">
+                      {[
+                        { id: 'from-emerald-600 to-teal-800', name: 'Emerald' },
+                        { id: 'from-indigo-600 to-purple-800', name: 'Indigo' },
+                        { id: 'from-rose-600 to-pink-800', name: 'Rose' },
+                        { id: 'from-sky-500 to-blue-700', name: 'Sky' },
+                        { id: 'from-amber-500 to-orange-700', name: 'Amber' },
+                        { id: 'from-slate-800 to-slate-950', name: 'Midnight' }
+                      ].map((bg) => (
                         <button
+                          key={bg.id}
                           type="button"
-                          onClick={() => setNewStatusForm(prev => ({ ...prev, media_url: '' }))}
-                          className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 cursor-pointer"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => statusFileInputRef.current?.click()}
-                        className="h-40 rounded-2xl border-2 border-dashed border-slate-200 hover:border-emerald-500 bg-slate-50 flex flex-col items-center justify-center p-4 cursor-pointer transition-colors"
-                      >
-                        <Upload className="w-8 h-8 text-slate-400 mb-2" />
-                        <span className="font-bold text-slate-700">Click to choose photo or video</span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">Supports JPG, PNG, MP4</span>
-                      </div>
-                    )}
-
-                    <input
-                      type="text"
-                      placeholder="Add an optional caption..."
-                      value={newStatusForm.caption}
-                      onChange={(e) => setNewStatusForm(prev => ({ ...prev, caption: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-emerald-500"
-                    />
+                          onClick={() => setNewStatusForm(prev => ({ ...prev, background_color: bg.id }))}
+                          className={`w-7 h-7 rounded-full bg-gradient-to-tr ${bg.id} cursor-pointer transition-transform ${
+                            newStatusForm.background_color === bg.id ? 'scale-125 ring-2 ring-emerald-400 ring-offset-2' : 'hover:scale-110'
+                          }`}
+                          title={bg.name}
+                        />
+                      ))}
+                    </div>
                   </div>
-                )}
+                </div>
 
                 <div className="pt-2 flex items-center space-x-2">
                   <button
@@ -5933,7 +6132,7 @@ export default function StudentDashboard() {
 
 
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Compact Icons for Small Screens) --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
         {/* Market */}
         <button
           onClick={() => { setActiveTab('marketplace'); setMarketType('products'); }}

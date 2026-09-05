@@ -26,7 +26,8 @@ export default function SafeImage({
     setHasError(false);
   }, [src]);
 
-  const resolved = getMediaUrl(src);
+  const imgOptions = props.width || (fallbackType === 'avatar' ? 'avatar' : 600);
+  const resolved = getMediaUrl(src, imgOptions);
 
   const getFallback = () => {
     if (fallbackSrc) return fallbackSrc;

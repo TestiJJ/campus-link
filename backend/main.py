@@ -19,12 +19,24 @@ try:
     models.Base.metadata.create_all(bind=database.engine)
     from sqlalchemy import text as _sql_text
     with database.engine.connect() as _conn:
-        try:
-            _conn.execute(_sql_text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;"))
-            _conn.execute(_sql_text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-            _conn.commit()
-        except Exception:
-            pass
+        for col_stmt in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);"
+        ]:
+            try:
+                _conn.execute(_sql_text(col_stmt))
+                _conn.commit()
+            except Exception:
+                # Fallback for SQLite which doesn't support IF NOT EXISTS on ALTER TABLE
+                try:
+                    fallback_stmt = col_stmt.replace(" IF NOT EXISTS", "")
+                    _conn.execute(_sql_text(fallback_stmt))
+                    _conn.commit()
+                except Exception:
+                    pass
 except Exception as _db_err:
     print(f"[CampusLink] Database init notice: {_db_err}")
 # Auto-seed institutions and marketplace categories on server initialization
@@ -2731,6 +2743,9 @@ async def send_message(
         message_type=msg_data.message_type or "text",
         media_url=msg_data.media_url,
         duration=msg_data.duration,
+        reply_to_id=msg_data.reply_to_id,
+        reply_to_sender=msg_data.reply_to_sender,
+        reply_to_text=msg_data.reply_to_text,
         is_read=False
     )
     db.add(new_msg)
@@ -2774,6 +2789,9 @@ async def send_message(
                 "message_type": new_msg.message_type,
                 "media_url": new_msg.media_url,
                 "duration": new_msg.duration,
+                "reply_to_id": new_msg.reply_to_id,
+                "reply_to_sender": new_msg.reply_to_sender,
+                "reply_to_text": new_msg.reply_to_text,
                 "is_read": new_msg.is_read,
                 "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None,
             },

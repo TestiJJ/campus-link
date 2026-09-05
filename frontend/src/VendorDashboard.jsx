@@ -10,12 +10,38 @@ import {
   Heart, MessageCircle, UserPlus, Users, UserCheck, UserX, Search,
   Share2, DollarSign, Bell, Sparkles, AlertTriangle, ExternalLink,
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
-  Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone
+  Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
+
+// Chat Reply Parser for Quoted Messages
+export const parseChatReply = (msg) => {
+  if (!msg) return null;
+  const content = msg.content || msg.text || '';
+  if (
+    msg.message_type === 'reply' ||
+    (typeof content === 'string' && content.trim().startsWith('{') && content.includes('"type":"chat_reply"'))
+  ) {
+    try {
+      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+      if (parsed && parsed.type === 'chat_reply') {
+        return {
+          isChatReply: true,
+          replyToId: parsed.reply_to_id,
+          replyToSender: parsed.reply_to_sender || 'Peer',
+          replyToText: parsed.reply_to_text || '',
+          text: parsed.text || ''
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
 
 
 // Stale-While-Revalidate Caching Utilities for Vendor
@@ -132,20 +158,21 @@ export default function VendorDashboard() {
   const [products, setProducts] = useState(() => getCachedData('products', []));
   const [services, setServices] = useState(() => getCachedData('services', []));
   const [vendorOrders, setVendorOrders] = useState(() => getCachedData('orders', []));
-  const [vendorReviews, setVendorReviews] = useState([]);
+  const [vendorReviews, setVendorReviews] = useState(() => getCachedData('reviews', []));
   
-  // Messaging & Friends States
-  const [conversations, setConversations] = useState([]);
+  // Messaging & Friends States (SWR Instant-Load Cache)
+  const [conversations, setConversations] = useState(() => getCachedData('conversations', []));
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [newMsgText, setNewMsgText] = useState('');
+  const [replyingToMessage, setReplyingToMessage] = useState(null);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
-  const [communityUsers, setCommunityUsers] = useState([]);
+  const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
   const [communitySearch, setCommunitySearch] = useState('');
   const [communityRoleFilter, setCommunityRoleFilter] = useState('all'); // 'all' | 'student' | 'vendor'
-  const [friendsList, setFriendsList] = useState([]);
-  const [pendingRequests, setPendingRequests] = useState([]);
+  const [friendsList, setFriendsList] = useState(() => getCachedData('friendsList', []));
+  const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const chatBottomRef = useRef(null);
 
   // Synchronize activeTab with URL query params and localStorage
@@ -180,8 +207,8 @@ export default function VendorDashboard() {
   const [aiMessages, setAiMessages] = useState([]);
   const [isAiTyping, setIsAiTyping] = useState(false);
 
-  // Status Stories States (WhatsApp/Instagram-style)
-  const [statusGroups, setStatusGroups] = useState([]);
+  // Status Stories States (SWR Instant-Load Cache)
+  const [statusGroups, setStatusGroups] = useState(() => getCachedData('statusGroups', []));
   const [activeStatusViewer, setActiveStatusViewer] = useState(null); // { userIdx: 0, itemIdx: 0 }
   const [createStatusModalOpen, setCreateStatusModalOpen] = useState(false);
   const [statusMediaFile, setStatusMediaFile] = useState(null);
@@ -197,8 +224,8 @@ export default function VendorDashboard() {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  // Reels States
-  const [allReels, setAllReels] = useState([]);
+  // Reels States (SWR Instant-Load Cache)
+  const [allReels, setAllReels] = useState(() => getCachedData('allReels', []));
   const [reelFeedFilter, setReelFeedFilter] = useState('all'); // 'all' | 'my_drops'
   const [activeCommentsReelId, setActiveCommentsReelId] = useState(null);
   const [newCommentText, setNewCommentText] = useState('');
@@ -565,7 +592,7 @@ export default function VendorDashboard() {
     return () => clearInterval(timer);
   }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
 
-  // Gentle background sync for vendor conversations and requests (12s fallback + window focus)
+  // Background live sync for vendor data (conversations, orders, statuses, requests)
   useEffect(() => {
     const syncVendorData = () => {
       API.get('/conversations')
@@ -574,9 +601,15 @@ export default function VendorDashboard() {
       API.get('/friends/requests/pending')
         .then(res => setPendingRequests(res.data || []))
         .catch(() => {});
+      API.get('/vendor/orders')
+        .then(res => setVendorOrders(res.data || []))
+        .catch(() => {});
+      API.get('/campus/statuses')
+        .then(res => setStatusGroups(res.data || []))
+        .catch(() => {});
     };
 
-    const interval = setInterval(syncVendorData, 12000);
+    const interval = setInterval(syncVendorData, 8000);
     window.addEventListener('focus', syncVendorData);
 
     return () => {
@@ -664,25 +697,39 @@ export default function VendorDashboard() {
         setCachedData('orders', ordData);
       }
       if (results[3].status === 'fulfilled') {
-        setVendorReviews(results[3].value.data);
+        const revs = results[3].value.data || [];
+        setVendorReviews(revs);
+        setCachedData('reviews', revs);
       }
       if (results[4].status === 'fulfilled') {
-        setConversations(results[4].value.data);
+        const convs = results[4].value.data || [];
+        setConversations(convs);
+        setCachedData('conversations', convs);
       }
       if (results[5].status === 'fulfilled') {
-        setAllReels(results[5].value.data);
+        const rls = results[5].value.data || [];
+        setAllReels(rls);
+        setCachedData('allReels', rls);
       }
       if (results[6].status === 'fulfilled') {
-        setFriendsList(results[6].value.data);
+        const frnds = results[6].value.data || [];
+        setFriendsList(frnds);
+        setCachedData('friendsList', frnds);
       }
       if (results[7].status === 'fulfilled') {
-        setPendingRequests(results[7].value.data);
+        const reqs = results[7].value.data || [];
+        setPendingRequests(reqs);
+        setCachedData('pendingRequests', reqs);
       }
       if (results[8].status === 'fulfilled') {
-        setCommunityUsers(results[8].value.data);
+        const comm = results[8].value.data || [];
+        setCommunityUsers(comm);
+        setCachedData('communityUsers', comm);
       }
       if (results[9].status === 'fulfilled') {
-        setStatusGroups(results[9].value.data || []);
+        const stats = results[9].value.data || [];
+        setStatusGroups(stats);
+        setCachedData('statusGroups', stats);
       }
       if (results[10].status === 'fulfilled') {
         setUniversities(results[10].value.data || []);
@@ -1023,6 +1070,18 @@ export default function VendorDashboard() {
     }
   };
 
+  const handleStartReply = (msg) => {
+    if (!msg) return;
+    const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+    const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
+    const previewText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 100);
+    setReplyingToMessage({
+      id: msg.id,
+      sender_name: senderName,
+      preview: previewText
+    });
+  };
+
   const handleSendChatMessage = async (customContent = null) => {
     if (selectedPartner?.is_ai) {
       return handleSendAiMessage(customContent);
@@ -1031,21 +1090,56 @@ export default function VendorDashboard() {
     const text = customContent || newMsgText;
     if (!text.trim() || !selectedPartner || isSendingMsg) return;
 
-    setIsSendingMsg(true);
     const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    const currentReply = replyingToMessage;
+    const messageText = text.trim();
+
+    if (!customContent) {
+      setNewMsgText('');
+      setReplyingToMessage(null);
+    }
+
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: user?.user_id || user?.id,
+      recipient_id: partnerId,
+      content: messageText,
+      message_type: currentReply ? 'reply' : 'text',
+      reply_to_id: currentReply?.id || null,
+      reply_to_sender: currentReply?.sender_name || null,
+      reply_to_text: currentReply?.preview || null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true
+    };
+
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setIsSendingMsg(true);
+
+    requestAnimationFrame(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    });
 
     try {
       const res = await API.post('/messages', {
         recipient_id: partnerId,
-        content: text.trim()
+        content: messageText,
+        message_type: currentReply ? 'reply' : 'text',
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null
       });
 
-      setChatMessages(prev => [...prev, res.data]);
-      if (!customContent) setNewMsgText('');
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? res.data : m)));
 
-      const convRes = await API.get('/conversations');
-      setConversations(convRes.data);
+      API.get('/conversations')
+        .then(convRes => setConversations(convRes.data || []))
+        .catch(() => {});
     } catch (err) {
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send message.');
     } finally {
       setIsSendingMsg(false);
@@ -2456,6 +2550,7 @@ export default function VendorDashboard() {
                               const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
                               const isStatusReply = msg.message_type === 'status_reply' || (typeof msg.content === 'string' && (msg.content.includes('"type":"status_reply"') || msg.content.startsWith('Replying to') || msg.content.startsWith('Reacted ')));
                               const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
+                              const chatReply = parseChatReply(msg);
 
                               return (
                                 <div
@@ -2463,14 +2558,48 @@ export default function VendorDashboard() {
                                   className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
                                 >
                                   <div
-                                    className={`max-w-xs sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed ${
+                                    className={`relative group max-w-xs sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-all ${
                                       isMine
                                         ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
                                         : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
                                     }`}
                                   >
+                                    {/* Action Reply Trigger on Bubble */}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStartReply(msg);
+                                      }}
+                                      className={`hidden group-hover:flex absolute -top-2 ${
+                                        isMine ? '-left-6' : '-right-6'
+                                      } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
+                                      title="Reply to this message"
+                                    >
+                                      <Reply className="w-3 h-3" />
+                                    </button>
+
+                                    {/* Quoted Message Card */}
+                                    {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                      <div
+                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left ${
+                                          isMine
+                                            ? 'bg-sky-600/50 border-white text-sky-100 shadow-inner'
+                                            : 'bg-slate-100 border-sky-500 text-slate-700'
+                                        }`}
+                                      >
+                                        <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
+                                          <Reply className="w-2.5 h-2.5 shrink-0" />
+                                          <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Customer'}</span>
+                                        </div>
+                                        <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
+                                      </div>
+                                    )}
+
                                     {isStatusReply ? (
                                       <StoryReplyBubble statusData={statusData} isMine={isMine} />
+                                    ) : chatReply ? (
+                                      <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
                                     ) : (
                                       <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
                                     )}
@@ -2513,28 +2642,56 @@ export default function VendorDashboard() {
                         </div>
 
                         {/* Message Input Form */}
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            handleSendChatMessage();
-                          }}
-                          className="p-3 bg-white border-t border-slate-200 flex items-center space-x-2"
-                        >
-                          <input
-                            type="text"
-                            placeholder={`Reply to ${selectedPartner.partner_name}...`}
-                            value={newMsgText}
-                            onChange={(e) => setNewMsgText(e.target.value)}
-                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
-                          />
-                          <button
-                            type="submit"
-                            disabled={!newMsgText.trim() || isSendingMsg}
-                            className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50"
+                        <div className="p-3 bg-white border-t border-slate-200">
+                          {/* Quoted Swipe-to-Reply Banner */}
+                          {replyingToMessage && (
+                            <div className="flex items-center justify-between px-3.5 py-2 bg-sky-50 border border-sky-200 rounded-2xl mb-2 text-xs shadow-2xs">
+                              <div className="flex items-center space-x-2.5 min-w-0">
+                                <div className="w-1 h-7 rounded-full bg-sky-500 shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="flex items-center space-x-1 text-sky-700 font-bold text-[11px]">
+                                    <Reply className="w-3 h-3" />
+                                    <span>Replying to {replyingToMessage.sender_name}</span>
+                                  </div>
+                                  <p className="text-slate-600 truncate text-[11px]">
+                                    {replyingToMessage.preview}
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setReplyingToMessage(null)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Cancel reply"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              handleSendChatMessage();
+                            }}
+                            className="flex items-center space-x-2"
                           >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </form>
+                            <input
+                              type="text"
+                              placeholder={`Reply to ${selectedPartner.partner_name}...`}
+                              value={newMsgText}
+                              onChange={(e) => setNewMsgText(e.target.value)}
+                              className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                            />
+                            <button
+                              type="submit"
+                              disabled={!newMsgText.trim() || isSendingMsg}
+                              className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          </form>
+                        </div>
                       </>
                     )
                   ) : (
@@ -3911,7 +4068,7 @@ export default function VendorDashboard() {
       {/* ========================================================================= */}
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
       {/* ========================================================================= */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 shadow-lg safe-bottom ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
         <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
           {/* Tab 1: Products */}
           <button
@@ -4807,7 +4964,7 @@ export default function VendorDashboard() {
       </AnimatePresence>
 
       {/* --- FACEBOOK/WHATSAPP-STYLE MOBILE BOTTOM NAVIGATION BAR FOR MERCHANTS --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom items-center justify-around shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'}`}>
         {/* Products */}
         <button
           onClick={() => setActiveTab('inventory')}

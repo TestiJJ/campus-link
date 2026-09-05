@@ -314,10 +314,14 @@ class Message(Base):
     media_url = Column(String(550), nullable=True)
     duration = Column(Integer, nullable=True) # seconds for voice note
     is_read = Column(Boolean, default=False)
+    reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    reply_to_sender = Column(String(100), nullable=True)
+    reply_to_text = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sender = relationship("User", foreign_keys=[sender_id])
     recipient = relationship("User", foreign_keys=[recipient_id])
+    reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])
 
 
 class CampusEatery(Base):

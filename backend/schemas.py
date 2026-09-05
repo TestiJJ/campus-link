@@ -326,6 +326,9 @@ class MessageCreate(BaseModel):
     message_type: Optional[str] = "text"  # text, audio, image, video
     media_url: Optional[str] = None
     duration: Optional[int] = None
+    reply_to_id: Optional[int] = None
+    reply_to_sender: Optional[str] = None
+    reply_to_text: Optional[str] = None
 
 class MessageOut(BaseModel):
     id: int
@@ -336,6 +339,9 @@ class MessageOut(BaseModel):
     message_type: Optional[str] = "text"
     media_url: Optional[str] = None
     duration: Optional[int] = None
+    reply_to_id: Optional[int] = None
+    reply_to_sender: Optional[str] = None
+    reply_to_text: Optional[str] = None
     is_read: bool
     created_at: Optional[datetime] = None
 

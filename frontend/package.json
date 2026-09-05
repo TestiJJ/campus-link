@@ -7,9 +7,20 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:android": "npm run build && npx cap run android",
+    "cap:ios": "npm run build && npx cap run ios",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios",
+    "build:android:debug": "npm run cap:sync && cd android && gradlew.bat assembleDebug",
+    "build:android:release": "npm run cap:sync && cd android && gradlew.bat assembleRelease",
+    "build:android:bundle": "npm run cap:sync && cd android && gradlew.bat bundleRelease"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@tailwindcss/vite": "^4.3.3",
     "axios": "^1.20.0",
     "framer-motion": "^13.1.1",
@@ -20,6 +31,7 @@
     "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",

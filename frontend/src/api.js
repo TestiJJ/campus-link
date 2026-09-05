@@ -44,17 +44,61 @@ export const uploadFile = async (file) => {
  * Resolves any image URL to ensure it points to the correct backend host.
  * Converts legacy 'http://127.0.0.1:8000/uploads/...' or relative '/uploads/...'
  * into the live production backend domain.
+ * 
+ * Automatically applies Cloudinary mobile-bandwidth optimizations (f_auto, q_auto, w_600)
+ * to prevent massive image payloads and speed up render times across mobile 4G/3G connections.
  */
-export const getMediaUrl = (url) => {
+export const getMediaUrl = (url, options = {}) => {
   if (!url) return '';
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+  let cleanUrl = String(url).trim();
+
+  // Normalize options (support number, string preset, or object)
+  let width = 600;
+  let quality = 'auto';
+  let format = 'auto';
+  let crop = 'limit';
+  let gravity = '';
+
+  if (typeof options === 'number') {
+    width = options;
+  } else if (typeof options === 'string') {
+    if (options === 'avatar') {
+      width = 200;
+      crop = 'fill';
+      gravity = 'g_face,';
+    } else if (options === 'thumb' || options === 'thumbnail') {
+      width = 300;
+    } else if (options === 'full' || options === 'banner') {
+      width = 1200;
+    }
+  } else if (typeof options === 'object' && options !== null) {
+    if (options.width) width = options.width;
+    if (options.quality) quality = options.quality;
+    if (options.format) format = options.format;
+    if (options.crop) crop = options.crop;
+    if (options.gravity) gravity = `g_${options.gravity},`;
+  }
+
+  // Cloudinary image bandwidth and format optimization
+  if (cleanUrl.includes('res.cloudinary.com') && cleanUrl.includes('/image/upload/')) {
+    // Only apply if not already containing transform parameters
+    if (!cleanUrl.match(/\/image\/upload\/[a-z]_[a-z0-9_,]+\//i)) {
+      const transform = `${gravity}f_${format},q_${quality},w_${width},c_${crop}`;
+      cleanUrl = cleanUrl.replace('/image/upload/', `/image/upload/${transform}/`);
+    }
+  } else if (cleanUrl.includes('res.cloudinary.com') && cleanUrl.includes('/upload/') && !cleanUrl.includes('/video/upload/')) {
+    if (!cleanUrl.match(/\/upload\/[a-z]_[a-z0-9_,]+\//i)) {
+      const transform = `${gravity}f_${format},q_${quality},w_${width},c_${crop}`;
+      cleanUrl = cleanUrl.replace('/upload/', `/upload/${transform}/`);
+    }
+  }
 
   const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
   const backendHost = (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL)
     .replace(/\/+$/, '')
     .replace(/\/api$/, '');
-
-  let cleanUrl = String(url).trim();
 
   // Rewrite any stale/legacy Express domain to the real active backend domain
   if (cleanUrl.includes('campuslink-backend.onrender.com')) {

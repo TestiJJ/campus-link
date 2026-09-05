@@ -486,7 +486,7 @@ export default function AdminDashboard() {
       </aside>
 
       {/* --- FACEBOOK/STUDENT-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 flex items-center justify-around shadow-lg w-full">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom flex items-center justify-around shadow-lg w-full">
         {/* Vendors */}
         <button
           onClick={() => setActiveTab('vendors')}

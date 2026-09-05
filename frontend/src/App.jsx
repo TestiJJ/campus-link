@@ -1,8 +1,8 @@
-// src/App.jsx
 import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ReactLenis, useLenis } from 'lenis/react';
 import PrivateRoute from './PrivateRoute';
+import PublicRoute from './PublicRoute';
 import InstallPwaPrompt from './InstallPwaPrompt';
 
 // Code-split route components for instant initial page load
@@ -148,76 +148,136 @@ function VendorRedirect() {
   return <Navigate to={`/vendor-dashboard${search}`} replace />;
 }
 
+// Dynamic tab redirector for fast-navigation shortcuts like /feed, /market, /chat
+function TabRedirect({ tab, subtab }) {
+  const { search } = useLocation();
+  const userStr = localStorage.getItem('user');
+  let target = '/student-dashboard';
+  try {
+    if (userStr) {
+      const u = JSON.parse(userStr);
+      if (u.role === 'vendor') target = '/vendor-dashboard';
+      else if (u.role === 'admin') target = '/admin-dashboard';
+    }
+  } catch {}
+
+  const searchParams = new URLSearchParams(search);
+  if (tab && !searchParams.has('tab')) {
+    searchParams.set('tab', tab);
+  }
+  if (subtab && !searchParams.has('subtab')) {
+    searchParams.set('subtab', subtab);
+  }
+  const queryStr = searchParams.toString() ? `?${searchParams.toString()}` : '';
+  return <Navigate to={`${target}${queryStr}`} replace />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <ReactLenis
         root
         options={{
-        lerp: 0.09,
-        duration: 1.2,
-        smoothWheel: true,
-        wheelMultiplier: 1.0,
-        touchMultiplier: 1.5,
-      }}
-    >
-      <Router>
-        <ScrollToTop />
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
-          <InstallPwaPrompt />
-          <Suspense fallback={<PageLoading />}>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<Auth />} />
-              <Route path="/signup" element={<Auth />} />
-              <Route path="/auth" element={<Auth />} />
+          lerp: 0.09,
+          duration: 1.2,
+          smoothWheel: true,
+          wheelMultiplier: 1.0,
+          touchMultiplier: 1.5,
+        }}
+      >
+        <Router>
+          <ScrollToTop />
+          <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
+            <InstallPwaPrompt />
+            <Suspense fallback={<PageLoading />}>
+              <Routes>
+                {/* Public Routes (Auto-bypassed if user is already authenticated) */}
+                <Route
+                  path="/"
+                  element={
+                    <PublicRoute>
+                      <LandingPage />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/login"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/signup"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/auth"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
 
-              {/* Protected Routes */}
-              <Route 
-                path="/student-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['student']}>
-                    <StudentDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/vendor-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['vendor']}>
-                    <VendorDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/admin" 
-                element={
-                  <PrivateRoute allowedRoles={['admin']}>
-                    <AdminDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/admin-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['admin']}>
-                    <AdminDashboard />
-                  </PrivateRoute>
-                } 
-              />
+                {/* Primary Protected Dashboards */}
+                <Route 
+                  path="/student-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['student']}>
+                      <StudentDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/vendor-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['vendor']}>
+                      <VendorDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin" 
+                  element={
+                    <PrivateRoute allowedRoles={['admin']}>
+                      <AdminDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['admin']}>
+                      <AdminDashboard />
+                    </PrivateRoute>
+                  } 
+                />
 
-              {/* Role-aware /dashboard and /vendor redirects */}
-              <Route path="/dashboard" element={<DashboardRedirect />} />
-              <Route path="/vendor" element={<VendorRedirect />} />
+                {/* Fast-Navigation Direct URLs & Aliases */}
+                <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
+                <Route path="/vendor" element={<PrivateRoute><VendorRedirect /></PrivateRoute>} />
+                <Route path="/feed" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
+                <Route path="/reels" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
+                <Route path="/market" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
+                <Route path="/marketplace" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
+                <Route path="/campus" element={<PrivateRoute><TabRedirect tab="campus" /></PrivateRoute>} />
+                <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
+                <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
+                <Route path="/messages" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
 
-              {/* Fallback Route */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </Router>
-    </ReactLenis>
-  </ErrorBoundary>
-);
+                {/* Fallback Route */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </div>
+        </Router>
+      </ReactLenis>
+    </ErrorBoundary>
+  );
 }
