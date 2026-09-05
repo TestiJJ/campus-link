@@ -330,12 +330,23 @@ export default function StudentDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
 
-  // Chat Swipe-to-Reply State
+  // Chat Swipe-to-Reply & Action Popover State
   const [replyingToMessage, setReplyingToMessage] = useState(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
   const [showMediaEditor, setShowMediaEditor] = useState(false);
   const chatInputRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
+        setActivePopoverMsgId(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     selectedPartnerRef.current = selectedPartner;
@@ -1186,20 +1197,61 @@ export default function StudentDashboard() {
     }
   };
 
+  // Copy message text to clipboard with instant feedback
+  const handleCopyMessageText = (msg) => {
+    if (!msg) return;
+    const parsed = parseChatReply(msg);
+    const textToCopy = parsed ? parsed.text : (msg.content || msg.text || '');
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
+      setToast({ text: 'Message copied to clipboard!', type: 'success' });
+      try {
+        if (navigator.vibrate) navigator.vibrate(15);
+      } catch {}
+    }
+    setActivePopoverMsgId(null);
+  };
+
+  // Quick Emoji Reaction
+  const handleReactToMessage = (msg, emoji) => {
+    if (!msg || !emoji) return;
+    setActivePopoverMsgId(null);
+    // Send quick reaction as a reply
+    const isMine = msg.sender_id === currentUser.user_id;
+    const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
+    const preview = msg.content?.length > 40 ? msg.content.slice(0, 40) + '...' : (msg.content || 'Photo/Media');
+    setReplyingToMessage({
+      id: msg.id,
+      sender_name: senderName,
+      preview: preview,
+      message_type: msg.message_type
+    });
+    setNewMsgText(emoji);
+    setTimeout(() => {
+      handleSendMessage(null, emoji, {
+        id: msg.id,
+        sender_name: senderName,
+        preview: preview,
+        message_type: msg.message_type
+      });
+    }, 50);
+  };
+
   // Send Message (Instant Zero-Latency Optimistic Delivery)
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = async (e, overrideText = null, overrideReply = null) => {
     if (e) e.preventDefault();
     if (selectedPartner?.is_ai) {
-      return handleSendAiMessage();
+      return handleSendAiMessage(overrideText);
     }
-    if (!newMsgText.trim() || !selectedPartner?.partner_id) return;
+    const textToSend = typeof overrideText === 'string' ? overrideText : newMsgText;
+    if (!textToSend.trim() || !selectedPartner?.partner_id) return;
 
-    const messageText = newMsgText.trim();
-    const currentReply = replyingToMessage;
+    const messageText = textToSend.trim();
+    const currentReply = overrideReply || replyingToMessage;
     const partnerId = selectedPartner.partner_id;
 
     // 1. Instantly clear input field and reply preview (0ms latency)
-    setNewMsgText('');
+    if (!overrideText) setNewMsgText('');
     setReplyingToMessage(null);
 
     // 2. Optimistic UI Update: Render message into active thread IMMEDIATELY
@@ -4126,7 +4178,7 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Messages */}
-                          <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
+                          <div className="flex-1 p-3.5 sm:p-6 overflow-y-auto space-y-4 chat-thread-container">
                             {aiMessages.length > 0 ? (
                               aiMessages.map((msg, idx) => (
                                 <div
@@ -4141,17 +4193,17 @@ export default function StudentDashboard() {
                                     </div>
                                   )}
                                   <div
-                                    className={`max-w-sm sm:max-w-lg p-3.5 rounded-2xl text-xs leading-relaxed ${
+                                    className={`max-w-[85%] sm:max-w-lg p-3 rounded-2xl text-xs leading-relaxed chat-bubble-tactile ${
                                       msg.sender === 'user'
-                                        ? 'bg-blue-600 text-white rounded-br-none shadow-xs'
-                                        : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                     }`}
                                   >
                                     <p className="whitespace-pre-wrap">{msg.content}</p>
-                                    <span className={`block text-[9px] mt-1.5 text-right ${
-                                      msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
+                                    <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
+                                      msg.sender === 'user' ? 'text-blue-100/90' : 'text-slate-400'
                                     }`}>
-                                      {safeTime(msg.created_at, 'Just now')}
+                                      <span>{safeTime(msg.created_at, 'Just now')}</span>
                                     </span>
                                   </div>
                                 </div>
@@ -4177,7 +4229,7 @@ export default function StudentDashboard() {
                                       key={i}
                                       type="button"
                                       onClick={() => handleSendAiMessage(promptItem.text)}
-                                      className="p-2.5 bg-white hover:bg-blue-50/80 border border-slate-200 hover:border-blue-300 rounded-xl text-left text-[11px] text-slate-700 transition-all cursor-pointer shadow-2xs flex items-start space-x-2"
+                                      className="p-2.5 bg-white hover:bg-blue-50/80 border border-slate-200 hover:border-blue-300 rounded-xl text-left text-[11px] text-slate-700 transition-all cursor-pointer shadow-2xs flex items-start space-x-2 active:scale-98"
                                     >
                                       <span className="text-sm">{promptItem.icon}</span>
                                       <span className="font-medium line-clamp-2">{promptItem.text}</span>
@@ -4192,7 +4244,7 @@ export default function StudentDashboard() {
                                 <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                                   <Sparkles className="w-4 h-4 animate-spin" />
                                 </div>
-                                <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-none text-slate-600 text-xs shadow-xs flex items-center space-x-2">
+                                <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-xs text-slate-600 text-xs shadow-xs flex items-center space-x-2">
                                   <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
                                   <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse delay-75" />
                                   <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150" />
@@ -4203,20 +4255,20 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Input Bar */}
-                          <div className="p-3 bg-white border-t border-slate-200">
+                          <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-drawer-bottom">
                             <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
                               <input
                                 type="text"
                                 placeholder="Ask CampusLink AI anything (academics, definitions, reply ideas, math)..."
                                 value={newMsgText}
                                 onChange={(e) => setNewMsgText(e.target.value)}
-                                className="flex-1 p-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-800 focus:outline-none"
+                                className="flex-1 p-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none transition-colors"
                               />
 
                               <button
                                 type="submit"
                                 disabled={isAiTyping || !newMsgText.trim()}
-                                className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer transition-colors disabled:opacity-50 shadow-xs"
+                                className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 shadow-xs active:scale-95 flex items-center justify-center shrink-0"
                               >
                                 <Send className="w-4 h-4" />
                               </button>
@@ -4361,7 +4413,7 @@ export default function StudentDashboard() {
                           )}
 
                           {/* Chat Messages */}
-                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 sm:p-6 overflow-y-auto space-y-3">
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 overflow-y-auto space-y-3 chat-thread-container">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
@@ -4388,13 +4440,14 @@ export default function StudentDashboard() {
                               const isMine = msg.sender_id === currentUser.user_id;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
+                              const isPopoverOpen = activePopoverMsgId === msg.id;
 
                               return (
                                 <div
                                   key={msg.id}
                                   id={`chat-msg-${msg.id}`}
                                   data-msg-id={msg.id}
-                                  className={`relative flex items-center group select-none transition-all duration-300 ${
+                                  className={`relative flex items-center group transition-all duration-200 ${
                                     isMine ? 'justify-end' : 'justify-start'
                                   }`}
                                 >
@@ -4412,14 +4465,62 @@ export default function StudentDashboard() {
                                         handleStartReply(msg);
                                       }
                                     }}
-                                    className={`relative max-w-sm sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-all cursor-grab active:cursor-grabbing ${
+                                    onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
+                                    className={`relative max-w-[85%] sm:max-w-[70%] p-3 rounded-2xl text-xs leading-relaxed transition-all cursor-pointer chat-bubble-tactile ${
                                       isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
                                     } ${
                                       isMine
-                                        ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
-                                        : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                     }`}
                                   >
+                                    {/* Floating Action Popover Mini-Toolbar */}
+                                    {isPopoverOpen && (
+                                      <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        className={`absolute -top-11 ${
+                                          isMine ? 'right-0' : 'left-0'
+                                        } z-30 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl px-2.5 py-1.5 flex items-center space-x-2 chat-popover-toolbar shadow-xl`}
+                                      >
+                                        {/* Reaction Emojis */}
+                                        <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700">
+                                          {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                            <button
+                                              key={emoji}
+                                              type="button"
+                                              onClick={() => handleReactToMessage(msg, emoji)}
+                                              className="hover:scale-125 active:scale-95 transition-transform text-sm p-0.5 cursor-pointer leading-none"
+                                            >
+                                              {emoji}
+                                            </button>
+                                          ))}
+                                        </div>
+                                        {/* Reply Button */}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActivePopoverMsgId(null);
+                                            handleStartReply(msg);
+                                          }}
+                                          className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                          title="Reply"
+                                        >
+                                          <Reply className="w-3.5 h-3.5 text-sky-400" />
+                                          <span className="hidden sm:inline">Reply</span>
+                                        </button>
+                                        {/* Copy Button */}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyMessageText(msg)}
+                                          className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                          title="Copy Text"
+                                        >
+                                          <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                                          <span className="hidden sm:inline">Copy</span>
+                                        </button>
+                                      </div>
+                                    )}
+
                                     {/* Desktop Hover Quick-Reply Button */}
                                     <button
                                       type="button"
@@ -4445,10 +4546,10 @@ export default function StudentDashboard() {
                                             handleScrollToQuotedMessage(targetId);
                                           }
                                         }}
-                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left cursor-pointer hover:opacity-85 active:scale-[0.98] ${
+                                        className={`mb-1.5 p-2 rounded-r-xl border-l-4 text-[11px] text-left cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
                                           isMine
-                                            ? 'bg-sky-600/60 border-white text-sky-100 shadow-inner'
-                                            : 'bg-slate-100 border-sky-500 text-slate-700 hover:bg-slate-200/80'
+                                            ? 'bg-blue-700/60 border-white text-blue-100 shadow-inner'
+                                            : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
                                         }`}
                                         title="Click to jump to original message"
                                       >
@@ -4479,9 +4580,12 @@ export default function StudentDashboard() {
                                       <div className="flex items-center space-x-3 py-1">
                                         <button
                                           type="button"
-                                          onClick={() => handlePlayAudio(msg.id, msg.media_url)}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handlePlayAudio(msg.id, msg.media_url);
+                                          }}
                                           className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                                            isMine ? 'bg-white text-sky-600 hover:bg-sky-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                            isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
                                           }`}
                                         >
                                           {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
@@ -4495,14 +4599,14 @@ export default function StudentDashboard() {
                                                   playingAudioId === msg.id
                                                     ? 'animate-pulse bg-emerald-400'
                                                     : isMine
-                                                      ? 'bg-sky-200'
+                                                      ? 'bg-blue-200'
                                                       : 'bg-slate-300'
                                                 }`}
                                                 style={{ height: `${h}px` }}
                                               />
                                             ))}
                                           </div>
-                                          <span className={`text-[10px] font-semibold ${isMine ? 'text-sky-100' : 'text-slate-500'}`}>
+                                          <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
                                             🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
                                           </span>
                                         </div>
@@ -4514,7 +4618,10 @@ export default function StudentDashboard() {
                                           alt="Shared in chat"
                                           fallbackType="product"
                                           className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                          onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.open(getMediaUrl(msg.media_url), '_blank');
+                                          }}
                                         />
                                         {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
                                       </div>
@@ -4528,24 +4635,26 @@ export default function StudentDashboard() {
                                         {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
                                       </div>
                                     ) : (
-                                      <p>{msg.content || msg.text}</p>
+                                      <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
                                     )}
-                                    <div className={`flex items-center justify-end space-x-1 text-[9px] mt-1 ${
-                                      isMine ? 'text-sky-100' : 'text-slate-400'
+
+                                    {/* Inline Timestamp & Read Receipt Checkmarks */}
+                                    <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
+                                      isMine ? 'text-blue-100/90' : 'text-slate-400'
                                     }`}>
                                       <span>{safeTime(msg.created_at, 'Just now')}</span>
                                       {isMine && (
-                                        <span className="inline-flex items-center ml-0.5">
+                                        <span className="inline-flex items-center">
                                           {msg.is_optimistic ? (
-                                            <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                            <Clock className="w-2.5 h-2.5 opacity-75 animate-pulse" />
                                           ) : msg.is_read ? (
-                                            <CheckCheck className="w-3 h-3 text-sky-200" />
+                                            <CheckCheck className="w-3.5 h-3.5 text-blue-200" />
                                           ) : (
-                                            <Check className="w-2.5 h-2.5 opacity-80" />
+                                            <Check className="w-3 h-3 opacity-80" />
                                           )}
                                         </span>
                                       )}
-                                    </div>
+                                    </span>
                                   </motion.div>
                                 </div>
                               );
@@ -4579,14 +4688,14 @@ export default function StudentDashboard() {
                         ) : (
                           <>
                             {/* Message Input Form & VN Voice Recorder */}
-                            <div className="p-3 bg-white border-t border-slate-200">
+                            <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-drawer-bottom">
                               {/* Quoted Swipe-to-Reply Banner */}
                               {replyingToMessage && (
-                                <div className="flex items-center justify-between px-3.5 py-2 bg-sky-50 border border-sky-200 rounded-2xl mb-2.5 text-xs shadow-2xs">
+                                <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
                                   <div className="flex items-center space-x-2.5 min-w-0">
-                                    <div className="w-1 h-7 rounded-full bg-sky-500 shrink-0" />
+                                    <div className="w-1 h-7 rounded-full bg-blue-600 shrink-0" />
                                     <div className="min-w-0">
-                                      <div className="flex items-center space-x-1 text-sky-700 font-bold text-[11px]">
+                                      <div className="flex items-center space-x-1 text-blue-700 font-bold text-[11px]">
                                         <Reply className="w-3 h-3" />
                                         <span>Replying to {replyingToMessage.sender_name}</span>
                                       </div>
@@ -4634,7 +4743,7 @@ export default function StudentDashboard() {
                                   </div>
                                 </div>
                               ) : (
-                                <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+                                <form onSubmit={handleSendMessage} className="flex items-end space-x-1.5 sm:space-x-2">
                                   {/* Hidden Attachment Input for Photos & Videos */}
                                   <input
                                     ref={chatMediaInputRef}
@@ -4647,18 +4756,33 @@ export default function StudentDashboard() {
                                     type="button"
                                     onClick={() => chatMediaInputRef.current?.click()}
                                     title="Attach Photo or Video"
-                                    className="p-2.5 bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600 rounded-xl transition-colors cursor-pointer"
+                                    className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
                                   >
                                     <Paperclip className="w-4 h-4" />
                                   </button>
 
-                                  <input
+                                  <textarea
                                     ref={chatInputRef}
-                                    type="text"
+                                    rows={1}
                                     placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                     value={newMsgText}
-                                    onChange={(e) => setNewMsgText(e.target.value)}
-                                    className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                                    onChange={(e) => {
+                                      setNewMsgText(e.target.value);
+                                      e.target.style.height = 'auto';
+                                      e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        if (newMsgText.trim()) handleSendMessage(e);
+                                      }
+                                    }}
+                                    onFocus={() => {
+                                      setTimeout(() => {
+                                        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                                      }, 200);
+                                    }}
+                                    className="flex-1 p-2.5 max-h-28 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 resize-none leading-relaxed transition-colors"
                                   />
 
                                   {/* Voice Note Button */}
@@ -4666,7 +4790,7 @@ export default function StudentDashboard() {
                                     type="button"
                                     onClick={handleStartRecordingAudio}
                                     title="Record Voice Note"
-                                    className="p-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-xl transition-colors cursor-pointer"
+                                    className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
                                   >
                                     <Mic className="w-4 h-4" />
                                   </button>
@@ -4674,7 +4798,7 @@ export default function StudentDashboard() {
                                   <button
                                     type="submit"
                                     disabled={!newMsgText.trim()}
-                                    className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer transition-colors disabled:opacity-50"
+                                    className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95"
                                   >
                                     <Send className="w-4 h-4" />
                                   </button>

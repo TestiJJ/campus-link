@@ -232,9 +232,21 @@ export default function VendorDashboard() {
   const [communityRoleFilter, setCommunityRoleFilter] = useState('all'); // 'all' | 'student' | 'vendor'
   const [friendsList, setFriendsList] = useState(() => getCachedData('friendsList', []));
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
+  const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
   const chatBottomRef = useRef(null);
   const chatContainerRef = useRef(null);
   const chatMediaInputRef = useRef(null);
+
+  // Close floating action popovers on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
+        setActivePopoverMsgId(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   // Synchronize activeTab with URL query params and localStorage
   useEffect(() => {
@@ -1239,6 +1251,7 @@ export default function VendorDashboard() {
 
   const handleStartReply = (msg) => {
     if (!msg) return;
+    setActivePopoverMsgId(null);
     const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
     const previewText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 100);
@@ -1249,7 +1262,29 @@ export default function VendorDashboard() {
     });
   };
 
-  const handleSendChatMessage = async (customContent = null) => {
+  const handleCopyMessageText = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setActivePopoverMsgId(null);
+    setFeedbackMsg({ type: 'success', text: 'Message copied to clipboard' });
+  };
+
+  const handleReactToMessage = (msg, emoji) => {
+    if (!msg || !emoji) return;
+    setActivePopoverMsgId(null);
+    const quoteText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 80);
+    const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+    const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
+    
+    // Dispatch instant reaction message with reference to quoted message
+    handleSendChatMessage(emoji, {
+      id: msg.id,
+      sender_name: senderName,
+      preview: quoteText
+    });
+  };
+
+  const handleSendChatMessage = async (customContent = null, customReply = null) => {
     if (selectedPartner?.is_ai) {
       return handleSendAiMessage(customContent);
     }
@@ -1258,7 +1293,7 @@ export default function VendorDashboard() {
     if (!text.trim() || !selectedPartner) return;
 
     const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
-    const currentReply = replyingToMessage;
+    const currentReply = customReply || replyingToMessage;
     const messageText = text.trim();
 
     // 1. Instantly clear input field and reply preview (0ms latency)
@@ -2748,7 +2783,7 @@ export default function VendorDashboard() {
                         </div>
 
                         {/* AI Chat Messages Stream */}
-                        <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4">
+                        <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto space-y-3 chat-thread-container">
                           {aiMessages.length > 0 ? (
                             aiMessages.map((msg, idx) => (
                               <div
@@ -2761,15 +2796,15 @@ export default function VendorDashboard() {
                                   </div>
                                 )}
                                 <div
-                                  className={`max-w-[85%] sm:max-w-md p-3.5 rounded-2xl text-xs leading-relaxed shadow-2xs ${
+                                  className={`chat-bubble-tactile max-w-[85%] sm:max-w-[75%] p-3 sm:p-3.5 rounded-2xl text-xs sm:text-[13px] leading-relaxed shadow-xs ${
                                     msg.sender === 'user'
-                                      ? 'bg-blue-600 text-white rounded-br-none'
-                                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
+                                      ? 'bg-blue-600 text-white rounded-br-xs'
+                                      : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs'
                                   }`}
                                 >
-                                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                                  <span className={`block text-[9px] mt-1 text-right ${
-                                    msg.sender === 'user' ? 'text-blue-100' : 'text-slate-400'
+                                  <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                                  <span className={`float-right mt-1 ml-2 text-[10px] leading-none select-none font-medium ${
+                                    msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
                                   }`}>
                                     {safeTime(msg.created_at, 'Now')}
                                   </span>
@@ -2812,7 +2847,7 @@ export default function VendorDashboard() {
                               <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                                 <Sparkles className="w-4 h-4 animate-spin" />
                               </div>
-                              <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-none text-slate-600 text-xs shadow-xs flex items-center space-x-2">
+                              <div className="p-3 bg-white border border-slate-200/80 rounded-2xl rounded-bl-xs text-slate-600 text-xs shadow-xs flex items-center space-x-2">
                                 <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
                                 <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse delay-75" />
                                 <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150" />
@@ -2837,12 +2872,12 @@ export default function VendorDashboard() {
                             value={newMsgText}
                             onChange={(e) => setNewMsgText(e.target.value)}
                             disabled={isAiTyping}
-                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
                           />
                           <button
                             type="submit"
                             disabled={!newMsgText.trim() || isAiTyping}
-                            className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer disabled:opacity-50"
+                            className="min-h-[44px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl cursor-pointer disabled:opacity-50 transition-colors flex items-center justify-center shrink-0"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -2917,7 +2952,7 @@ export default function VendorDashboard() {
                               className="min-w-0 cursor-pointer group"
                             >
                               <div className="flex items-center space-x-1.5">
-                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
                                   {selectedPartner.partner_name}
                                 </h4>
                                 <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
@@ -2961,18 +2996,18 @@ export default function VendorDashboard() {
                         {otherUnreadChatCount > 0 && (
                           <div
                             onClick={() => setSelectedPartner(null)}
-                            className="bg-sky-50 hover:bg-sky-100 border-b border-sky-200 px-3 py-1.5 text-xs text-sky-800 flex items-center justify-between cursor-pointer transition-colors"
+                            className="bg-blue-50 hover:bg-blue-100 border-b border-blue-200 px-3 py-1.5 text-xs text-blue-800 flex items-center justify-between cursor-pointer transition-colors"
                           >
                             <span className="font-semibold flex items-center space-x-1.5">
                               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
                               <span>You have <strong>{otherUnreadChatCount}</strong> unread message{otherUnreadChatCount > 1 ? 's' : ''} in other chats</span>
                             </span>
-                            <span className="text-[11px] font-bold text-sky-600 underline">View all</span>
+                            <span className="text-[11px] font-bold text-blue-600 underline">View all</span>
                           </div>
                         )}
 
                         {/* Chat Messages */}
-                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3">
+                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto space-y-2.5 chat-thread-container">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
@@ -3001,37 +3036,69 @@ export default function VendorDashboard() {
                               const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
+                              const rawMsgText = msg.content || msg.text || '';
+                              const showPopover = activePopoverMsgId === msg.id;
 
                               return (
                                 <div
                                   key={msg.id || idx}
                                   id={`chat-msg-${msg.id}`}
                                   data-msg-id={msg.id}
-                                  className={`flex transition-all duration-300 ${isMine ? 'justify-end' : 'justify-start'}`}
+                                  className={`flex transition-all duration-300 relative ${isMine ? 'justify-end' : 'justify-start'}`}
                                 >
                                   <div
-                                    className={`relative group max-w-xs sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed transition-all ${
-                                      isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                    onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
+                                    className={`chat-bubble-tactile relative group max-w-[85%] sm:max-w-[70%] p-2.5 sm:p-3 rounded-2xl text-xs sm:text-[13px] leading-relaxed transition-all cursor-pointer select-text ${
+                                      isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
                                     } ${
                                       isMine
-                                        ? 'bg-sky-500 text-white rounded-br-none shadow-xs'
-                                        : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-xs'
+                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                     }`}
                                   >
-                                    {/* Action Reply Trigger on Bubble */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStartReply(msg);
-                                      }}
-                                      className={`hidden group-hover:flex absolute -top-2 ${
-                                        isMine ? '-left-6' : '-right-6'
-                                      } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
-                                      title="Reply to this message"
+                                    {/* Tactile Floating Action Toolbar (Tap/Hover Popover) */}
+                                    <div
+                                      className={`chat-popover-toolbar absolute -top-11 ${
+                                        isMine ? 'right-0' : 'left-0'
+                                      } z-30 flex items-center space-x-1 px-2 py-1 rounded-full border border-slate-200/80 shadow-md transition-all ${
+                                        showPopover
+                                          ? 'opacity-100 pointer-events-auto scale-100'
+                                          : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto scale-95 group-hover:scale-100'
+                                      }`}
+                                      onClick={(e) => e.stopPropagation()}
                                     >
-                                      <Reply className="w-3 h-3" />
-                                    </button>
+                                      {/* Quick Emoji Reactions */}
+                                      {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                        <button
+                                          key={emoji}
+                                          type="button"
+                                          onClick={() => handleReactToMessage(msg, emoji)}
+                                          className="text-xs sm:text-sm hover:scale-125 active:scale-95 transition-transform p-0.5 cursor-pointer"
+                                          title={`React with ${emoji}`}
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                      <div className="w-px h-3.5 bg-slate-300 mx-0.5" />
+                                      {/* Quick Reply Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartReply(msg)}
+                                        className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                        title="Reply"
+                                      >
+                                        <Reply className="w-3.5 h-3.5" />
+                                      </button>
+                                      {/* Copy Text Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopyMessageText(rawMsgText)}
+                                        className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                        title="Copy text"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
 
                                     {/* Quoted Message Card (Clickable to jump to original message) */}
                                     {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
@@ -3043,10 +3110,10 @@ export default function VendorDashboard() {
                                             handleScrollToQuotedMessage(targetId);
                                           }
                                         }}
-                                        className={`mb-2 p-2 rounded-xl text-[11px] border-l-4 transition-all text-left cursor-pointer hover:opacity-85 active:scale-[0.98] ${
+                                        className={`mb-2 p-2 rounded-r-xl border-l-4 transition-all text-left cursor-pointer hover:opacity-90 active:scale-[0.98] ${
                                           isMine
-                                            ? 'bg-sky-600/60 border-white text-sky-100 shadow-inner'
-                                            : 'bg-slate-100 border-sky-500 text-slate-700 hover:bg-slate-200/80'
+                                            ? 'bg-blue-700/50 border-white text-blue-100 shadow-inner'
+                                            : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
                                         }`}
                                         title="Click to jump to original message"
                                       >
@@ -3054,7 +3121,7 @@ export default function VendorDashboard() {
                                           <Reply className="w-2.5 h-2.5 shrink-0" />
                                           <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Customer'}</span>
                                         </div>
-                                        <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
+                                        <p className="truncate text-[11px] opacity-95">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
                                       </div>
                                     )}
 
@@ -3069,7 +3136,10 @@ export default function VendorDashboard() {
                                           alt="Shared in chat"
                                           fallbackType="product"
                                           className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
-                                          onClick={() => window.open(getMediaUrl(msg.media_url), '_blank')}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.open(getMediaUrl(msg.media_url), '_blank');
+                                          }}
                                         />
                                         {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
                                       </div>
@@ -3079,33 +3149,36 @@ export default function VendorDashboard() {
                                           src={msg.media_url}
                                           controls
                                           className="rounded-xl max-h-64 w-full bg-black"
+                                          onClick={(e) => e.stopPropagation()}
                                         />
                                         {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
                                       </div>
                                     ) : msg.message_type === 'audio' ? (
-                                      <div className="flex items-center space-x-2 py-1">
+                                      <div className="flex items-center space-x-2 py-1" onClick={(e) => e.stopPropagation()}>
                                         <span className="text-xs">🎤 Voice Note</span>
                                         <audio src={msg.media_url} controls className="h-8 max-w-[200px]" />
                                       </div>
                                     ) : (
-                                      <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
+                                      <p className="whitespace-pre-wrap break-words">{rawMsgText}</p>
                                     )}
-                                    <div className={`flex items-center justify-end space-x-1 text-[9px] mt-1 ${
-                                      isMine ? 'text-sky-100' : 'text-slate-400'
+
+                                    {/* Inline Timestamp & Delivery Tick */}
+                                    <span className={`float-right mt-1 ml-2 inline-flex items-center space-x-1 text-[10px] leading-none select-none font-medium ${
+                                      isMine ? 'text-blue-200' : 'text-slate-400'
                                     }`}>
                                       <span>{safeTime(msg.created_at, 'Now')}</span>
                                       {isMine && (
-                                        <span className="inline-flex items-center ml-0.5">
+                                        <span className="inline-flex items-center">
                                           {msg.is_optimistic ? (
                                             <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
                                           ) : msg.is_read ? (
-                                            <CheckCheck className="w-3 h-3 text-sky-200" />
+                                            <CheckCheck className="w-3 h-3 text-blue-200" />
                                           ) : (
                                             <Check className="w-2.5 h-2.5 opacity-80" />
                                           )}
                                         </span>
                                       )}
-                                    </div>
+                                    </span>
                                   </div>
                                 </div>
                               );
@@ -3123,33 +3196,33 @@ export default function VendorDashboard() {
                           <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Quick:</span>
                           <button
                             onClick={() => handleSendChatMessage(`📍 You can pick up or inspect at our stall: ${vendorStore?.location || 'SUB Food Court'}.`)}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
                           >
                             📍 Stall Pickup
                           </button>
                           <button
                             onClick={() => handleSendChatMessage(`💳 Bank details for transfer: ${bankInfo.bank_name} - ${bankInfo.account_number} (${bankInfo.account_name})`)}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
                           >
                             💳 Send Bank Info
                           </button>
                           <button
                             onClick={() => handleSendChatMessage(`✅ Your order is confirmed and currently being prepared for hostel dispatch!`)}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
                           >
                             📦 Order Confirmed
                           </button>
                         </div>
 
                         {/* Message Input Form */}
-                        <div className="p-3 bg-white border-t border-slate-200">
+                        <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200">
                           {/* Quoted Swipe-to-Reply Banner */}
                           {replyingToMessage && (
-                            <div className="flex items-center justify-between px-3.5 py-2 bg-sky-50 border border-sky-200 rounded-2xl mb-2 text-xs shadow-2xs">
+                            <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
                               <div className="flex items-center space-x-2.5 min-w-0">
-                                <div className="w-1 h-7 rounded-full bg-sky-500 shrink-0" />
+                                <div className="w-1 h-7 rounded-full bg-blue-500 shrink-0" />
                                 <div className="min-w-0">
-                                  <div className="flex items-center space-x-1 text-sky-700 font-bold text-[11px]">
+                                  <div className="flex items-center space-x-1 text-blue-700 font-bold text-[11px]">
                                     <Reply className="w-3 h-3" />
                                     <span>Replying to {replyingToMessage.sender_name}</span>
                                   </div>
@@ -3174,7 +3247,7 @@ export default function VendorDashboard() {
                               e.preventDefault();
                               handleSendChatMessage();
                             }}
-                            className="flex items-center space-x-2"
+                            className="flex items-end space-x-2"
                           >
                             <input
                               ref={chatMediaInputRef}
@@ -3186,24 +3259,34 @@ export default function VendorDashboard() {
                             <button
                               type="button"
                               onClick={() => chatMediaInputRef.current?.click()}
-                              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl cursor-pointer transition-colors shrink-0"
+                              className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center"
                               title="Attach photo or video"
                             >
-                              <Camera className="w-4 h-4" />
+                              <Camera className="w-5 h-5" />
                             </button>
-                            <input
-                              type="text"
-                              placeholder={`Reply to ${selectedPartner.partner_name}...`}
+                            <textarea
+                              rows={1}
+                              placeholder={`Message ${selectedPartner.partner_name}...`}
                               value={newMsgText}
-                              onChange={(e) => setNewMsgText(e.target.value)}
-                              className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                              onChange={(e) => {
+                                setNewMsgText(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  handleSendChatMessage();
+                                }
+                              }}
+                              className="flex-1 min-h-[44px] max-h-28 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none transition-colors"
                             />
                             <button
                               type="submit"
                               disabled={!newMsgText.trim()}
-                              className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50"
+                              className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs"
                             >
-                              <Send className="w-4 h-4" />
+                              <Send className="w-5 h-5" />
                             </button>
                           </form>
                         </div>

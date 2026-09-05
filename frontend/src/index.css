@@ -211,4 +211,32 @@ body {
     content-visibility: auto;
     contain-intrinsic-size: 0 650px;
   }
+
+  /* Ultra-Crisp Chat Typography & Hardware-Accelerated Rendering */
+  .chat-thread-container {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* WhatsApp/iMessage-Style Bubble Micro-Tactile Tap Feedback */
+  .chat-bubble-tactile {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 120ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 120ms ease;
+    will-change: transform;
+  }
+
+  .chat-bubble-tactile:active {
+    transform: scale(0.985);
+  }
+
+  /* Chat Floating Popover Mini-Toolbar */
+  .chat-popover-toolbar {
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
 }
