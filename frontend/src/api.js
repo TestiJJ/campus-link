@@ -67,4 +67,22 @@ export const getMediaUrl = (url) => {
   return url;
 };
 
+/**
+ * Lightweight background ping to wake up a sleeping Render instance early.
+ * Fired as a fire-and-forget request when the user lands on the website.
+ */
+export const warmUpBackend = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const backendRoot = resolvedApiBase.replace(/\/api$/, '');
+    fetch(`${backendRoot}/`, { method: 'GET', mode: 'no-cors' }).catch(() => {});
+  } catch {}
+};
+
+// Automatically fire early wakeup ping upon frontend load
+if (typeof window !== 'undefined') {
+  setTimeout(warmUpBackend, 50);
+}
+
 export default API;
+
