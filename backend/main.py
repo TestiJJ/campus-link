@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
+from dotenv import load_dotenv
+load_dotenv()
 sys.path.append(os.path.dirname(__file__))
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
