@@ -190,6 +190,11 @@ def require_role(allowed_roles: list[str]):
 # Default Apps Script webhook URL - override with GOOGLE_MAIL_WEBHOOK env var on Render
 DEFAULT_GOOGLE_MAIL_WEBHOOK = "https://script.google.com/macros/s/AKfycbyU35yJ6ohMuWqMkCtfp-twFYvP5KDGrRE5Lo24ZFtNXy96bQTcMnt_r2eob_JyB_4n/exec"
 
+def get_clean_webhook_url() -> str:
+    raw = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip()
+    cleaned = raw.strip("[]()<>'\" \t\r\n")
+    return cleaned if cleaned.startswith("http") else DEFAULT_GOOGLE_MAIL_WEBHOOK
+
 
 def send_otp_email(to_email: str, otp_code: str) -> bool:
     """
@@ -214,7 +219,7 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
     sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
     sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
     smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
-    webhook_url     = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
+    webhook_url     = get_clean_webhook_url()
 
     subject = f"{otp_code} is your CampusLink Verification Code"
 
@@ -329,7 +334,7 @@ def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """
     clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
     test_otp    = str(random.randint(100000, 999999))
-    webhook_url = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
+    webhook_url = get_clean_webhook_url()
     sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
 
     webhook_debug = {}
