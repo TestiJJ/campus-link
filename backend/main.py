@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
+﻿from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Query, File, UploadFile, Request, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -175,41 +175,43 @@ def require_role(allowed_roles: list[str]):
     return role_checker
 
 
-# --- EMAIL DISPATCH UTILS (Standard Python Gmail SMTP & Google Apps Script Webhook) ---
-
-DEFAULT_GOOGLE_MAIL_WEBHOOK = "https://script.google.com/macros/s/AKfycbyU35yJ6ohMuWqMkCtfp-twFYvP5KDGrRE5Lo24ZFtNXy96bQTcMnt_r2eob_JyB_4n/exec"
+# --- EMAIL DISPATCH UTILS (Gmail SMTP via smtplib) ---
 
 def send_otp_email(to_email: str, otp_code: str) -> bool:
     """
-    Dispatches a verification code to any student, vendor, or tester using Python's built-in
-    smtplib and email.mime modules via Gmail SMTP.
-    Supports both Port 465 (SSL) and Port 587 (STARTTLS) with automatic fallback.
+    Sends a CampusLink verification code to any email address using Gmail SMTP.
+
+    Credentials are read from environment variables:
+      SMTP_EMAIL    â€” sender Gmail address  (default: testimonyjokotoye65@gmail.com)
+      SMTP_PASSWORD â€” Gmail App Password    (default: pvytfgxjjcycacrj)
+      SMTP_HOST     â€” SMTP host             (default: smtp.gmail.com)
+
+    Attempts:
+      1. SSL on port 465
+      2. STARTTLS on port 587 (fallback)
+
+    Returns True on success, False on failure. Never raises â€” all errors are logged.
     """
     clean_to = (to_email or "").strip().lower()
     if not clean_to:
         print("[CAMPUSLINK EMAIL ERROR] Missing recipient email address.")
         return False
 
-    sender_email = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
-    raw_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj")
-    sender_password = raw_password.replace(" ", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "465"))
+    sender_email   = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
+    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+    smtp_host      = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
 
     subject = f"{otp_code} is your CampusLink Verification Code"
 
-    # Plain-text alternative
     text_content = (
         f"Hello,\n\n"
         f"Your CampusLink email verification code is: {otp_code}\n\n"
-        f"Enter this code on the registration screen to activate your account.\n"
-        f"This code will expire in 15 minutes.\n\n"
-        f"If you did not request this verification, please ignore this message.\n\n"
-        f"Best regards,\n"
-        f"CampusLink Team"
+        f"Enter this 6-digit code on the registration screen to activate your account.\n"
+        f"This code expires in 15 minutes.\n\n"
+        f"If you did not request this, please ignore this email.\n\n"
+        f"â€” CampusLink Team"
     )
 
-    # Branded responsive HTML template
     html_content = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -221,14 +223,14 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f8fafc;padding:32px 16px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
+        <table role="presentation" width="100%" style="max-width:480px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
           <tr>
             <td style="background:linear-gradient(135deg,#0284c7,#0369a1);padding:32px 24px;text-align:center;">
               <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">
                 CAMPUS<span style="color:#7dd3fc;">LINK</span>
               </h1>
               <p style="color:#e0f2fe;margin:6px 0 0 0;font-size:13px;font-weight:500;">
-                Campus Ecosystem & Verification Portal
+                Campus Ecosystem &amp; Verification Portal
               </p>
             </td>
           </tr>
@@ -238,7 +240,7 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
                 Verify Your Email Address
               </h2>
               <p style="color:#475569;margin:0 0 24px 0;font-size:14px;line-height:1.6;">
-                Welcome to CampusLink! Please enter the 6-digit verification code below to verify your email and activate your account.
+                Welcome to CampusLink! Enter the 6-digit code below to verify your email and activate your account.
               </p>
               <div style="background-color:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:20px;text-align:center;margin:0 0 24px 0;">
                 <span style="font-family:'Courier New',Courier,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#0369a1;display:inline-block;">
@@ -269,118 +271,49 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = f"CampusLink <{sender_email}>"
-    msg["To"] = clean_to
+    msg["From"]    = f"CampusLink <{sender_email}>"
+    msg["To"]      = clean_to
     msg.attach(MIMEText(text_content, "plain"))
     msg.attach(MIMEText(html_content, "html"))
 
+    # Always log OTP to server console for debugging
     print(f"[CAMPUSLINK OTP for {clean_to}]: {otp_code}")
 
-    # 1. Google Apps Script Webhook (Direct Gmail from testimonyjokotoye65@gmail.com over HTTPS Port 443)
-    # Bypasses cloud provider SMTP port firewalls on Render!
-    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
-    if google_webhook:
-        try:
-            resp = httpx.post(
-                google_webhook,
-                json={
-                    "to": clean_to,
-                    "subject": subject,
-                    "html": html_content,
-                    "body": text_content,
-                    "text": text_content,
-                    "code": otp_code
-                },
-                follow_redirects=True,
-                timeout=15.0
-            )
-            if resp.status_code in (200, 201, 302):
-                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Google Apps Script Webhook!")
-                return True
-            else:
-                print(f"[CAMPUSLINK EMAIL] Google Webhook returned HTTP {resp.status_code}")
-        except Exception as e_webhook:
-            print(f"[CAMPUSLINK EMAIL] Google Apps Script Webhook notice: {e_webhook}")
-
-    # 2. Brevo HTTPS REST API (Port 443)
-    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
-    if brevo_key:
-        try:
-            resp = httpx.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={
-                    "api-key": brevo_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "sender": {"name": "CampusLink", "email": sender_email},
-                    "to": [{"email": clean_to}],
-                    "subject": subject,
-                    "htmlContent": html_content,
-                    "textContent": text_content
-                },
-                timeout=12.0
-            )
-            if resp.status_code in (200, 201, 202):
-                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Brevo API!")
-                return True
-            else:
-                print(f"[CAMPUSLINK EMAIL] Brevo returned HTTP {resp.status_code}: {resp.text[:100]}")
-        except Exception as e_brevo:
-            print(f"[CAMPUSLINK EMAIL] Brevo API notice: {e_brevo}")
-
-    # 3. Resend HTTPS API (Port 443)
-    resend_key = os.getenv("RESEND_API_KEY", "").strip()
-    if resend_key:
-        try:
-            resp = httpx.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {resend_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "from": os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>"),
-                    "to": [clean_to],
-                    "subject": subject,
-                    "html": html_content,
-                    "text": text_content
-                },
-                timeout=12.0
-            )
-            if resp.status_code in (200, 201):
-                print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Resend API!")
-                return True
-            else:
-                print(f"[CAMPUSLINK EMAIL] Resend returned HTTP {resp.status_code}: {resp.text[:100]}")
-        except Exception as e_resend:
-            print(f"[CAMPUSLINK EMAIL] Resend API notice: {e_resend}")
-
-    # 4. Direct Gmail SMTP SSL on Port 465 (Works locally and on VPS servers)
+    # --- Attempt 1: Gmail SSL Port 465 ---
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=8) as server:
+        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=10) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
-            print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Gmail SSL (Port 465)")
+            print(f"[CAMPUSLINK EMAIL] âœ“ Sent to {clean_to} via Gmail SSL (port 465)")
             return True
     except smtplib.SMTPAuthenticationError as auth_err:
-        print(f"[CAMPUSLINK EMAIL ERROR] Gmail SMTP authentication failed for {sender_email}: {auth_err}")
+        print(f"[CAMPUSLINK EMAIL ERROR] Gmail authentication failed â€” check SMTP_EMAIL / SMTP_PASSWORD: {auth_err}")
+        return False  # No point trying port 587 if credentials are wrong
     except Exception as ssl_err:
-        print(f"[CAMPUSLINK EMAIL] Gmail SSL 465 notice: {ssl_err}. Attempting fallback to STARTTLS Port 587...")
+        print(f"[CAMPUSLINK EMAIL] SSL 465 unavailable ({ssl_err}), trying STARTTLS 587â€¦")
 
-    # 5. Direct Gmail SMTP STARTTLS on Port 587
+    # --- Attempt 2: Gmail STARTTLS Port 587 ---
     try:
         ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, 587, timeout=8) as server:
+        with smtplib.SMTP(smtp_host, 587, timeout=10) as server:
+            server.ehlo()
             server.starttls(context=ssl_ctx)
+            server.ehlo()
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, clean_to, msg.as_string())
-            print(f"[CAMPUSLINK EMAIL] Verification code successfully sent to {clean_to} via Gmail STARTTLS (Port 587)")
+            print(f"[CAMPUSLINK EMAIL] âœ“ Sent to {clean_to} via Gmail STARTTLS (port 587)")
             return True
+    except smtplib.SMTPAuthenticationError as auth_err:
+        print(f"[CAMPUSLINK EMAIL ERROR] Gmail authentication failed on port 587: {auth_err}")
     except Exception as tls_err:
-        print(f"[CAMPUSLINK EMAIL ERROR] Gmail STARTTLS 587 dispatch failed for {clean_to}: {tls_err}")
+        print(f"[CAMPUSLINK EMAIL ERROR] STARTTLS 587 also failed for {clean_to}: {tls_err}")
 
+    print(
+        f"[CAMPUSLINK EMAIL ERROR] All delivery attempts failed for {clean_to}. "
+        "Check that SMTP_EMAIL and SMTP_PASSWORD are set correctly on Render and "
+        "that the Gmail account has 2FA enabled with an App Password (not your normal password)."
+    )
     return False
 
 
@@ -388,165 +321,42 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 @app.post("/api/test-email")
 def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """
-    Diagnostic endpoint to test live email delivery across all configured providers:
-    1. Google Apps Script Webhook (HTTPS 443)
-    2. Brevo API (HTTPS 443)
-    3. Resend API (HTTPS 443)
-    4. Gmail SMTP (SSL 465 & STARTTLS 587)
+    Diagnostic endpoint â€” sends a live test OTP to the given address using Gmail SMTP.
+    Usage:  GET /api/test-email?email=someone@example.com
     """
-    clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
-    test_otp = str(random.randint(100000, 999999))
-    sender_email = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
-    raw_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj")
-    sender_password = raw_password.replace(" ", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    clean_email    = (email or "testimonyjokotoye65@gmail.com").strip().lower()
+    sender_email   = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
+    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+    smtp_host      = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
+    test_otp       = str(random.randint(100000, 999999))
 
-    subject = f"CampusLink Test Verification Code [{test_otp}]"
-    body = (
-        f"Hello,\n\n"
-        f"This is a live test email sent from CampusLink.\n\n"
-        f"Sender: {sender_email}\n"
-        f"Recipient: {clean_email}\n"
-        f"Test Verification Code: {test_otp}\n\n"
-        f"Best regards,\n"
-        f"CampusLink Team"
-    )
+    success = send_otp_email(clean_email, test_otp)
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"CampusLink <{sender_email}>"
-    msg["To"] = clean_email
-    msg.attach(MIMEText(body, "plain"))
-
-    errors = []
-
-    # 1. Google Webhook
-    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK", "").strip() or DEFAULT_GOOGLE_MAIL_WEBHOOK
-    if google_webhook:
-        try:
-            resp = httpx.post(
-                google_webhook,
-                json={
-                    "to": clean_email,
-                    "subject": subject,
-                    "html": f"<div style='font-family:sans-serif;padding:16px;'><p>{body.replace(chr(10), '<br>')}</p></div>",
-                    "body": body,
-                    "text": body,
-                    "code": test_otp
-                },
-                follow_redirects=True,
-                timeout=15.0
-            )
-            if resp.status_code in (200, 201, 302):
-                return {
-                    "success": True,
-                    "provider": "Google Apps Script Webhook (Gmail via HTTPS 443)",
-                    "sender": sender_email,
-                    "recipient": clean_email,
-                    "otp_sent": test_otp,
-                    "message": f"Verification email successfully delivered to {clean_email} via Google Apps Script Webhook!"
-                }
-            errors.append(f"Google Webhook returned HTTP {resp.status_code}")
-        except Exception as e:
-            errors.append(f"Google Webhook: {e}")
-    else:
-        errors.append("GOOGLE_MAIL_WEBHOOK not configured")
-
-    # 2. Brevo API
-    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
-    if brevo_key:
-        try:
-            resp = httpx.post(
-                "https://api.brevo.com/v3/smtp/email",
-                headers={"api-key": brevo_key, "Content-Type": "application/json"},
-                json={"sender": {"name": "CampusLink", "email": sender_email}, "to": [{"email": clean_email}], "subject": subject, "textContent": body},
-                timeout=12.0
-            )
-            if resp.status_code in (200, 201, 202):
-                return {
-                    "success": True,
-                    "provider": "Brevo HTTPS API (Port 443)",
-                    "sender": sender_email,
-                    "recipient": clean_email,
-                    "otp_sent": test_otp,
-                    "message": f"Verification email successfully delivered to {clean_email} via Brevo API!"
-                }
-            errors.append(f"Brevo HTTP {resp.status_code}: {resp.text[:100]}")
-        except Exception as e:
-            errors.append(f"Brevo API: {e}")
-    else:
-        errors.append("BREVO_API_KEY not configured")
-
-    # 3. Resend API
-    resend_key = os.getenv("RESEND_API_KEY", "").strip()
-    if resend_key:
-        try:
-            resp = httpx.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
-                json={"from": os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>"), "to": [clean_email], "subject": subject, "text": body},
-                timeout=12.0
-            )
-            if resp.status_code in (200, 201):
-                return {
-                    "success": True,
-                    "provider": "Resend API (HTTPS 443)",
-                    "recipient": clean_email,
-                    "otp_sent": test_otp,
-                    "message": f"Verification email delivered to {clean_email} via Resend API."
-                }
-            errors.append(f"Resend HTTP {resp.status_code}: {resp.text[:100]}")
-        except Exception as e:
-            errors.append(f"Resend API: {e}")
-    else:
-        errors.append("RESEND_API_KEY not configured")
-
-    # 4. Gmail SSL Port 465
-    try:
-        ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=8) as server:
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, clean_email, msg.as_string())
-            return {
-                "success": True,
-                "provider": "Standard Python Gmail SMTP (SSL Port 465)",
-                "smtp_host": smtp_host,
-                "smtp_port": 465,
-                "sender": sender_email,
-                "recipient": clean_email,
-                "otp_sent": test_otp,
-                "message": f"Verification email successfully sent from {sender_email} to {clean_email} via Gmail SMTP SSL 465!"
-            }
-    except Exception as e_ssl:
-        errors.append(f"SSL Port 465: {e_ssl}")
-
-    # 5. Gmail STARTTLS Port 587
-    try:
-        ssl_ctx = ssl.create_default_context()
-        with smtplib.SMTP(smtp_host, 587, timeout=8) as server:
-            server.starttls(context=ssl_ctx)
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, clean_email, msg.as_string())
-            return {
-                "success": True,
-                "provider": "Standard Python Gmail SMTP (STARTTLS Port 587)",
-                "smtp_host": smtp_host,
-                "smtp_port": 587,
-                "sender": sender_email,
-                "recipient": clean_email,
-                "otp_sent": test_otp,
-                "message": f"Verification email successfully sent from {sender_email} to {clean_email} via Gmail SMTP STARTTLS 587!"
-            }
-    except Exception as e_tls:
-        errors.append(f"STARTTLS Port 587: {e_tls}")
+    if success:
+        return {
+            "success": True,
+            "provider": "Gmail SMTP (smtplib)",
+            "smtp_host": smtp_host,
+            "sender": sender_email,
+            "recipient": clean_email,
+            "otp_sent": test_otp,
+            "message": f"âœ“ Verification email delivered to {clean_email} via Gmail SMTP.",
+        }
 
     return {
         "success": False,
-        "provider": "Multi-Channel Email Dispatcher",
+        "provider": "Gmail SMTP (smtplib)",
+        "smtp_host": smtp_host,
         "sender": sender_email,
         "recipient": clean_email,
-        "errors": errors,
-        "message": "Email delivery could not be completed directly over cloud ports. For testing, please set GOOGLE_MAIL_WEBHOOK or BREVO_API_KEY on Render."
+        "message": (
+            "Email delivery failed. Possible causes:\n"
+            "1. Render blocks outbound SMTP ports (465 / 587) on free-tier instances.\n"
+            "2. SMTP_PASSWORD is the raw Gmail password instead of an App Password.\n"
+            "3. 2-Step Verification is not enabled on the Gmail account.\n"
+            "Fix: Enable 2FA on Gmail â†’ Google Account â†’ Security â†’ App Passwords â†’ "
+            "generate a 16-character app password â†’ set SMTP_PASSWORD on Render."
+        ),
     }
 
 
@@ -1048,7 +858,7 @@ def get_user_notifications(
             user_id=current_user.user_id,
             actor_id=peer_id,
             notification_type="notice",
-            title="🔍 Campus Lost & Found Alert",
+            title="ðŸ” Campus Lost & Found Alert",
             message="Faculty of Engineering: Blue Scientific Calculator & Keys found near Lecture Theater 2.",
             reference_id="notice"
         )
@@ -1134,7 +944,7 @@ def get_campus_eateries(
                 "image": "/eateries/fried_chicken.jpg",
                 "specialties": "Crispy Soul Food Fried Chicken, Citizens Meal, Refuel Dodo & Jollof",
                 "delivery_time": "15-25 mins",
-                "delivery_fee": "₦350 to hostels",
+                "delivery_fee": "â‚¦350 to hostels",
                 "rating": 4.9,
                 "reviews_count": 310,
                 "popular_brand": True,
@@ -1156,7 +966,7 @@ def get_campus_eateries(
                 "image": "/eateries/amala.jpg",
                 "specialties": "Hot Amala with Ewedu, Gbegiri & Cow Leg, Goat Meat & Assorted",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.8,
                 "reviews_count": 220,
                 "popular_brand": False,
@@ -1178,7 +988,7 @@ def get_campus_eateries(
                 "image": "/eateries/spaghetti.jpg",
                 "specialties": "Stir-fry Peppered Spaghetti, Shawarma, Ice Cream & Pastries",
                 "delivery_time": "20-30 mins",
-                "delivery_fee": "₦400 to hostels",
+                "delivery_fee": "â‚¦400 to hostels",
                 "rating": 4.8,
                 "reviews_count": 185,
                 "popular_brand": True,
@@ -1199,14 +1009,14 @@ def get_campus_eateries(
                 "image": "/eateries/suya.jpg",
                 "specialties": "Sizzling Beef Suya, Peppered Asun, Barbecue Fish",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.9,
                 "reviews_count": 160,
                 "popular_brand": False,
                 "verified_on_google": True,
                 "menu": [
                     {"id": "sy-1", "name": "Special Beef Suya Platter + Sliced Onions", "price": 2500, "desc": "Charcoal-grilled spiced beef strips seasoned with yaji pepper and cabbage"},
-                    {"id": "sy-2", "name": "Fiery Goat Meat Asun Bowl", "price": 3000, "desc": "Smoked peppered goat meat sautéed with habanero chili and onions"},
+                    {"id": "sy-2", "name": "Fiery Goat Meat Asun Bowl", "price": 3000, "desc": "Smoked peppered goat meat sautÃ©ed with habanero chili and onions"},
                     {"id": "sy-3", "name": "Grilled Whole Catfish + Potato Chips", "price": 4200, "desc": "Spicy barbecued fresh catfish with crispy fries"}
                 ]
             }
@@ -1222,7 +1032,7 @@ def get_campus_eateries(
                 "image": "/eateries/fried_chicken.jpg",
                 "specialties": "Crispy Soul Food Fried Chicken, Citizens Meal, Refuel Dodo & Jollof",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦350 to hostels",
+                "delivery_fee": "â‚¦350 to hostels",
                 "rating": 4.9,
                 "reviews_count": 480,
                 "popular_brand": True,
@@ -1243,7 +1053,7 @@ def get_campus_eateries(
                 "image": "/eateries/amala.jpg",
                 "specialties": "Hot Amala, Gbegiri & Ewedu, Cow Leg, Goat Meat & Assorted",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦350 to hostels",
+                "delivery_fee": "â‚¦350 to hostels",
                 "rating": 4.9,
                 "reviews_count": 340,
                 "popular_brand": False,
@@ -1265,7 +1075,7 @@ def get_campus_eateries(
                 "image": "/eateries/spaghetti.jpg",
                 "specialties": "Spicy Stir-fry Spaghetti, Peppered Chicken Wings & Asun",
                 "delivery_time": "15 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.9,
                 "reviews_count": 290,
                 "popular_brand": False,
@@ -1286,7 +1096,7 @@ def get_campus_eateries(
                 "image": "/eateries/jollof.jpg",
                 "specialties": "Smokey Party Jollof, Fiery Asun, Grilled Chicken & Fried Rice",
                 "delivery_time": "20-25 mins",
-                "delivery_fee": "₦400 to hostels",
+                "delivery_fee": "â‚¦400 to hostels",
                 "rating": 4.8,
                 "reviews_count": 420,
                 "popular_brand": True,
@@ -1307,7 +1117,7 @@ def get_campus_eateries(
                 "image": "/eateries/shawarma.jpg",
                 "specialties": "Toasted Chicken Shawarma, Burgers, Fresh Fruit Smoothies",
                 "delivery_time": "15 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.8,
                 "reviews_count": 195,
                 "popular_brand": False,
@@ -1329,7 +1139,7 @@ def get_campus_eateries(
                 "image": "/eateries/fried_chicken.jpg",
                 "specialties": "Crispy Fried Chicken, Citizens Meal, Refuel Dodo & Jollof",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.9,
                 "reviews_count": 390,
                 "popular_brand": True,
@@ -1349,7 +1159,7 @@ def get_campus_eateries(
                 "image": "/eateries/amala.jpg",
                 "specialties": "Authentic Ibadan Amala, Gbegiri/Ewedu, Fresh Fish & Assorted",
                 "delivery_time": "20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.8,
                 "reviews_count": 270,
                 "popular_brand": False,
@@ -1369,7 +1179,7 @@ def get_campus_eateries(
                 "image": "/eateries/jollof.jpg",
                 "specialties": "Smokey Party Jollof, Peppered Turkey, Stir-fry Spaghetti",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.8,
                 "reviews_count": 210,
                 "popular_brand": False,
@@ -1391,7 +1201,7 @@ def get_campus_eateries(
                 "image": "/eateries/fried_chicken.jpg",
                 "specialties": "Crispy Fried Chicken, Citizens Meal, Refuel Dodo & Jollof",
                 "delivery_time": "15-25 mins",
-                "delivery_fee": "₦350 to halls",
+                "delivery_fee": "â‚¦350 to halls",
                 "rating": 4.9,
                 "reviews_count": 350,
                 "popular_brand": True,
@@ -1411,7 +1221,7 @@ def get_campus_eateries(
                 "image": "/eateries/jollof.jpg",
                 "specialties": "Legendary Ife Jollof, Peppered Fried Chicken, Beans & Dodo",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to halls",
+                "delivery_fee": "â‚¦300 to halls",
                 "rating": 4.8,
                 "reviews_count": 280,
                 "popular_brand": False,
@@ -1431,7 +1241,7 @@ def get_campus_eateries(
                 "image": "/eateries/amala.jpg",
                 "specialties": "Hot Pounded Yam, Amala, Goat Meat & Egusi",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to halls",
+                "delivery_fee": "â‚¦300 to halls",
                 "rating": 4.8,
                 "reviews_count": 190,
                 "popular_brand": False,
@@ -1473,7 +1283,7 @@ def get_campus_eateries(
             "image": de.image or "/eateries/jollof.jpg",
             "specialties": de.specialties or "Campus delicacies, snacks and drinks",
             "delivery_time": de.delivery_time or "15-25 mins",
-            "delivery_fee": de.delivery_fee or "₦300 to hostels",
+            "delivery_fee": de.delivery_fee or "â‚¦300 to hostels",
             "rating": de.rating or 4.8,
             "reviews_count": de.reviews_count or 180,
             "popular_brand": de.popular_brand,
@@ -1534,7 +1344,7 @@ def get_campus_eateries(
                 "image": "/eateries/jollof.jpg",
                 "specialties": fv.business_description or "Verified student food merchant on CampusLink",
                 "delivery_time": "15-20 mins",
-                "delivery_fee": "₦300 to hostels",
+                "delivery_fee": "â‚¦300 to hostels",
                 "rating": 4.9,
                 "reviews_count": 150,
                 "popular_brand": False,
@@ -1593,7 +1403,7 @@ def submit_campus_eatery(
         image=data.get("image") or "/eateries/jollof.jpg",
         specialties=data.get("specialties") or "Freshly prepared campus meals and student snacks",
         delivery_time=data.get("delivery_time") or "15-25 mins",
-        delivery_fee=data.get("delivery_fee") or "₦300 to hostels",
+        delivery_fee=data.get("delivery_fee") or "â‚¦300 to hostels",
         rating=4.8,
         reviews_count=1,
         popular_brand=False,
@@ -1980,7 +1790,7 @@ def get_products(
         u_name = u.name if u else "Campus Wide"
         u_abbr = u.abbreviation if u else ""
         v_loc = p.vendor.location if p.vendor else "On Campus"
-        disp_loc = f"{u_abbr or u_name} • {v_loc}" if (u_abbr or u_name) else v_loc
+        disp_loc = f"{u_abbr or u_name} â€¢ {v_loc}" if (u_abbr or u_name) else v_loc
 
         results.append({
             "id": p.id,
@@ -2062,7 +1872,7 @@ def create_product(
         "is_vendor_verified": True,
         "university_name": u_name,
         "university_abbr": u_abbr,
-        "dispatch_location": f"{u_abbr or u_name} • {v_loc}"
+        "dispatch_location": f"{u_abbr or u_name} â€¢ {v_loc}"
     }
 
 @app.put("/api/products/{product_id}", response_model=schemas.ProductOut)
@@ -2123,7 +1933,7 @@ def update_product(
         "is_vendor_verified": product.vendor.verification_status == "verified" if product.vendor else False,
         "university_name": u_name,
         "university_abbr": u_abbr,
-        "dispatch_location": f"{u_abbr or u_name} • {v_loc}"
+        "dispatch_location": f"{u_abbr or u_name} â€¢ {v_loc}"
     }
 
 @app.delete("/api/products/{product_id}")
@@ -3017,11 +2827,11 @@ def get_conversations_list(
             # Format rich preview
             preview = m.content
             if m.message_type == "audio":
-                preview = "🎤 Voice note"
+                preview = "ðŸŽ¤ Voice note"
             elif m.message_type == "image":
-                preview = "📷 Photo"
+                preview = "ðŸ“· Photo"
             elif m.message_type == "video":
-                preview = "🎥 Video"
+                preview = "ðŸŽ¥ Video"
             elif m.message_type == "status_reply":
                 try:
                     p_data = json.loads(m.content)
@@ -3029,9 +2839,9 @@ def get_conversations_list(
                         preview = f"Reacted {p_data.get('reaction')} to story"
                     else:
                         rep_text = p_data.get('reply_text', '')
-                        preview = f"💬 Story reply: \"{rep_text}\"" if rep_text else "💬 Story reply"
+                        preview = f"ðŸ’¬ Story reply: \"{rep_text}\"" if rep_text else "ðŸ’¬ Story reply"
                 except Exception:
-                    preview = "💬 Replied to story"
+                    preview = "ðŸ’¬ Replied to story"
 
             conv_map[partner_id] = {
                 "partner_id": partner_id,
@@ -3045,7 +2855,7 @@ def get_conversations_list(
                 "last_message_type": m.message_type or "text",
                 "last_timestamp": m.created_at,
                 "unread_count": 0,
-                # Presence fields — real-time online/offline status
+                # Presence fields â€” real-time online/offline status
                 "is_online": partner.is_online if partner else False,
                 "last_seen": partner.last_seen.isoformat() if partner and partner.last_seen else None,
             }
@@ -3447,13 +3257,13 @@ def create_campus_notice(
     ).all()
     for p in peers:
         if new_notice.type == "lost":
-            n_title = "🔍 Lost Item Alert"
+            n_title = "ðŸ” Lost Item Alert"
             n_msg = f"{current_user.full_name} reported a lost {new_notice.category or 'item'} at {new_notice.location}: '{new_notice.title}'"
         elif new_notice.type == "found":
-            n_title = "📦 Found Item Notice"
+            n_title = "ðŸ“¦ Found Item Notice"
             n_msg = f"{current_user.full_name} found a {new_notice.category or 'item'} at {new_notice.location}: '{new_notice.title}'"
         else:
-            n_title = "📢 Campus Notice"
+            n_title = "ðŸ“¢ Campus Notice"
             n_msg = f"{current_user.full_name} posted: '{new_notice.title}'"
 
         create_notification(
@@ -3872,10 +3682,10 @@ def generate_campus_ai_reply(
         title_to_store = " ".join(words[:6]) + ("..." if len(words) > 6 else "")
 
         reply = (
-            f"Got it, {first_name}! 🧠 I have saved this directly into your personal Memory Vault:\n\n"
-            f"📌 **{title_to_store}**\n"
+            f"Got it, {first_name}! ðŸ§  I have saved this directly into your personal Memory Vault:\n\n"
+            f"ðŸ“Œ **{title_to_store}**\n"
             f"> \"{content_to_store}\"\n\n"
-            f"🏷️ Category: `{category_to_store.capitalize()}`\n\n"
+            f"ðŸ·ï¸ Category: `{category_to_store.capitalize()}`\n\n"
             f"You can ask me to recall this anytime, or click **Saved Info** to review your vault."
         )
         return (reply, True, title_to_store, content_to_store, category_to_store, False)
@@ -3889,19 +3699,19 @@ def generate_campus_ai_reply(
     if any(rt in p_lower for rt in recall_triggers):
         if not user_memories:
             reply = (
-                f"I don't have any notes or personal info stored for you yet, {first_name}! 📝\n\n"
+                f"I don't have any notes or personal info stored for you yet, {first_name}! ðŸ“\n\n"
                 f"You can ask me to store anything right now, for example:\n"
-                f"• *\"Remember that my matric number is 2023/SCI/089\"*\n"
-                f"• *\"Store note: Final project defense scheduled for next month\"*\n"
-                f"• *\"Remember my hostel room is Block B Room 104\"*\n\n"
+                f"â€¢ *\"Remember that my matric number is 2023/SCI/089\"*\n"
+                f"â€¢ *\"Store note: Final project defense scheduled for next month\"*\n"
+                f"â€¢ *\"Remember my hostel room is Block B Room 104\"*\n\n"
                 f"Whenever you ask me to remember something, it is saved in your private memory vault."
             )
         else:
-            notes_formatted = "\n".join([f"• 📌 **{m.title or 'Note'}** (`{m.category}`): {m.content}" for m in user_memories[:10]])
+            notes_formatted = "\n".join([f"â€¢ ðŸ“Œ **{m.title or 'Note'}** (`{m.category}`): {m.content}" for m in user_memories[:10]])
             reply = (
                 f"Here is what I have saved in your personal Memory Vault, {first_name} (Total: {len(user_memories)} item{'s' if len(user_memories) != 1 else ''}):\n\n"
                 f"{notes_formatted}\n\n"
-                f"💡 Ask me questions about any of them, or view them anytime in Saved Info."
+                f"ðŸ’¡ Ask me questions about any of them, or view them anytime in Saved Info."
             )
         return (reply, False, None, None, None, False)
 
@@ -3917,9 +3727,9 @@ def generate_campus_ai_reply(
             found = matching_mems[0]
             reply = (
                 f"Here is what you have saved in your vault:\n\n"
-                f"📌 **{found.title or 'Saved Note'}** (`{found.category}`)\n"
+                f"ðŸ“Œ **{found.title or 'Saved Note'}** (`{found.category}`)\n"
                 f"> \"{found.content}\"\n\n"
-                f"📅 Saved on {found.created_at.strftime('%b %d, %Y')}."
+                f"ðŸ“… Saved on {found.created_at.strftime('%b %d, %Y')}."
             )
             return (reply, False, None, None, None, False)
 
@@ -4030,16 +3840,16 @@ def generate_campus_ai_reply(
 
     for pos_key, pos_data in grammar_dict.items():
         if any(term in p_lower for term in [f"what is a {pos_key}", f"what is an {pos_key}", f"define {pos_key}", f"what are {pos_key}s", f"meaning of {pos_key}"]):
-            types_text = "\n".join([f"• {name}: {desc}" for name, desc in pos_data["types"]])
-            examples_text = "\n".join([f"• {ex}" for ex in pos_data["examples"]])
+            types_text = "\n".join([f"â€¢ {name}: {desc}" for name, desc in pos_data["types"]])
+            examples_text = "\n".join([f"â€¢ {ex}" for ex in pos_data["examples"]])
             reply = (
-                f"### 📚 {pos_data['title']}\n\n"
+                f"### ðŸ“š {pos_data['title']}\n\n"
                 f"{pos_data['definition']}\n\n"
                 f"**Key Categories / Classifications**:\n"
                 f"{types_text}\n\n"
                 f"**Practical Examples in Context**:\n"
                 f"{examples_text}\n\n"
-                f"💡 Need more sentence examples or grammatical rules? Just ask!"
+                f"ðŸ’¡ Need more sentence examples or grammatical rules? Just ask!"
             )
             return (reply, False, None, None, None, False)
 
@@ -4068,10 +3878,10 @@ def generate_campus_ai_reply(
                 f"**Option 1: Friendly & Confirming (Fast Sale)**\n"
                 f"> *\"Hi! Yes, this is 100% available and in excellent condition. I can pack it up for instant pickup at the student hub or have it delivered to your hostel room today! Would you like me to reserve it for you?\"*\n\n"
                 f"**Option 2: Polite Negotiation (Guarding Your Margin)**\n"
-                f"> *\"Thanks for your offer! That price is slightly below my cost, but since you're a fellow student, I can do ₦[Counter Price] if you confirm today. Does that work for you?\"*\n\n"
+                f"> *\"Thanks for your offer! That price is slightly below my cost, but since you're a fellow student, I can do â‚¦[Counter Price] if you confirm today. Does that work for you?\"*\n\n"
                 f"**Option 3: Clear Logistics & Payment**\n"
                 f"> *\"Awesome! You can inspect thoroughly on delivery before paying. What hostel/room or landmark should the dispatch rider meet you at?\"*\n\n"
-                f"💡 *Tip*: State your exact timeline and pickup location clearly to build immediate buyer trust."
+                f"ðŸ’¡ *Tip*: State your exact timeline and pickup location clearly to build immediate buyer trust."
             )
         elif is_academic:
             reply = (
@@ -4089,7 +3899,7 @@ def generate_campus_ai_reply(
                 f"**Option 1: Polite But Firm Decline (Protect Your Budget)**\n"
                 f"> *\"Hey! I totally understand things are tight right now, but honestly my budget for this semester is stretched completely thin with books and hostel expenses. I really wish I could help out!\"*\n\n"
                 f"**Option 2: Following Up On Money Owed To You**\n"
-                f"> *\"Hey bro/sis! Hope your week is going well. Just checking in on the ₦[Amount] from last time, as I have some urgent hostel/campus bills coming due this Friday. Let me know when you can transfer it. Thanks!\"*\n\n"
+                f"> *\"Hey bro/sis! Hope your week is going well. Just checking in on the â‚¦[Amount] from last time, as I have some urgent hostel/campus bills coming due this Friday. Let me know when you can transfer it. Thanks!\"*\n\n"
                 f"**Option 3: Soft Delay (Buying Time)**\n"
                 f"> *\"Hey! Let me review my account balance once my semester allowance clears at the end of the week, and I'll get back to you!\"*"
             )
@@ -4098,12 +3908,12 @@ def generate_campus_ai_reply(
             reply = (
                 f"Here are 3 versatile reply templates tailored for {sample}:\n\n"
                 f"**Option 1: Casual & Warm (Best for friends/colleagues)**\n"
-                f"> *\"Hey! Thanks for reaching out. Yes, absolutely! Let's sync up on this in a bit—currently wrapping up something on campus, but I'll catch up with you shortly.\"*\n\n"
+                f"> *\"Hey! Thanks for reaching out. Yes, absolutely! Let's sync up on this in a bitâ€”currently wrapping up something on campus, but I'll catch up with you shortly.\"*\n\n"
                 f"**Option 2: Direct & Efficient (No ambiguity)**\n"
                 f"> *\"Got it! That works on my end. Let's lock in [Time/Location], and we can take it from there. Keep me posted.\"*\n\n"
                 f"**Option 3: Polite Deferral (Setting a healthy boundary)**\n"
                 f"> *\"Hey! Appreciate you checking in. I'm completely booked with lectures and coursework today, so I won't be able to make that. Let's aim for later this weekend instead!\"*\n\n"
-                f"💡 *If you paste their exact message, I can give you custom word-for-word replies!*"
+                f"ðŸ’¡ *If you paste their exact message, I can give you custom word-for-word replies!*"
             )
         return (reply, False, None, None, None, False)
 
@@ -4121,8 +3931,8 @@ def generate_campus_ai_reply(
         "economics": (
             "**Economics** is the social science that studies the **production, distribution, and consumption of goods and services**, focusing on how societies, firms, and individuals allocate scarce resources to satisfy unlimited human wants.\n\n"
             "**Two Main Branches**:\n"
-            "• **Microeconomics**: Focuses on individual decision-makers—households, consumers, and single firms (e.g., how price changes affect student demand for campus food).\n"
-            "• **Macroeconomics**: Analyzes the aggregate economy—national income, inflation, unemployment, gross domestic product (GDP), and monetary policy."
+            "â€¢ **Microeconomics**: Focuses on individual decision-makersâ€”households, consumers, and single firms (e.g., how price changes affect student demand for campus food).\n"
+            "â€¢ **Macroeconomics**: Analyzes the aggregate economyâ€”national income, inflation, unemployment, gross domestic product (GDP), and monetary policy."
         ),
         "inflation": (
             "**Inflation** is the sustained increase in the general price level of goods and services in an economy over a period of time, which consequently erodes the purchasing power of money.\n\n"
@@ -4134,27 +3944,27 @@ def generate_campus_ai_reply(
         "democracy": (
             "**Democracy** (from Greek *demos* 'people' and *kratos* 'power') is a system of government where the supreme power is vested in the people and exercised by them directly or through elected representatives under a free electoral system.\n\n"
             "**Core Pillars**:\n"
-            "• **Free, Fair & Periodic Elections**: Citizens choose their representatives peacefully.\n"
-            "• **Rule of Law & Equality**: Laws apply equally to all citizens and government officials.\n"
-            "• **Protection of Fundamental Human Rights**: Freedom of speech, assembly, and press.\n"
-            "• **Separation of Powers**: Distribution of authority among Executive, Legislative, and Judicial branches."
+            "â€¢ **Free, Fair & Periodic Elections**: Citizens choose their representatives peacefully.\n"
+            "â€¢ **Rule of Law & Equality**: Laws apply equally to all citizens and government officials.\n"
+            "â€¢ **Protection of Fundamental Human Rights**: Freedom of speech, assembly, and press.\n"
+            "â€¢ **Separation of Powers**: Distribution of authority among Executive, Legislative, and Judicial branches."
         ),
         "algorithm": (
             "An **algorithm** is a finite, well-defined sequence of step-by-step instructions or rules designed to solve a specific problem or perform a computational task.\n\n"
             "**Key Characteristics**:\n"
-            "• **Finiteness**: Must terminate after a countable number of steps.\n"
-            "• **Definiteness / Unambiguous**: Each step must be clearly defined.\n"
-            "• **Input & Output**: Accepts 0 or more inputs and produces 1 or more outputs.\n"
-            "• **Effectiveness**: Operations must be basic enough to be carried out in practice."
+            "â€¢ **Finiteness**: Must terminate after a countable number of steps.\n"
+            "â€¢ **Definiteness / Unambiguous**: Each step must be clearly defined.\n"
+            "â€¢ **Input & Output**: Accepts 0 or more inputs and produces 1 or more outputs.\n"
+            "â€¢ **Effectiveness**: Operations must be basic enough to be carried out in practice."
         )
     }
 
     for def_key, def_content in definitions_kb.items():
         if any(term in p_lower for term in [f"what is {def_key}", f"define {def_key}", f"explain {def_key}", f"meaning of {def_key}"]):
             reply = (
-                f"### 📖 {def_key.capitalize()}\n\n"
+                f"### ðŸ“– {def_key.capitalize()}\n\n"
                 f"{def_content}\n\n"
-                f"💡 Would you like to explore related topics, mathematical formulas, or practical exam applications?"
+                f"ðŸ’¡ Would you like to explore related topics, mathematical formulas, or practical exam applications?"
             )
             return (reply, False, None, None, None, False)
 
@@ -4163,7 +3973,7 @@ def generate_campus_ai_reply(
     if def_match:
         subject = def_match.group(1).strip()
         reply = (
-            f"### 💡 Overview of {subject.title()}\n\n"
+            f"### ðŸ’¡ Overview of {subject.title()}\n\n"
             f"**Definition & Concept**:\n"
             f"**{subject.title()}** refers to a foundational concept in its respective domain. "
             f"At its core, it encompasses the principles, mechanisms, and structures that govern how this entity behaves, functions, and relates to broader systems.\n\n"
@@ -4171,7 +3981,7 @@ def generate_campus_ai_reply(
             f"1. **Core Purpose / Function**: It serves to organize, explain, or facilitate specific outcomes in academic, social, or technical settings.\n"
             f"2. **Real-World Application**: In everyday practice and campus life, understanding {subject} enables you to critically evaluate problems and apply targeted solutions.\n"
             f"3. **Relationship to Adjacent Concepts**: It connects directly with foundational principles in the field, acting either as a prerequisite or an outcome.\n\n"
-            f"💡 *Ask me for specific examples, historical context, or exam questions about {subject}!*"
+            f"ðŸ’¡ *Ask me for specific examples, historical context, or exam questions about {subject}!*"
         )
         return (reply, False, None, None, None, False)
 
@@ -4183,13 +3993,13 @@ def generate_campus_ai_reply(
         total_val = float(pct_match.group(2).replace(',', ''))
         result = (pct_val / 100.0) * total_val
         reply = (
-            f"🔢 **Percentage Calculation:**\n\n"
-            f"• **Equation**: `{pct_val}% × {total_val:g}`\n"
-            f"• **Formula**: `({pct_val} ÷ 100) × {total_val:g}`\n"
-            f"• **Result**: **{result:g}**\n\n"
+            f"ðŸ”¢ **Percentage Calculation:**\n\n"
+            f"â€¢ **Equation**: `{pct_val}% Ã— {total_val:g}`\n"
+            f"â€¢ **Formula**: `({pct_val} Ã· 100) Ã— {total_val:g}`\n"
+            f"â€¢ **Result**: **{result:g}**\n\n"
             f"If this is a discount or markup:\n"
-            f"• **Discounted Price**: `₦{total_val - result:g}`\n"
-            f"• **Price with Markup**: `₦{total_val + result:g}`"
+            f"â€¢ **Discounted Price**: `â‚¦{total_val - result:g}`\n"
+            f"â€¢ **Price with Markup**: `â‚¦{total_val + result:g}`"
         )
         return (reply, False, None, None, None, False)
 
@@ -4201,7 +4011,7 @@ def generate_campus_ai_reply(
             try:
                 val = eval(expr, {"__builtins__": None}, {"math": math, "sqrt": math.sqrt})
                 reply = (
-                    f"🔢 **Calculation Result:**\n\n"
+                    f"ðŸ”¢ **Calculation Result:**\n\n"
                     f"`{calc_match.group(1).strip()}` = **{val:g}**\n\n"
                     f"Feel free to ask any other math, algebra, or calculus equations!"
                 )
@@ -4213,16 +4023,16 @@ def generate_campus_ai_reply(
     if any(w in p_lower for w in ["product description", "write description", "copywriting", "list product", "listing description", "promote product"]):
         reply = (
             f"Here is a high-converting, professional product listing copy tailored for campus buyers:\n\n"
-            f"### 🔥 Premium Quality [Product Name / Category]\n\n"
+            f"### ðŸ”¥ Premium Quality [Product Name / Category]\n\n"
             f"**Headline**: Elevate your campus lifestyle with genuine quality and durability!\n\n"
             f"**Key Selling Points**:\n"
-            f"• 💯 **Authentic Condition**: Brand new, thoroughly inspected for 100% reliability.\n"
-            f"• ⚡ **Campus Fast Dispatch**: Available for instant pickup at SUB/hostel or same-day hostel room delivery.\n"
-            f"• 🛡️ **Student Budget Friendly**: Highest value per Naira, open to polite negotiation in chat.\n"
-            f"• 📦 **Complete Package**: Includes all original accessories and protective packaging.\n\n"
+            f"â€¢ ðŸ’¯ **Authentic Condition**: Brand new, thoroughly inspected for 100% reliability.\n"
+            f"â€¢ âš¡ **Campus Fast Dispatch**: Available for instant pickup at SUB/hostel or same-day hostel room delivery.\n"
+            f"â€¢ ðŸ›¡ï¸ **Student Budget Friendly**: Highest value per Naira, open to polite negotiation in chat.\n"
+            f"â€¢ ðŸ“¦ **Complete Package**: Includes all original accessories and protective packaging.\n\n"
             f"**Call to Action**:\n"
             f"> *\"Limited stock available this week! Tap 'Chat with Seller' to negotiate, inspect, and agree on delivery.\"*\n\n"
-            f"💡 **Pro Tip**: Tell me the exact item (e.g. *Nike Dunk Low*, *HP Envy Laptop*, *2-in-1 Hostel Kettle*), and I will generate 3 tailored variations!"
+            f"ðŸ’¡ **Pro Tip**: Tell me the exact item (e.g. *Nike Dunk Low*, *HP Envy Laptop*, *2-in-1 Hostel Kettle*), and I will generate 3 tailored variations!"
         )
         return (reply, False, None, None, None, False)
 
@@ -4230,15 +4040,15 @@ def generate_campus_ai_reply(
         reply = (
             f"Here is a proven 4-step campus growth & flash sale playbook for {uni_name}:\n\n"
             f"1. **Hostel 'Payday / Allowance' Weekend Sale**:\n"
-            f"   • *Timing*: Friday evening to Sunday night when students receive weekly allowances.\n"
-            f"   • *Offer*: 10% discount on combo bundles (e.g., Hoodie + Beanie, or Kettle + Extension cord).\n\n"
+            f"   â€¢ *Timing*: Friday evening to Sunday night when students receive weekly allowances.\n"
+            f"   â€¢ *Offer*: 10% discount on combo bundles (e.g., Hoodie + Beanie, or Kettle + Extension cord).\n\n"
             f"2. **WhatsApp & Reel Video Drops**:\n"
-            f"   • Post a 10-second unboxing clip to **Campus Drops (Reels)** with your stall location tagged.\n"
-            f"   • Use clear campus landmarks: *\"Catch me at Quad B4 near Faculty of Science!\"*\n\n"
+            f"   â€¢ Post a 10-second unboxing clip to **Campus Drops (Reels)** with your stall location tagged.\n"
+            f"   â€¢ Use clear campus landmarks: *\"Catch me at Quad B4 near Faculty of Science!\"*\n\n"
             f"3. **Peer Referral Bonus**:\n"
-            f"   • Offer students ₦500 off their next purchase for referring a roommate who buys.\n\n"
+            f"   â€¢ Offer students â‚¦500 off their next purchase for referring a roommate who buys.\n\n"
             f"4. **Fast Delivery Guarantee**:\n"
-            f"   • Highlight: *'Under 30-minute hostel room delivery'* to beat off-campus delivery delays.\n\n"
+            f"   â€¢ Highlight: *'Under 30-minute hostel room delivery'* to beat off-campus delivery delays.\n\n"
             f"Would you like me to draft promotional broadcast copy for your WhatsApp status or CampusLink Drop?"
         )
         return (reply, False, None, None, None, False)
@@ -4276,7 +4086,7 @@ def generate_campus_ai_reply(
         if is_excuse:
             reply = (
                 f"Here is a formal, respectful excuse/apology email:\n\n"
-                f"**Subject:** Apology for Absence from [Course Code] Lecture – {user.full_name}\n\n"
+                f"**Subject:** Apology for Absence from [Course Code] Lecture â€“ {user.full_name}\n\n"
                 f"Dear [Lecturer / Dr. / Prof. Name],\n\n"
                 f"I am writing to respectfully apologize for my unavoidable absence from the [Course Code] lecture on [Date]. "
                 f"Due to [state brief reason: e.g. sudden health indisposition / family emergency], I was unable to attend class in person.\n\n"
@@ -4291,7 +4101,7 @@ def generate_campus_ai_reply(
         else:
             reply = (
                 f"Here is a professional academic email draft:\n\n"
-                f"**Subject:** Inquiry Regarding [Course Code / Research Topic] – {user.full_name}\n\n"
+                f"**Subject:** Inquiry Regarding [Course Code / Research Topic] â€“ {user.full_name}\n\n"
                 f"Dear [Lecturer / Dr. / Prof. Name],\n\n"
                 f"I hope this email finds you well.\n\n"
                 f"My name is **{user.full_name}**, a student in your [Course Code & Title] course ({dept}, {level}). "
@@ -4310,13 +4120,13 @@ def generate_campus_ai_reply(
     if any(w in p_lower for w in ["gpa", "cgpa", "first class", "grade", "grading", "calculate cgpa"]):
         reply = (
             f"Here is the standard Nigerian University 5.0 CGPA Scale breakdown for {uni_name}:\n\n"
-            f"• **First Class**: 4.50 – 5.00 🏆\n"
-            f"• **Second Class Upper (2:1)**: 3.50 – 4.49 🌟\n"
-            f"• **Second Class Lower (2:2)**: 2.40 – 3.49 📘\n"
-            f"• **Third Class**: 1.50 – 2.39 📙\n"
-            f"• **Pass**: 1.00 – 1.49\n\n"
+            f"â€¢ **First Class**: 4.50 â€“ 5.00 ðŸ†\n"
+            f"â€¢ **Second Class Upper (2:1)**: 3.50 â€“ 4.49 ðŸŒŸ\n"
+            f"â€¢ **Second Class Lower (2:2)**: 2.40 â€“ 3.49 ðŸ“˜\n"
+            f"â€¢ **Third Class**: 1.50 â€“ 2.39 ðŸ“™\n"
+            f"â€¢ **Pass**: 1.00 â€“ 1.49\n\n"
             f"**How to Calculate:**\n"
-            f"1. For each course: `Quality Points = Course Units × Grade Points` (A=5, B=4, C=3, D=2, E=1, F=0).\n"
+            f"1. For each course: `Quality Points = Course Units Ã— Grade Points` (A=5, B=4, C=3, D=2, E=1, F=0).\n"
             f"2. Sum all course points (`Total Quality Points`).\n"
             f"3. Divide by total registered units (`Total Units`).\n\n"
             f"**Example**: If you register 20 units and total 92 points, your GPA is `92 / 20 = 4.60` (First Class!).\n\n"
@@ -4329,17 +4139,17 @@ def generate_campus_ai_reply(
         reply = (
             f"Here are 4 relevant, high-impact final year project topics for **{dept}** at {uni_name}:\n\n"
             f"1. **Smart Campus Resource & Lecture Hall Scheduling System**\n"
-            f"   • *Problem*: Inefficient space allocation and clashes between faculties.\n"
-            f"   • *Methodology*: Web-based constraint satisfaction algorithm with live notifications.\n\n"
+            f"   â€¢ *Problem*: Inefficient space allocation and clashes between faculties.\n"
+            f"   â€¢ *Methodology*: Web-based constraint satisfaction algorithm with live notifications.\n\n"
             f"2. **Predictive Student Academic Analytics & Dropout Prevention**\n"
-            f"   • *Problem*: Late identification of struggling students.\n"
-            f"   • *Methodology*: Supervised machine learning (Random Forest / Logistic Regression) on past grades.\n\n"
+            f"   â€¢ *Problem*: Late identification of struggling students.\n"
+            f"   â€¢ *Methodology*: Supervised machine learning (Random Forest / Logistic Regression) on past grades.\n\n"
             f"3. **Decentralized Campus Credential & Clearance Verification**\n"
-            f"   • *Problem*: Tedious manual paper clearance and transcript fraud.\n"
-            f"   • *Methodology*: Cryptographic QR-code validation pipeline.\n\n"
+            f"   â€¢ *Problem*: Tedious manual paper clearance and transcript fraud.\n"
+            f"   â€¢ *Methodology*: Cryptographic QR-code validation pipeline.\n\n"
             f"4. **Campus Micro-Commerce Peer Logistics & Escrow Platform**\n"
-            f"   • *Problem*: Insecurity and scams in student peer-to-peer buying and selling.\n"
-            f"   • *Methodology*: Geo-fenced campus delivery validation with real-time tracking.\n\n"
+            f"   â€¢ *Problem*: Insecurity and scams in student peer-to-peer buying and selling.\n"
+            f"   â€¢ *Methodology*: Geo-fenced campus delivery validation with real-time tracking.\n\n"
             f"Tell me which topic catches your interest, and I will write the full Aims, Objectives, and Scope for you!"
         )
         return (reply, False, None, None, None, False)
@@ -4347,14 +4157,14 @@ def generate_campus_ai_reply(
     # --- J. GREETINGS & CASUAL TALK ---
     if any(w in p_lower for w in ["hello", "hi", "hey", "sup", "yo", "good morning", "good evening", "good afternoon"]):
         reply = (
-            f"Hey {first_name}! 👋 Great to chat with you. I'm your **CampusLink AI Assistant**.\n\n"
+            f"Hey {first_name}! ðŸ‘‹ Great to chat with you. I'm your **CampusLink AI Assistant**.\n\n"
             f"I can help you with anything a normal advanced AI can do:\n"
-            f"• 📚 **Definitions & Grammar**: Explain parts of speech (nouns, verbs, etc.), words, and concepts\n"
-            f"• 💬 **Message Suggestions**: Give you perfect responses for customers, friends, or lecturers\n"
-            f"• 💻 **Coding & Tech**: Debug code, explain algorithms, write scripts, build apps\n"
-            f"• 📈 **Commerce & Business**: Write product descriptions, plan sales, optimize pricing\n"
-            f"• 🎓 **Academics & Writing**: Draft formal emails, research topics, calculate CGPA\n"
-            f"• 🔢 **Math & Calculations**: Solve percentages, equations, and word problems\n\n"
+            f"â€¢ ðŸ“š **Definitions & Grammar**: Explain parts of speech (nouns, verbs, etc.), words, and concepts\n"
+            f"â€¢ ðŸ’¬ **Message Suggestions**: Give you perfect responses for customers, friends, or lecturers\n"
+            f"â€¢ ðŸ’» **Coding & Tech**: Debug code, explain algorithms, write scripts, build apps\n"
+            f"â€¢ ðŸ“ˆ **Commerce & Business**: Write product descriptions, plan sales, optimize pricing\n"
+            f"â€¢ ðŸŽ“ **Academics & Writing**: Draft formal emails, research topics, calculate CGPA\n"
+            f"â€¢ ðŸ”¢ **Math & Calculations**: Solve percentages, equations, and word problems\n\n"
             f"What would you like to explore or solve right now?"
         )
         return (reply, False, None, None, None, False)
@@ -4362,17 +4172,17 @@ def generate_campus_ai_reply(
     # --- K. UNIVERSAL COMPREHENSIVE REASONING (FOR ALL OTHER QUERIES) ---
     reply = (
         f"Here is a clear, actionable guide on that, {first_name}:\n\n"
-        f"### 💡 Key Insights: {prompt}\n\n"
+        f"### ðŸ’¡ Key Insights: {prompt}\n\n"
         f"1. **Core Understanding**:\n"
-        f"   • When analyzing this, the key objective is breaking down the main challenge into clear, manageable steps.\n"
-        f"   • Focus on the direct cause-and-effect relationship and apply established best practices in your approach.\n\n"
+        f"   â€¢ When analyzing this, the key objective is breaking down the main challenge into clear, manageable steps.\n"
+        f"   â€¢ Focus on the direct cause-and-effect relationship and apply established best practices in your approach.\n\n"
         f"2. **Recommended Action Plan**:\n"
-        f"   • **Step 1**: Clarify your primary goal and gather any required data or context.\n"
-        f"   • **Step 2**: Implement the simplest viable solution first before optimizing.\n"
-        f"   • **Step 3**: Verify results, review feedback, and iterate.\n\n"
+        f"   â€¢ **Step 1**: Clarify your primary goal and gather any required data or context.\n"
+        f"   â€¢ **Step 2**: Implement the simplest viable solution first before optimizing.\n"
+        f"   â€¢ **Step 3**: Verify results, review feedback, and iterate.\n\n"
         f"3. **Practical Campus Example**:\n"
-        f"   • In a campus or professional environment, communicating clearly and maintaining consistent momentum produces the highest success rate.\n\n"
-        f"💡 *Would you like me to elaborate on any specific detail, provide practical examples, or draft a direct reply/solution for this?*"
+        f"   â€¢ In a campus or professional environment, communicating clearly and maintaining consistent momentum produces the highest success rate.\n\n"
+        f"ðŸ’¡ *Would you like me to elaborate on any specific detail, provide practical examples, or draft a direct reply/solution for this?*"
     )
     return (reply, False, None, None, None, False)
 
@@ -4390,7 +4200,7 @@ def get_ai_messages(
 
     if not msgs:
         welcome_text = (
-            f"Hey {first_name}! 👋 I'm your CampusLink AI Assistant.\n\n"
+            f"Hey {first_name}! ðŸ‘‹ I'm your CampusLink AI Assistant.\n\n"
             f"I'm here to help you excel in your studies, calculate your CGPA, draft academic emails, "
             f"and store important notes (like matric numbers, test schedules, or hostel reminders) in your private Memory Vault.\n\n"
             f"What would you like to do today?"
@@ -4470,8 +4280,8 @@ def chat_with_ai(
         mem_cat = payload.category or "general"
         first_name = current_user.full_name.split()[0] if current_user.full_name else "friend"
         ai_text = (
-            f"Saved into your Memory Vault, {first_name}! 🧠\n\n"
-            f"📌 **{mem_title}**\n"
+            f"Saved into your Memory Vault, {first_name}! ðŸ§ \n\n"
+            f"ðŸ“Œ **{mem_title}**\n"
             f"> \"{mem_content}\"\n\n"
             f"You can view and search it anytime in your **Saved Information** vault."
         )
