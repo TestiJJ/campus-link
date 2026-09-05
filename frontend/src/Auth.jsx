@@ -6,10 +6,10 @@ import {
   ShieldCheck, ArrowRight, Lock, Mail, Phone,
   User, Building2, Store, CheckCircle2,
   AlertCircle, ChevronDown, Eye, EyeOff, X,
-  GraduationCap, Car, Video, ShoppingBag, Sparkles
+  GraduationCap, Car, Video, ShoppingBag
 } from 'lucide-react';
 
-const DEFAULT_BACKEND_URL = 'https://campuslink-backend.onrender.com';
+const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 
 const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 const API_BASE_URL = rawEnvUrl

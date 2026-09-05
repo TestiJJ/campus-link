@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const DEFAULT_BACKEND_URL = 'https://campuslink-backend.onrender.com';
+const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 
 const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 let resolvedApiBase;

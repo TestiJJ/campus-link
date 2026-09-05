@@ -27,7 +27,7 @@ except Exception as _e:
 def clean_legacy_image_urls():
     try:
         from sqlalchemy import text
-        live_backend = os.getenv("BACKEND_URL", "https://campuslink-backend.onrender.com").rstrip("/")
+        live_backend = os.getenv("BACKEND_URL", "https://campus-link-backend-vhxr.onrender.com").rstrip("/")
         with database.engine.connect() as conn:
             for tbl, col in [
                 ("users", "profile_picture_url"),
@@ -120,7 +120,7 @@ except Exception as _cld_err:
 async def keep_render_awake_loop():
     """Periodically pings the live Render web service so it never sleeps due to 15-min inactivity."""
     await asyncio.sleep(45)  # Initial boot grace period
-    ping_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("BACKEND_URL") or "https://campuslink-backend.onrender.com"
+    ping_url = os.getenv("RENDER_EXTERNAL_URL") or os.getenv("BACKEND_URL") or "https://campus-link-backend-vhxr.onrender.com"
     while True:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -219,7 +219,7 @@ def send_otp_email(to_email: str, otp_code: str):
         try:
             import urllib.request
             resend_url = "https://api.resend.com/emails"
-            from_addr = os.getenv("RESEND_FROM", "onboarding@resend.dev")
+            from_addr = os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>")
             payload = json.dumps({
                 "from": from_addr,
                 "to": [to_email],
@@ -239,6 +239,9 @@ def send_otp_email(to_email: str, otp_code: str):
                 if res.status in (200, 201):
                     print(f"[CAMPUSLINK] OTP successfully sent via Resend API to {to_email}")
                     return True
+        except urllib.error.HTTPError as e_http:
+            err_text = e_http.read().decode("utf-8")
+            print(f"[CAMPUSLINK] Resend API HTTP {e_http.code} warning for {to_email}: {err_text}")
         except Exception as e_resend:
             print(f"[CAMPUSLINK] Resend API dispatch warning: {e_resend}")
 
@@ -299,6 +302,89 @@ def send_otp_email(to_email: str, otp_code: str):
 @app.get("/")
 def read_root():
     return {"message": "CampusLink API is live!", "version": "1.0"}
+
+@app.get("/api/test-email")
+@app.post("/api/test-email")
+def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
+    """Diagnostic endpoint to test live email delivery and confirm provider status."""
+    clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
+    test_otp = str(random.randint(100000, 999999))
+    
+    # 0. Check Google Webhook if present
+    google_webhook = os.getenv("GOOGLE_MAIL_WEBHOOK")
+    if google_webhook:
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "to": clean_email,
+                "subject": f"CampusLink Test Email [{test_otp}]",
+                "body": f"Hello Testimony!\n\nThis is a verified live test email from CampusLink.\nYour verification code is: {test_otp}\n\nEmail dispatch is live and working!"
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                google_webhook.strip(),
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "CampusLink/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=12) as res:
+                return {
+                    "success": True,
+                    "provider": "Google Apps Script Webhook (Gmail)",
+                    "recipient": clean_email,
+                    "otp_sent": test_otp,
+                    "message": f"Test email successfully dispatched to {clean_email} via Google Gmail!"
+                }
+        except Exception as eg:
+            print(f"Test email Google error: {eg}")
+
+    # 1. Resend API
+    resend_key = os.getenv("RESEND_API_KEY")
+    from_addr = os.getenv("RESEND_FROM", "CampusLink <onboarding@resend.dev>")
+    try:
+        import urllib.request
+        resend_url = "https://api.resend.com/emails"
+        payload = json.dumps({
+            "from": from_addr,
+            "to": [clean_email],
+            "subject": f"CampusLink Test Verification Code [{test_otp}]",
+            "text": f"Hello Testimony!\n\nThis is a live test email from your CampusLink application.\nYour verification code is: {test_otp}\n\nLive email delivery confirmed!"
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            resend_url,
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {resend_key.strip()}",
+                "Content-Type": "application/json",
+                "User-Agent": "CampusLink/1.0"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=12) as res:
+            res_body = res.read().decode("utf-8")
+            return {
+                "success": True,
+                "provider": "Resend API (HTTPS Port 443)",
+                "recipient": clean_email,
+                "from": from_addr,
+                "status_code": res.status,
+                "resend_response": json.loads(res_body),
+                "otp_sent": test_otp,
+                "message": f"Verification email successfully sent to {clean_email}!"
+            }
+    except urllib.error.HTTPError as he:
+        err_detail = he.read().decode("utf-8")
+        return {
+            "success": False,
+            "provider": "Resend API",
+            "http_status": he.code,
+            "recipient": clean_email,
+            "error_detail": err_detail
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "provider": "Resend API",
+            "recipient": clean_email,
+            "error": str(e)
+        }
 
 
 # --- AUTH & USER ENDPOINTS ---
