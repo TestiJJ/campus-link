@@ -5,7 +5,7 @@ const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 let resolvedApiBase;
 
-if (rawEnvUrl) {
+if (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onrender.com')) {
   resolvedApiBase = rawEnvUrl.replace(/\/+$/, '').endsWith('/api')
     ? rawEnvUrl.replace(/\/+$/, '')
     : `${rawEnvUrl.replace(/\/+$/, '')}/api`;

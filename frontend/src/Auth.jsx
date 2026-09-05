@@ -12,7 +12,7 @@ import {
 const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 
 const rawEnvUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
-const API_BASE_URL = rawEnvUrl
+const API_BASE_URL = (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onrender.com'))
   ? rawEnvUrl.replace(/\/+$/, '').replace(/\/api$/, '')
   : (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
     ? DEFAULT_BACKEND_URL
