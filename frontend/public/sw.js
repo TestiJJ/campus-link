@@ -1,5 +1,5 @@
-// CampusLink Service Worker (PWA Offline & Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.1';
+// CampusLink Service Worker (PWA Offline & SPA Shell Caching)
+const CACHE_NAME = 'campuslink-v1.0.2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -16,7 +16,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('CampusLink SW pre-cache partial failure:', err);
+        console.warn('CampusLink SW pre-cache partial warning:', err);
       });
     }).then(() => self.skipWaiting())
   );
@@ -29,7 +29,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((name) => {
           if (name !== CACHE_NAME) {
-            console.log('CampusLink SW removing old cache:', name);
+            console.log('CampusLink SW removing old cache version:', name);
             return caches.delete(name);
           }
         })
@@ -38,50 +38,99 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: Strategy based on request type
+// Fetch: Robust strategy preventing unhandled rejections or invalid schemes
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  const url = new URL(request.url);
+  if (!request || request.method !== 'GET') return;
 
-  // Bypass non-GET requests, non-HTTP(S) schemes (e.g. chrome-extension), and API calls
-  if (request.method !== 'GET' || !url.protocol.startsWith('http') || url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
     return;
   }
 
-  // 1. Navigation requests (HTML pages): Network-first with cache fallback
+  // Strictly ignore unsupported schemes (e.g. chrome-extension://, blob:, data:, ws:)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return;
+  }
+
+  // Bypass API endpoints, auth routes, websockets, and uploads
+  if (
+    url.pathname.startsWith('/api') ||
+    url.pathname.startsWith('/auth') ||
+    url.pathname.startsWith('/ws') ||
+    url.pathname.startsWith('/upload') ||
+    url.pathname.startsWith('/docs') ||
+    url.pathname.startsWith('/openapi.json')
+  ) {
+    return;
+  }
+
+  // 1. Single Page Application (SPA) Navigations (HTML pages): Network-first with /index.html fallback
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
-          // Cache the fresh HTML page
           if (networkResponse && networkResponse.status === 200) {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('/index.html', clone).catch(() => {});
+            }).catch(() => {});
           }
           return networkResponse;
         })
-        .catch(() => {
-          // If offline, serve cached index.html or shell
-          return caches.match('/index.html').then((cached) => cached || caches.match('/'));
+        .catch(async () => {
+          // Offline fallback: Serve cached index.html or root
+          const cached = await caches.match('/index.html') || await caches.match('/');
+          if (cached) return cached;
+          return new Response(
+            '<!DOCTYPE html><html><head><title>CampusLink Offline</title><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="font-family:sans-serif;text-align:center;padding:40px;background:#f8fafc;"><h2 style="color:#0284c7;">CampusLink Offline</h2><p style="color:#64748b;">Please check your internet connection and reload the page.</p><button onclick="window.location.reload()" style="background:#0284c7;color:#fff;border:none;padding:10px 20px;border-radius:12px;font-weight:bold;cursor:pointer;">Retry</button></body></html>',
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' }
+            }
+          );
         })
     );
     return;
   }
 
-  // 2. Static Assets (JS, CSS, images, web fonts): Stale-While-Revalidate
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
+  // 2. Only cache same-origin static assets (JS, CSS, static images, icons, fonts)
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          // Stale-While-Revalidate: Return cached immediately, fetch fresh in background
+          fetch(request)
+            .then((networkResponse) => {
+              if (networkResponse && networkResponse.status === 200) {
+                const clone = networkResponse.clone();
+                caches.open(CACHE_NAME).then((cache) => {
+                  cache.put(request, clone).catch(() => {});
+                }).catch(() => {});
+              }
+            })
+            .catch(() => {});
+          return cachedResponse;
+        }
 
-      return cachedResponse || fetchPromise;
-    })
-  );
+        // Cache miss: Fetch from network and cache for future
+        return fetch(request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const clone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(request, clone).catch(() => {});
+              }).catch(() => {});
+            }
+            return networkResponse;
+          })
+          .catch(() => {
+            // Return safe fallback if network fails
+            return new Response('', { status: 408, statusText: 'Request Timeout' });
+          });
+      })
+    );
+  }
 });
