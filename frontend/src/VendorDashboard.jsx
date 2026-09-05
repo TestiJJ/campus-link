@@ -10,13 +10,17 @@ import {
   Heart, MessageCircle, UserPlus, Users, UserCheck, UserX, Search,
   Share2, DollarSign, Bell, Sparkles, AlertTriangle, ExternalLink,
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
-  Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply
+  Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
+  Film, Mic
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import MarkdownRenderer from './components/MarkdownRenderer';
+import SwipeableMessageBubble from './components/SwipeableMessageBubble';
+import ChatMediaGallery from './components/ChatMediaGallery';
 import {
   getCachedThreadMessages,
   setCachedThreadMessages,
@@ -223,6 +227,7 @@ export default function VendorDashboard() {
   const [replyingToMessage, setReplyingToMessage] = useState(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
+  const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
   const [showMediaEditor, setShowMediaEditor] = useState(false);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
@@ -1290,11 +1295,68 @@ export default function VendorDashboard() {
     }
 
     const text = customContent || newMsgText;
-    if (!text.trim() || !selectedPartner) return;
+    const hasMedia = pendingMediaFiles.length > 0;
+    if ((!text.trim() && !hasMedia) || !selectedPartner) return;
 
     const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
     const currentReply = customReply || replyingToMessage;
     const messageText = text.trim();
+
+    // If we have selected batch media files to send
+    if (hasMedia && !customContent) {
+      const filesToUpload = [...pendingMediaFiles];
+      setPendingMediaFiles([]);
+      setNewMsgText('');
+      setReplyingToMessage(null);
+
+      const localPreviews = filesToUpload.map(f => f.previewUrl);
+      const isMulti = filesToUpload.length > 1;
+      const firstIsVid = filesToUpload[0].type === 'video';
+      const fallbackCaption = messageText || (firstIsVid ? 'Video' : isMulti ? `${filesToUpload.length} Photos` : 'Photo');
+
+      const tempId = `temp_media_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const optimisticMsg = {
+        id: tempId,
+        sender_id: user?.user_id || user?.id,
+        recipient_id: partnerId,
+        content: fallbackCaption,
+        message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+        media_url: isMulti ? JSON.stringify(localPreviews) : localPreviews[0],
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null,
+        created_at: new Date().toISOString(),
+        is_read: false,
+        is_optimistic: true
+      };
+
+      appendThreadMessage(partnerId, optimisticMsg);
+      setChatMessages(prev => [...prev, optimisticMsg]);
+      smartScrollToBottom(chatContainerRef.current, false);
+
+      try {
+        const uploadedUrls = await Promise.all(filesToUpload.map(item => uploadFile(item.file)));
+        const finalMediaUrl = isMulti ? JSON.stringify(uploadedUrls) : uploadedUrls[0];
+        const res = await API.post('/messages', {
+          recipient_id: partnerId,
+          content: fallbackCaption,
+          message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+          media_url: finalMediaUrl,
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null
+        });
+
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+      } catch (err) {
+        console.error('Failed to upload media batch:', err);
+        setChatMessages(prev => prev.filter(m => m.id !== tempId));
+        alert('Failed to send media files.');
+      }
+      return;
+    }
 
     // 1. Instantly clear input field and reply preview (0ms latency)
     if (!customContent) {
@@ -1356,17 +1418,30 @@ export default function VendorDashboard() {
   };
 
   const handleChatMediaSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedPartner) return;
-    const isVid = file.type.startsWith('video');
-    const isImg = file.type.startsWith('image');
-    if (!isVid && !isImg) {
-      alert('Please select an image or video file.');
-      return;
-    }
-    setPendingMediaFile(file);
-    setShowMediaEditor(true);
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !selectedPartner) return;
+    
+    const validItems = files.slice(0, 10).map(file => ({
+      id: 'media_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      file,
+      previewUrl: URL.createObjectURL(file),
+      type: file.type?.startsWith('video') ? 'video' : 'image',
+      name: file.name
+    }));
+
+    setPendingMediaFiles(prev => [...prev, ...validItems].slice(0, 10));
     if (chatMediaInputRef.current) chatMediaInputRef.current.value = '';
+  };
+
+  const handleRemovePendingMedia = (idToRemove) => {
+    setPendingMediaFiles(prev => {
+      const remaining = prev.filter(item => item.id !== idToRemove);
+      const removed = prev.find(item => item.id === idToRemove);
+      if (removed?.previewUrl) {
+        try { URL.revokeObjectURL(removed.previewUrl); } catch {}
+      }
+      return remaining;
+    });
   };
 
   const handleConfirmSendChatMedia = async (file, caption = '') => {
@@ -2802,7 +2877,11 @@ export default function VendorDashboard() {
                                       : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs'
                                   }`}
                                 >
-                                  <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                                  {msg.sender === 'user' ? (
+                                    <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                                  ) : (
+                                    <MarkdownRenderer content={msg.content} />
+                                  )}
                                   <span className={`float-right mt-1 ml-2 text-[10px] leading-none select-none font-medium ${
                                     msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
                                   }`}>
@@ -2864,20 +2943,35 @@ export default function VendorDashboard() {
                             e.preventDefault();
                             handleSendAiMessage();
                           }}
-                          className="p-3 bg-white border-t border-slate-200 flex items-center space-x-2"
+                          className="p-3 bg-white border-t border-slate-200 flex items-end space-x-2"
                         >
-                          <input
-                            type="text"
-                            placeholder="Ask CampusLink AI for customer replies, marketing tips or anything..."
+                          <textarea
+                            rows={1}
+                            placeholder="Ask CampusLink AI anything (code, grammar, customer replies, math, concepts)..."
                             value={newMsgText}
-                            onChange={(e) => setNewMsgText(e.target.value)}
+                            onChange={(e) => {
+                              setNewMsgText(e.target.value);
+                              e.target.style.height = 'auto';
+                              e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+                            }}
+                            onKeyDown={(e) => {
+                              const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+                              if (e.key === 'Enter') {
+                                if (isMobileDevice) return;
+                                if (e.shiftKey || e.altKey) return;
+                                e.preventDefault();
+                                if (newMsgText.trim() && !isAiTyping) {
+                                  handleSendAiMessage();
+                                }
+                              }
+                            }}
                             disabled={isAiTyping}
-                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
+                            className="flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
                           />
                           <button
                             type="submit"
                             disabled={!newMsgText.trim() || isAiTyping}
-                            className="min-h-[44px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl cursor-pointer disabled:opacity-50 transition-colors flex items-center justify-center shrink-0"
+                            className="min-h-[44px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl cursor-pointer disabled:opacity-50 transition-colors flex items-center justify-center shrink-0 mb-0.5 active:scale-95"
                           >
                             <Send className="w-4 h-4" />
                           </button>
@@ -3044,142 +3138,135 @@ export default function VendorDashboard() {
                                   key={msg.id || idx}
                                   id={`chat-msg-${msg.id}`}
                                   data-msg-id={msg.id}
-                                  className={`flex transition-all duration-300 relative ${isMine ? 'justify-end' : 'justify-start'}`}
+                                  className={`transition-all duration-300 relative ${isMine ? 'flex justify-end' : 'flex justify-start'}`}
                                 >
-                                  <div
-                                    onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
-                                    className={`chat-bubble-tactile relative group max-w-[85%] sm:max-w-[70%] p-2.5 sm:p-3 rounded-2xl text-xs sm:text-[13px] leading-relaxed transition-all cursor-pointer select-text ${
-                                      isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
-                                    } ${
-                                      isMine
-                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
-                                    }`}
+                                  <SwipeableMessageBubble
+                                    message={msg}
+                                    isMine={isMine}
+                                    onReply={handleStartReply}
                                   >
-                                    {/* Tactile Floating Action Toolbar (Tap/Hover Popover) */}
                                     <div
-                                      className={`chat-popover-toolbar absolute -top-11 ${
-                                        isMine ? 'right-0' : 'left-0'
-                                      } z-30 flex items-center space-x-1 px-2 py-1 rounded-full border border-slate-200/80 shadow-md transition-all ${
-                                        showPopover
-                                          ? 'opacity-100 pointer-events-auto scale-100'
-                                          : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto scale-95 group-hover:scale-100'
+                                      onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
+                                      className={`chat-bubble-tactile relative group max-w-[85%] sm:max-w-[70%] p-2.5 sm:p-3 rounded-2xl text-xs sm:text-[13px] leading-relaxed transition-all cursor-pointer select-text ${
+                                        isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
+                                      } ${
+                                        isMine
+                                          ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                          : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                       }`}
-                                      onClick={(e) => e.stopPropagation()}
                                     >
-                                      {/* Quick Emoji Reactions */}
-                                      {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
-                                        <button
-                                          key={emoji}
-                                          type="button"
-                                          onClick={() => handleReactToMessage(msg, emoji)}
-                                          className="text-xs sm:text-sm hover:scale-125 active:scale-95 transition-transform p-0.5 cursor-pointer"
-                                          title={`React with ${emoji}`}
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                      <div className="w-px h-3.5 bg-slate-300 mx-0.5" />
-                                      {/* Quick Reply Button */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleStartReply(msg)}
-                                        className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                        title="Reply"
-                                      >
-                                        <Reply className="w-3.5 h-3.5" />
-                                      </button>
-                                      {/* Copy Text Button */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCopyMessageText(rawMsgText)}
-                                        className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                        title="Copy text"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-
-                                    {/* Quoted Message Card (Clickable to jump to original message) */}
-                                    {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                      {/* Tactile Floating Action Toolbar (Tap/Hover Popover) */}
                                       <div
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const targetId = msg.reply_to_id || chatReply?.replyToId;
-                                          if (targetId) {
-                                            handleScrollToQuotedMessage(targetId);
-                                          }
-                                        }}
-                                        className={`mb-2 p-2 rounded-r-xl border-l-4 transition-all text-left cursor-pointer hover:opacity-90 active:scale-[0.98] ${
-                                          isMine
-                                            ? 'bg-blue-700/50 border-white text-blue-100 shadow-inner'
-                                            : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
+                                        className={`chat-popover-toolbar absolute -top-11 ${
+                                          isMine ? 'right-0' : 'left-0'
+                                        } z-30 flex items-center space-x-1 px-2 py-1 rounded-full border border-slate-200/80 shadow-md transition-all ${
+                                          showPopover
+                                            ? 'opacity-100 pointer-events-auto scale-100'
+                                            : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto scale-95 group-hover:scale-100'
                                         }`}
-                                        title="Click to jump to original message"
+                                        onClick={(e) => e.stopPropagation()}
                                       >
-                                        <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
-                                          <Reply className="w-2.5 h-2.5 shrink-0" />
-                                          <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Customer'}</span>
-                                        </div>
-                                        <p className="truncate text-[11px] opacity-95">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
+                                        {/* Quick Emoji Reactions */}
+                                        {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                          <button
+                                            key={emoji}
+                                            type="button"
+                                            onClick={() => handleReactToMessage(msg, emoji)}
+                                            className="text-xs sm:text-sm hover:scale-125 active:scale-95 transition-transform p-0.5 cursor-pointer"
+                                            title={`React with ${emoji}`}
+                                          >
+                                            {emoji}
+                                          </button>
+                                        ))}
+                                        <div className="w-px h-3.5 bg-slate-300 mx-0.5" />
+                                        {/* Quick Reply Button */}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleStartReply(msg)}
+                                          className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                          title="Reply"
+                                        >
+                                          <Reply className="w-3.5 h-3.5" />
+                                        </button>
+                                        {/* Copy Text Button */}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCopyMessageText(rawMsgText)}
+                                          className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                          title="Copy text"
+                                        >
+                                          <Copy className="w-3.5 h-3.5" />
+                                        </button>
                                       </div>
-                                    )}
 
-                                    {isStatusReply ? (
-                                      <StoryReplyBubble statusData={statusData} isMine={isMine} />
-                                    ) : chatReply ? (
-                                      <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
-                                    ) : msg.message_type === 'image' ? (
-                                      <div className="space-y-1.5">
-                                        <SafeImage
-                                          src={msg.media_url}
-                                          alt="Shared in chat"
-                                          fallbackType="product"
-                                          className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                      {/* Quoted Message Card (Clickable to jump to original message) */}
+                                      {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                        <div
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            window.open(getMediaUrl(msg.media_url), '_blank');
+                                            const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                            if (targetId) {
+                                              handleScrollToQuotedMessage(targetId);
+                                            }
                                           }}
-                                        />
-                                        {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
-                                      </div>
-                                    ) : msg.message_type === 'video' ? (
-                                      <div className="space-y-1.5">
-                                        <video
-                                          src={msg.media_url}
-                                          controls
-                                          className="rounded-xl max-h-64 w-full bg-black"
-                                          onClick={(e) => e.stopPropagation()}
-                                        />
-                                        {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
-                                      </div>
-                                    ) : msg.message_type === 'audio' ? (
-                                      <div className="flex items-center space-x-2 py-1" onClick={(e) => e.stopPropagation()}>
-                                        <span className="text-xs">🎤 Voice Note</span>
-                                        <audio src={msg.media_url} controls className="h-8 max-w-[200px]" />
-                                      </div>
-                                    ) : (
-                                      <p className="whitespace-pre-wrap break-words">{rawMsgText}</p>
-                                    )}
-
-                                    {/* Inline Timestamp & Delivery Tick */}
-                                    <span className={`float-right mt-1 ml-2 inline-flex items-center space-x-1 text-[10px] leading-none select-none font-medium ${
-                                      isMine ? 'text-blue-200' : 'text-slate-400'
-                                    }`}>
-                                      <span>{safeTime(msg.created_at, 'Now')}</span>
-                                      {isMine && (
-                                        <span className="inline-flex items-center">
-                                          {msg.is_optimistic ? (
-                                            <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
-                                          ) : msg.is_read ? (
-                                            <CheckCheck className="w-3 h-3 text-blue-200" />
-                                          ) : (
-                                            <Check className="w-2.5 h-2.5 opacity-80" />
-                                          )}
-                                        </span>
+                                          className={`mb-2 p-2 rounded-r-xl border-l-4 transition-all text-left cursor-pointer hover:opacity-90 active:scale-[0.98] ${
+                                            isMine
+                                              ? 'bg-blue-700/50 border-white text-blue-100 shadow-inner'
+                                              : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
+                                          }`}
+                                          title="Click to jump to original message"
+                                        >
+                                          <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
+                                            <Reply className="w-2.5 h-2.5 shrink-0" />
+                                            <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Customer'}</span>
+                                          </div>
+                                          <p className="truncate text-[11px] opacity-95">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
+                                        </div>
                                       )}
-                                    </span>
-                                  </div>
+
+                                      {isStatusReply ? (
+                                        <StoryReplyBubble statusData={statusData} isMine={isMine} />
+                                      ) : chatReply ? (
+                                        <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
+                                      ) : (msg.message_type === 'image' || msg.message_type === 'images' || msg.message_type === 'video' || (msg.media_url && !msg.message_type)) ? (
+                                        <div className="space-y-1.5">
+                                          <ChatMediaGallery
+                                            mediaUrl={msg.media_url}
+                                            messageType={msg.message_type}
+                                            onImageClick={(url) => window.open(getMediaUrl(url), '_blank')}
+                                          />
+                                          {msg.content && !['Photo', 'Video', 'image', 'images'].includes(msg.content) && (
+                                            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                                          )}
+                                        </div>
+                                      ) : msg.message_type === 'audio' ? (
+                                        <div className="flex items-center space-x-2 py-1" onClick={(e) => e.stopPropagation()}>
+                                          <span className="text-xs">🎤 Voice Note</span>
+                                          <audio src={msg.media_url} controls className="h-8 max-w-[200px]" />
+                                        </div>
+                                      ) : (
+                                        <p className="whitespace-pre-wrap break-words">{rawMsgText}</p>
+                                      )}
+
+                                      {/* Inline Timestamp & Delivery Tick */}
+                                      <span className={`float-right mt-1 ml-2 inline-flex items-center space-x-1 text-[10px] leading-none select-none font-medium ${
+                                        isMine ? 'text-blue-200' : 'text-slate-400'
+                                      }`}>
+                                        <span>{safeTime(msg.created_at, 'Now')}</span>
+                                        {isMine && (
+                                          <span className="inline-flex items-center">
+                                            {msg.is_optimistic ? (
+                                              <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                            ) : msg.is_read ? (
+                                              <CheckCheck className="w-3 h-3 text-blue-200" />
+                                            ) : (
+                                              <Check className="w-2.5 h-2.5 opacity-80" />
+                                            )}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </SwipeableMessageBubble>
                                 </div>
                               );
                             })
@@ -3242,6 +3329,70 @@ export default function VendorDashboard() {
                             </div>
                           )}
 
+                          {/* Multi-Image Selected Thumbnail Carousel */}
+                          {pendingMediaFiles.length > 0 && (
+                            <div className="mb-2.5 p-2 bg-slate-100/90 rounded-2xl border border-slate-200">
+                              <div className="flex items-center justify-between mb-1.5 px-1">
+                                <span className="text-[11px] font-bold text-slate-700">
+                                  {pendingMediaFiles.length} photo{pendingMediaFiles.length > 1 ? 's' : ''} selected
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    pendingMediaFiles.forEach(f => {
+                                      if (f.previewUrl) {
+                                        try { URL.revokeObjectURL(f.previewUrl); } catch {}
+                                      }
+                                    });
+                                    setPendingMediaFiles([]);
+                                  }}
+                                  className="text-[10px] text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                >
+                                  Clear all
+                                </button>
+                              </div>
+                              <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
+                                {pendingMediaFiles.map((item, idx) => (
+                                  <div key={item.id} className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-2xs group">
+                                    {item.type === 'video' ? (
+                                      <div className="w-full h-full bg-slate-800 flex items-center justify-center text-white">
+                                        <Film className="w-5 h-5 opacity-80" />
+                                      </div>
+                                    ) : (
+                                      <img
+                                        src={item.previewUrl}
+                                        alt={`Preview ${idx + 1}`}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemovePendingMedia(item.id)}
+                                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+                                      title="Remove"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                    <span className="absolute bottom-0.5 left-0.5 px-1 bg-black/60 text-white rounded text-[9px] font-bold">
+                                      #{idx + 1}
+                                    </span>
+                                  </div>
+                                ))}
+                                {pendingMediaFiles.length < 10 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => chatMediaInputRef.current?.click()}
+                                    className="w-16 h-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-500 bg-white/80 hover:bg-sky-50 flex flex-col items-center justify-center text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                    title="Add more photos"
+                                  >
+                                    <Plus className="w-5 h-5" />
+                                    <span className="text-[9px] font-bold mt-0.5">Add</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                           <form
                             onSubmit={(e) => {
                               e.preventDefault();
@@ -3253,38 +3404,44 @@ export default function VendorDashboard() {
                               ref={chatMediaInputRef}
                               type="file"
                               accept="image/*,video/*"
+                              multiple
                               onChange={handleChatMediaSelect}
                               className="hidden"
                             />
                             <button
                               type="button"
                               onClick={() => chatMediaInputRef.current?.click()}
-                              className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center"
-                              title="Attach photo or video"
+                              className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                              title="Attach photos or video"
                             >
                               <Camera className="w-5 h-5" />
                             </button>
                             <textarea
                               rows={1}
-                              placeholder={`Message ${selectedPartner.partner_name}...`}
+                              placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                               value={newMsgText}
                               onChange={(e) => {
                                 setNewMsgText(e.target.value);
                                 e.target.style.height = 'auto';
-                                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                                e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                               }}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter' && !e.shiftKey) {
+                                const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+                                if (e.key === 'Enter') {
+                                  if (isMobileDevice) return;
+                                  if (e.shiftKey || e.altKey) return;
                                   e.preventDefault();
-                                  handleSendChatMessage();
+                                  if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                    handleSendChatMessage();
+                                  }
                                 }
                               }}
-                              className="flex-1 min-h-[44px] max-h-28 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none transition-colors"
+                              className="flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
                             />
                             <button
                               type="submit"
-                              disabled={!newMsgText.trim()}
-                              className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs"
+                              disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
+                              className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5"
                             >
                               <Send className="w-5 h-5" />
                             </button>

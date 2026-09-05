@@ -113,7 +113,10 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
   };
 
   const handleTextareaKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+    if (e.key === 'Enter') {
+      if (isMobileDevice) return; // Allow mobile on-screen return key to insert newlines
+      if (e.shiftKey || e.altKey) return; // Allow Shift+Enter or Alt+Enter on desktop to insert newlines
       e.preventDefault();
       handleSendMessage();
     }

@@ -19,6 +19,9 @@ import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import MarkdownRenderer from './components/MarkdownRenderer';
+import SwipeableMessageBubble from './components/SwipeableMessageBubble';
+import ChatMediaGallery from './components/ChatMediaGallery';
 import {
   getCachedThreadMessages,
   setCachedThreadMessages,
@@ -335,6 +338,7 @@ export default function StudentDashboard() {
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
+  const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
   const [showMediaEditor, setShowMediaEditor] = useState(false);
   const chatInputRef = useRef(null);
 
@@ -1237,24 +1241,80 @@ export default function StudentDashboard() {
     }, 50);
   };
 
-  // Send Message (Instant Zero-Latency Optimistic Delivery)
+  // Send Message (Instant Zero-Latency Optimistic Delivery & Batch Media)
   const handleSendMessage = async (e, overrideText = null, overrideReply = null) => {
     if (e) e.preventDefault();
     if (selectedPartner?.is_ai) {
       return handleSendAiMessage(overrideText);
     }
     const textToSend = typeof overrideText === 'string' ? overrideText : newMsgText;
-    if (!textToSend.trim() || !selectedPartner?.partner_id) return;
+    const hasMedia = pendingMediaFiles.length > 0;
+
+    if (!textToSend.trim() && !hasMedia) return;
+    if (!selectedPartner?.partner_id) return;
 
     const messageText = textToSend.trim();
     const currentReply = overrideReply || replyingToMessage;
     const partnerId = selectedPartner.partner_id;
+    const filesToUpload = [...pendingMediaFiles];
 
-    // 1. Instantly clear input field and reply preview (0ms latency)
+    // 1. Instantly clear input field, reply preview, and pending media list
     if (!overrideText) setNewMsgText('');
     setReplyingToMessage(null);
+    setPendingMediaFiles([]);
 
-    // 2. Optimistic UI Update: Render message into active thread IMMEDIATELY
+    // If sending media files batch (multi-image / video)
+    if (filesToUpload.length > 0) {
+      const isMulti = filesToUpload.length > 1;
+      const firstIsVid = filesToUpload[0].type === 'video';
+      const localPreviews = filesToUpload.map(f => f.previewUrl);
+      const tempId = `temp_media_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const fallbackCaption = messageText || (firstIsVid ? 'Video' : isMulti ? `Shared ${filesToUpload.length} photos` : 'Photo');
+
+      const optimisticMsg = {
+        id: tempId,
+        sender_id: currentUser?.user_id,
+        recipient_id: partnerId,
+        content: fallbackCaption,
+        message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+        media_url: isMulti ? JSON.stringify(localPreviews) : localPreviews[0],
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null,
+        created_at: new Date().toISOString(),
+        is_read: false,
+        is_optimistic: true
+      };
+
+      appendThreadMessage(partnerId, optimisticMsg);
+      setChatMessages(prev => [...prev, optimisticMsg]);
+      smartScrollToBottom(chatContainerRef.current, false);
+
+      try {
+        const uploadedUrls = await Promise.all(filesToUpload.map(item => uploadFile(item.file)));
+        const finalMediaUrl = isMulti ? JSON.stringify(uploadedUrls) : uploadedUrls[0];
+        const res = await API.post('/messages', {
+          recipient_id: partnerId,
+          content: fallbackCaption,
+          message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+          media_url: finalMediaUrl,
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null
+        });
+
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+      } catch (err) {
+        console.error('Failed to upload media batch:', err);
+        setChatMessages(prev => prev.filter(m => m.id !== tempId));
+        alert('Failed to send media files.');
+      }
+      return;
+    }
+
+    // Standard text message
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const optimisticMsg = {
       id: tempId,
@@ -1273,7 +1333,7 @@ export default function StudentDashboard() {
     appendThreadMessage(partnerId, optimisticMsg);
     setChatMessages(prev => [...prev, optimisticMsg]);
 
-    // 3. Immediately update the conversation row in sidebar to top
+    // Update conversation row in sidebar
     setConversations(prev => {
       const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
       if (idx !== -1) {
@@ -1283,10 +1343,8 @@ export default function StudentDashboard() {
       return prev;
     });
 
-    // 4. Instant scroll to bottom
     smartScrollToBottom(chatContainerRef.current, false);
 
-    // 5. Fire network request in background without blocking next user input
     try {
       const payload = {
         recipient_id: partnerId,
@@ -1408,17 +1466,32 @@ export default function StudentDashboard() {
   };
 
   const handleChatMediaSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedPartner?.partner_id) return;
-    const isVid = file.type.startsWith('video');
-    const isImg = file.type.startsWith('image');
-    if (!isVid && !isImg) {
-      alert('Please select an image or video file.');
-      return;
-    }
-    setPendingMediaFile(file);
-    setShowMediaEditor(true);
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !selectedPartner?.partner_id) return;
+    
+    const validItems = files.slice(0, 10).map(file => ({
+      id: 'media_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      file,
+      previewUrl: URL.createObjectURL(file),
+      type: file.type?.startsWith('video') ? 'video' : 'image',
+      name: file.name
+    }));
+
+    setPendingMediaFiles(prev => [...prev, ...validItems].slice(0, 10));
     if (chatMediaInputRef.current) chatMediaInputRef.current.value = '';
+  };
+
+  const handleRemovePendingMedia = (idToRemove) => {
+    setPendingMediaFiles(prev => {
+      const remaining = prev.filter(item => item.id !== idToRemove);
+      const removed = prev.find(item => item.id === idToRemove);
+      if (removed?.previewUrl) {
+        try {
+          URL.revokeObjectURL(removed.previewUrl);
+        } catch {}
+      }
+      return remaining;
+    });
   };
 
   const handleConfirmSendChatMedia = async (file, caption = '') => {
@@ -4199,7 +4272,11 @@ export default function StudentDashboard() {
                                         : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                     }`}
                                   >
-                                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                                    {msg.sender === 'ai' ? (
+                                      <MarkdownRenderer content={msg.content} />
+                                    ) : (
+                                      <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                                    )}
                                     <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
                                       msg.sender === 'user' ? 'text-blue-100/90' : 'text-slate-400'
                                     }`}>
@@ -4440,222 +4517,206 @@ export default function StudentDashboard() {
                               const isMine = msg.sender_id === currentUser.user_id;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
-                              const isPopoverOpen = activePopoverMsgId === msg.id;
-
                               return (
                                 <div
                                   key={msg.id}
                                   id={`chat-msg-${msg.id}`}
                                   data-msg-id={msg.id}
-                                  className={`relative flex items-center group transition-all duration-200 ${
+                                  className={`relative flex items-center transition-all duration-200 ${
                                     isMine ? 'justify-end' : 'justify-start'
                                   }`}
                                 >
-                                  {/* Swipe to Reply Backing Indicator */}
-                                  <div className={`absolute ${isMine ? 'right-2' : 'left-2'} text-sky-500 opacity-0 group-hover:opacity-30 transition-opacity pointer-events-none flex items-center space-x-1 text-[11px] font-bold`}>
-                                    <Reply className="w-4 h-4 text-sky-500" />
-                                  </div>
-
-                                  <motion.div
-                                    drag="x"
-                                    dragConstraints={{ left: 0, right: 65 }}
-                                    dragElastic={0.25}
-                                    onDragEnd={(e, info) => {
-                                      if (info.offset.x > 35) {
-                                        handleStartReply(msg);
-                                      }
-                                    }}
-                                    onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
-                                    className={`relative max-w-[85%] sm:max-w-[70%] p-3 rounded-2xl text-xs leading-relaxed transition-all cursor-pointer chat-bubble-tactile ${
-                                      isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
-                                    } ${
-                                      isMine
-                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
-                                    }`}
+                                  <SwipeableMessageBubble
+                                    onSwipeReply={() => handleStartReply(msg)}
+                                    isMine={isMine}
+                                    className="w-full flex"
                                   >
-                                    {/* Floating Action Popover Mini-Toolbar */}
-                                    {isPopoverOpen && (
-                                      <div
-                                        onClick={(e) => e.stopPropagation()}
-                                        className={`absolute -top-11 ${
-                                          isMine ? 'right-0' : 'left-0'
-                                        } z-30 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl px-2.5 py-1.5 flex items-center space-x-2 chat-popover-toolbar shadow-xl`}
-                                      >
-                                        {/* Reaction Emojis */}
-                                        <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700">
-                                          {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
-                                            <button
-                                              key={emoji}
-                                              type="button"
-                                              onClick={() => handleReactToMessage(msg, emoji)}
-                                              className="hover:scale-125 active:scale-95 transition-transform text-sm p-0.5 cursor-pointer leading-none"
-                                            >
-                                              {emoji}
-                                            </button>
-                                          ))}
-                                        </div>
-                                        {/* Reply Button */}
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setActivePopoverMsgId(null);
-                                            handleStartReply(msg);
-                                          }}
-                                          className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                          title="Reply"
-                                        >
-                                          <Reply className="w-3.5 h-3.5 text-sky-400" />
-                                          <span className="hidden sm:inline">Reply</span>
-                                        </button>
-                                        {/* Copy Button */}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyMessageText(msg)}
-                                          className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                          title="Copy Text"
-                                        >
-                                          <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                                          <span className="hidden sm:inline">Copy</span>
-                                        </button>
-                                      </div>
-                                    )}
-
-                                    {/* Desktop Hover Quick-Reply Button */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleStartReply(msg);
-                                      }}
-                                      className={`hidden group-hover:flex absolute -top-2 ${
-                                        isMine ? '-left-6' : '-right-6'
-                                      } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
-                                      title="Reply to this message"
+                                    <div
+                                      onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
+                                      className={`relative max-w-[85%] sm:max-w-[70%] p-3 rounded-2xl text-xs sm:text-[13px] leading-relaxed transition-all cursor-pointer chat-bubble-tactile ${
+                                        isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                      } ${
+                                        isMine
+                                          ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                          : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
+                                      }`}
                                     >
-                                      <Reply className="w-3 h-3" />
-                                    </button>
-
-                                    {/* Quoted Message Card (Clickable to jump to original message) */}
-                                    {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
-                                      <div
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const targetId = msg.reply_to_id || chatReply?.replyToId;
-                                          if (targetId) {
-                                            handleScrollToQuotedMessage(targetId);
-                                          }
-                                        }}
-                                        className={`mb-1.5 p-2 rounded-r-xl border-l-4 text-[11px] text-left cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
-                                          isMine
-                                            ? 'bg-blue-700/60 border-white text-blue-100 shadow-inner'
-                                            : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
-                                        }`}
-                                        title="Click to jump to original message"
-                                      >
-                                        <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
-                                          <Reply className="w-2.5 h-2.5 shrink-0" />
-                                          <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Campus Peer'}</span>
-                                        </div>
-                                        <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
-                                      </div>
-                                    )}
-
-                                    {/* Bubble Body Content */}
-                                    {chatReply ? (
-                                      <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
-                                    ) : parseStatusReply(msg) ? (
-                                      <StoryReplyBubble
-                                        msg={msg}
-                                        isMine={isMine}
-                                        onStoryClick={(statusId) => {
-                                          const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
-                                          if (gIdx !== -1) {
-                                            const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
-                                            setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
-                                          }
-                                        }}
-                                      />
-                                    ) : msg.message_type === 'audio' ? (
-                                      <div className="flex items-center space-x-3 py-1">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handlePlayAudio(msg.id, msg.media_url);
-                                          }}
-                                          className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                                            isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
-                                          }`}
+                                      {/* Floating Action Popover Mini-Toolbar */}
+                                      {isPopoverOpen && (
+                                        <div
+                                          onClick={(e) => e.stopPropagation()}
+                                          className={`absolute -top-11 ${
+                                            isMine ? 'right-0' : 'left-0'
+                                          } z-30 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl px-2.5 py-1.5 flex items-center space-x-2 chat-popover-toolbar shadow-xl`}
                                         >
-                                          {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                                        </button>
-                                        <div>
-                                          <div className="flex items-center space-x-1 mb-1">
-                                            {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
-                                              <span
-                                                key={i}
-                                                className={`w-1 rounded-full transition-all ${
-                                                  playingAudioId === msg.id
-                                                    ? 'animate-pulse bg-emerald-400'
-                                                    : isMine
-                                                      ? 'bg-blue-200'
-                                                      : 'bg-slate-300'
-                                                }`}
-                                                style={{ height: `${h}px` }}
-                                              />
+                                          {/* Reaction Emojis */}
+                                          <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700">
+                                            {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                              <button
+                                                key={emoji}
+                                                type="button"
+                                                onClick={() => handleReactToMessage(msg, emoji)}
+                                                className="hover:scale-125 active:scale-95 transition-transform text-sm p-0.5 cursor-pointer leading-none"
+                                              >
+                                                {emoji}
+                                              </button>
                                             ))}
                                           </div>
-                                          <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
-                                            🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
-                                          </span>
+                                          {/* Reply Button */}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setActivePopoverMsgId(null);
+                                              handleStartReply(msg);
+                                            }}
+                                            className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                            title="Reply"
+                                          >
+                                            <Reply className="w-3.5 h-3.5 text-sky-400" />
+                                            <span className="hidden sm:inline">Reply</span>
+                                          </button>
+                                          {/* Copy Button */}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyMessageText(msg)}
+                                            className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                                            title="Copy Text"
+                                          >
+                                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span className="hidden sm:inline">Copy</span>
+                                          </button>
                                         </div>
-                                      </div>
-                                    ) : msg.message_type === 'image' ? (
-                                      <div className="space-y-1.5">
-                                        <SafeImage
-                                          src={msg.media_url}
-                                          alt="Shared in chat"
-                                          fallbackType="product"
-                                          className="rounded-xl max-h-60 w-auto object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                                      )}
+
+                                      {/* Desktop Hover Quick-Reply Button */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleStartReply(msg);
+                                        }}
+                                        className={`hidden group-hover:flex absolute -top-2 ${
+                                          isMine ? '-left-6' : '-right-6'
+                                        } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
+                                        title="Reply to this message"
+                                      >
+                                        <Reply className="w-3 h-3" />
+                                      </button>
+
+                                      {/* Quoted Message Card (Clickable to jump to original message) */}
+                                      {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                        <div
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            window.open(getMediaUrl(msg.media_url), '_blank');
+                                            const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                            if (targetId) {
+                                              handleScrollToQuotedMessage(targetId);
+                                            }
+                                          }}
+                                          className={`mb-1.5 p-2 rounded-r-xl border-l-4 text-[11px] text-left cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
+                                            isMine
+                                              ? 'bg-blue-700/60 border-white text-blue-100 shadow-inner'
+                                              : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
+                                          }`}
+                                          title="Click to jump to original message"
+                                        >
+                                          <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
+                                            <Reply className="w-2.5 h-2.5 shrink-0" />
+                                            <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Campus Peer'}</span>
+                                          </div>
+                                          <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
+                                        </div>
+                                      )}
+
+                                      {/* Bubble Body Content */}
+                                      {chatReply ? (
+                                        <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
+                                      ) : parseStatusReply(msg) ? (
+                                        <StoryReplyBubble
+                                          msg={msg}
+                                          isMine={isMine}
+                                          onStoryClick={(statusId) => {
+                                            const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
+                                            if (gIdx !== -1) {
+                                              const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
+                                              setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
+                                            }
                                           }}
                                         />
-                                        {msg.content && msg.content !== 'Photo' && <p>{msg.content}</p>}
-                                      </div>
-                                    ) : msg.message_type === 'video' ? (
-                                      <div className="space-y-1.5">
-                                        <video
-                                          src={msg.media_url}
-                                          controls
-                                          className="rounded-xl max-h-64 w-full bg-black"
-                                        />
-                                        {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
-                                      </div>
-                                    ) : (
-                                      <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
-                                    )}
-
-                                    {/* Inline Timestamp & Read Receipt Checkmarks */}
-                                    <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
-                                      isMine ? 'text-blue-100/90' : 'text-slate-400'
-                                    }`}>
-                                      <span>{safeTime(msg.created_at, 'Just now')}</span>
-                                      {isMine && (
-                                        <span className="inline-flex items-center">
-                                          {msg.is_optimistic ? (
-                                            <Clock className="w-2.5 h-2.5 opacity-75 animate-pulse" />
-                                          ) : msg.is_read ? (
-                                            <CheckCheck className="w-3.5 h-3.5 text-blue-200" />
-                                          ) : (
-                                            <Check className="w-3 h-3 opacity-80" />
+                                      ) : msg.message_type === 'audio' ? (
+                                        <div className="flex items-center space-x-3 py-1">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handlePlayAudio(msg.id, msg.media_url);
+                                            }}
+                                            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                              isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                            }`}
+                                          >
+                                            {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                          </button>
+                                          <div>
+                                            <div className="flex items-center space-x-1 mb-1">
+                                              {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
+                                                <span
+                                                  key={i}
+                                                  className={`w-1 rounded-full transition-all ${
+                                                    playingAudioId === msg.id
+                                                      ? 'animate-pulse bg-emerald-400'
+                                                      : isMine
+                                                        ? 'bg-blue-200'
+                                                        : 'bg-slate-300'
+                                                  }`}
+                                                  style={{ height: `${h}px` }}
+                                                />
+                                              ))}
+                                            </div>
+                                            <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                              🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ) : (msg.message_type === 'image' || msg.message_type === 'images' || (msg.media_url && !['video', 'audio'].includes(msg.message_type))) ? (
+                                        <div className="space-y-1.5">
+                                          <ChatMediaGallery mediaUrl={msg.media_url} />
+                                          {msg.content && !['Photo', 'Video', 'Voice note'].includes(msg.content) && !msg.content.startsWith('Shared ') && (
+                                            <p className="break-words mt-1">{msg.content}</p>
                                           )}
-                                        </span>
+                                        </div>
+                                      ) : msg.message_type === 'video' ? (
+                                        <div className="space-y-1.5">
+                                          <video
+                                            src={msg.media_url}
+                                            controls
+                                            className="rounded-xl max-h-64 w-full bg-black"
+                                          />
+                                          {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
+                                        </div>
+                                      ) : (
+                                        <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
                                       )}
-                                    </span>
-                                  </motion.div>
+
+                                      {/* Inline Timestamp & Read Receipt Checkmarks */}
+                                      <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
+                                        isMine ? 'text-blue-100/90' : 'text-slate-400'
+                                      }`}>
+                                        <span>{safeTime(msg.created_at, 'Just now')}</span>
+                                        {isMine && (
+                                          <span className="inline-flex items-center">
+                                            {msg.is_optimistic ? (
+                                              <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                            ) : msg.is_read ? (
+                                              <CheckCheck className="w-3 h-3 text-sky-200" />
+                                            ) : (
+                                              <Check className="w-2.5 h-2.5 opacity-80" />
+                                            )}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </SwipeableMessageBubble>
                                 </div>
                               );
                             })
@@ -4715,6 +4776,70 @@ export default function StudentDashboard() {
                                 </div>
                               )}
 
+                              {/* Multi-Image Selected Thumbnail Carousel */}
+                              {pendingMediaFiles.length > 0 && (
+                                <div className="mb-2.5 p-2 bg-slate-100/90 rounded-2xl border border-slate-200">
+                                  <div className="flex items-center justify-between mb-1.5 px-1">
+                                    <span className="text-[11px] font-bold text-slate-700">
+                                      {pendingMediaFiles.length} photo{pendingMediaFiles.length > 1 ? 's' : ''} selected
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        pendingMediaFiles.forEach(f => {
+                                          if (f.previewUrl) {
+                                            try { URL.revokeObjectURL(f.previewUrl); } catch {}
+                                          }
+                                        });
+                                        setPendingMediaFiles([]);
+                                      }}
+                                      className="text-[10px] text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                    >
+                                      Clear all
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
+                                    {pendingMediaFiles.map((item, idx) => (
+                                      <div key={item.id} className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-2xs group">
+                                        {item.type === 'video' ? (
+                                          <div className="w-full h-full bg-slate-800 flex items-center justify-center text-white">
+                                            <Film className="w-5 h-5 opacity-80" />
+                                          </div>
+                                        ) : (
+                                          <img
+                                            src={item.previewUrl}
+                                            alt={`Preview ${idx + 1}`}
+                                            className="w-full h-full object-cover"
+                                          />
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemovePendingMedia(item.id)}
+                                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+                                          title="Remove"
+                                        >
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                        <span className="absolute bottom-0.5 left-0.5 px-1 bg-black/60 text-white rounded text-[9px] font-bold">
+                                          #{idx + 1}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    {pendingMediaFiles.length < 10 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => chatMediaInputRef.current?.click()}
+                                        className="w-16 h-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-500 bg-white/80 hover:bg-sky-50 flex flex-col items-center justify-center text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                        title="Add more photos"
+                                      >
+                                        <Plus className="w-5 h-5" />
+                                        <span className="text-[9px] font-bold mt-0.5">Add</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
                               {isRecordingAudio ? (
                                 <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-2xl p-2 px-4">
                                   <div className="flex items-center space-x-3">
@@ -4744,18 +4869,19 @@ export default function StudentDashboard() {
                                 </div>
                               ) : (
                                 <form onSubmit={handleSendMessage} className="flex items-end space-x-1.5 sm:space-x-2">
-                                  {/* Hidden Attachment Input for Photos & Videos */}
+                                  {/* Hidden Attachment Input for Photos & Videos (Multiple Selection) */}
                                   <input
                                     ref={chatMediaInputRef}
                                     type="file"
                                     accept="image/*,video/*"
+                                    multiple
                                     onChange={handleChatMediaSelect}
                                     className="hidden"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => chatMediaInputRef.current?.click()}
-                                    title="Attach Photo or Video"
+                                    title="Attach Photos or Video"
                                     className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
                                   >
                                     <Paperclip className="w-4 h-4" />
@@ -4769,12 +4895,21 @@ export default function StudentDashboard() {
                                     onChange={(e) => {
                                       setNewMsgText(e.target.value);
                                       e.target.style.height = 'auto';
-                                      e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                                      e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                                     }}
                                     onKeyDown={(e) => {
-                                      if (e.key === 'Enter' && !e.shiftKey) {
+                                      const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+                                      if (e.key === 'Enter') {
+                                        if (isMobileDevice) {
+                                          return; // Allow mobile on-screen return key to insert newlines
+                                        }
+                                        if (e.shiftKey || e.altKey) {
+                                          return; // Allow Shift+Enter or Alt+Enter on desktop to insert newlines
+                                        }
                                         e.preventDefault();
-                                        if (newMsgText.trim()) handleSendMessage(e);
+                                        if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                          handleSendMessage(e);
+                                        }
                                       }
                                     }}
                                     onFocus={() => {
@@ -4782,7 +4917,7 @@ export default function StudentDashboard() {
                                         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
                                       }, 200);
                                     }}
-                                    className="flex-1 p-2.5 max-h-28 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 resize-none leading-relaxed transition-colors"
+                                    className="flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 resize-none leading-relaxed transition-colors"
                                   />
 
                                   {/* Voice Note Button */}
@@ -4797,7 +4932,7 @@ export default function StudentDashboard() {
 
                                   <button
                                     type="submit"
-                                    disabled={!newMsgText.trim()}
+                                    disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
                                     className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95"
                                   >
                                     <Send className="w-4 h-4" />
