@@ -212,6 +212,27 @@ export default function StudentDashboard() {
       window.removeEventListener('popstate', handlePopState);
     };
   }, [selectedPartner]);
+
+  // Mobile back button & Escape key support for notification slide-over drawer
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handlePopState = () => {
+      setNotificationsOpen(false);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setNotificationsOpen(false);
+      }
+    };
+    window.history.pushState({ notifDrawerOpen: true }, '');
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [notificationsOpen]);
+
   
   // My AI & Memory Vault State
   const [aiMessages, setAiMessages] = useState([]);
@@ -266,6 +287,29 @@ export default function StudentDashboard() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
+  // New User Profile Completion Prompt State (only shows for new accounts)
+  const [showNewUserModal, setShowNewUserModal] = useState(() => {
+    try {
+      if (localStorage.getItem('campuslink_show_profile_completion_prompt') === 'true') {
+        return true;
+      }
+      if (localStorage.getItem('campuslink_dismissed_profile_prompt') === 'true') {
+        return false;
+      }
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        const isIncomplete = !u.department || !u.hostel || !u.phone_number;
+        if (u.created_at) {
+          const createdTime = new Date(u.created_at).getTime();
+          const isRecent = (Date.now() - createdTime) < 48 * 3600 * 1000;
+          if (isRecent && isIncomplete) return true;
+        }
+      }
+    } catch {}
+    return false;
+  });
+
 
   // Feedback Toast
   const [toast, setToast] = useState({ text: '', type: '' });
@@ -5131,9 +5175,21 @@ export default function StudentDashboard() {
                 className="w-screen max-w-md bg-white shadow-2xl border-l border-slate-200 flex flex-col justify-between"
               >
                 {/* Header */}
-                <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+                <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/90 sticky top-0 z-10 backdrop-blur-xs">
                   <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shadow-xs">
+                    {/* Clear Back Button */}
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsOpen(false)}
+                      className="p-2 -ml-1 text-slate-700 hover:text-slate-900 bg-slate-200/80 hover:bg-slate-300 active:bg-slate-400 rounded-xl transition-colors flex items-center space-x-1 cursor-pointer font-bold text-xs shrink-0"
+                      title="Back to Dashboard"
+                      aria-label="Back to Dashboard"
+                    >
+                      <ChevronLeft className="w-5 h-5 shrink-0 text-slate-800" />
+                      <span>Back</span>
+                    </button>
+
+                    <div className="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shadow-xs shrink-0">
                       <Bell className="w-5 h-5" />
                     </div>
                     <div>
@@ -5144,18 +5200,20 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1.5">
                     {unreadCount > 0 && (
                       <button
                         onClick={handleMarkAllNotificationsRead}
-                        className="text-[11px] font-bold text-sky-600 hover:text-sky-700 bg-sky-50 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                        className="text-[11px] font-bold text-sky-600 hover:text-sky-700 bg-sky-50 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
                       >
-                        Mark all read
+                        Mark read
                       </button>
                     )}
                     <button
+                      type="button"
                       onClick={() => setNotificationsOpen(false)}
-                      className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                      className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                      title="Close Notifications"
                     >
                       <X className="w-5 h-5" />
                     </button>
@@ -5300,12 +5358,102 @@ export default function StudentDashboard() {
                   })()}
                 </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t border-slate-200 bg-slate-50 text-center">
-                  <span className="text-[11px] text-slate-400 font-medium">CampusLink Real-time Notification Engine</span>
+                {/* Footer with prominent Back Button */}
+                <div className="p-4 border-t border-slate-200 bg-white flex flex-col items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setNotificationsOpen(false)}
+                    className="w-full py-3 bg-sky-500 hover:bg-sky-600 active:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Back to Dashboard</span>
+                  </button>
+                  <span className="text-[10px] text-slate-400 font-medium">CampusLink Real-time Notification Engine</span>
                 </div>
               </motion.div>
             </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- NEW USER WELCOME & PROFILE COMPLETION PROMPT MODAL --- */}
+      <AnimatePresence>
+        {showNewUserModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-sky-100 overflow-hidden"
+            >
+              {/* Top Banner Header */}
+              <div className="bg-gradient-to-tr from-sky-600 via-blue-600 to-indigo-700 p-6 text-white text-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-white/10 blur-xl pointer-events-none" />
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md text-white flex items-center justify-center mx-auto mb-3 text-2xl shadow-inner border border-white/20">
+                  🎉
+                </div>
+                <h3 className="text-xl font-black tracking-tight leading-tight">
+                  Welcome to CampusLink!
+                </h3>
+                <p className="text-xs text-sky-100 mt-1 max-w-xs mx-auto">
+                  Hi {currentUser?.full_name?.split(' ')[0] || 'there'}, your account is ready. Complete your profile to get full access to the campus community!
+                </p>
+              </div>
+
+              {/* Body Checklist */}
+              <div className="p-6 space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  To start connecting with peers, chatting, buying, and ordering on campus, please head to <strong>Settings</strong> to finish setting up:
+                </p>
+
+                <div className="space-y-2.5 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">1</span>
+                    <span className="font-semibold">Department & Academic Level</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">2</span>
+                    <span className="font-semibold">Hostel / Campus Hall of Residence</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">3</span>
+                    <span className="font-semibold">Active WhatsApp / Call Phone Number</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">4</span>
+                    <span className="font-semibold">Profile Photo & Student Bio</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewUserModal(false);
+                      localStorage.setItem('campuslink_dismissed_profile_prompt', 'true');
+                      localStorage.removeItem('campuslink_show_profile_completion_prompt');
+                      setActiveTab('profile');
+                    }}
+                    className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 active:bg-sky-700 text-white font-extrabold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <span>Go to Profile Settings</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewUserModal(false);
+                      localStorage.setItem('campuslink_dismissed_profile_prompt', 'true');
+                      localStorage.removeItem('campuslink_show_profile_completion_prompt');
+                    }}
+                    className="w-full py-2.5 text-slate-500 hover:text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    I'll do this later
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

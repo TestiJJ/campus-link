@@ -215,6 +215,11 @@ export default function Auth() {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
 
+        if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
+          localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
+          localStorage.removeItem('campuslink_new_signup_pending');
+        }
+
         if (data.user?.role === 'admin') {
           navigate('/admin');
         } else if (data.user?.role === 'vendor') {
@@ -223,6 +228,7 @@ export default function Auth() {
           navigate('/student-dashboard');
         }
       } else {
+        localStorage.setItem('campuslink_new_signup_pending', 'true');
         setPendingEmail(formData.email.trim());
         setShowOtpModal(true);
         setResendCooldown(60);
@@ -261,6 +267,7 @@ export default function Auth() {
       setOtpCode('');
       setErrorMessage('');
       setOtpSuccessMessage('Email verified successfully! You can now log in.');
+      localStorage.setItem('campuslink_new_signup_pending', 'true');
     } catch (err) {
       setErrorMessage(err.message);
     } finally {

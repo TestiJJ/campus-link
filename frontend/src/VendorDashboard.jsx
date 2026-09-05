@@ -60,6 +60,28 @@ export default function VendorDashboard() {
   });
   const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
   const [activeTab, setActiveTab] = useState(getInitialVendorTab);
+  // New Vendor Profile Completion Prompt State (only shows for new vendor registrations)
+  const [showNewVendorModal, setShowNewVendorModal] = useState(() => {
+    try {
+      if (localStorage.getItem('campuslink_show_profile_completion_prompt') === 'true') {
+        return true;
+      }
+      if (localStorage.getItem('campuslink_dismissed_vendor_profile_prompt') === 'true') {
+        return false;
+      }
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u.role === 'vendor' && u.created_at) {
+          const createdTime = new Date(u.created_at).getTime();
+          const isRecent = (Date.now() - createdTime) < 48 * 3600 * 1000;
+          if (isRecent) return true;
+        }
+      }
+    } catch {}
+    return false;
+  });
+
 
   // Operational & Store Status States
   const [storeStatus, setStoreStatus] = useState(() => localStorage.getItem('vendor_store_status') || 'open'); // 'open' | 'break' | 'closed'
@@ -3398,6 +3420,88 @@ export default function VendorDashboard() {
         )}
 
       </main>
+
+      {/* --- NEW VENDOR WELCOME & STORE COMPLETION PROMPT MODAL --- */}
+      <AnimatePresence>
+        {showNewVendorModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-sky-100 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="bg-gradient-to-tr from-sky-600 via-blue-600 to-indigo-700 p-6 text-white text-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 rounded-full bg-white/10 blur-xl pointer-events-none" />
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md text-white flex items-center justify-center mx-auto mb-3 text-2xl shadow-inner border border-white/20">
+                  🏪
+                </div>
+                <h3 className="text-xl font-black tracking-tight leading-tight">
+                  Welcome to Vendor Hub!
+                </h3>
+                <p className="text-xs text-sky-100 mt-1 max-w-xs mx-auto">
+                  Hi {user?.full_name?.split(' ')[0] || 'Merchant'}, your seller account is active. Complete your store settings to start receiving student orders!
+                </p>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                  To start listing products, services, and getting verified on campus, please head to <strong>Settings</strong> to finish setting up:
+                </p>
+
+                <div className="space-y-2.5 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">1</span>
+                    <span className="font-semibold">Business Name & Description</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">2</span>
+                    <span className="font-semibold">Campus Stall / Hostel Pickup Location</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">3</span>
+                    <span className="font-semibold">Store Logo & WhatsApp Contact</span>
+                  </div>
+                  <div className="flex items-center space-x-3 text-xs text-slate-700">
+                    <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center text-xs font-black shrink-0">4</span>
+                    <span className="font-semibold">Student ID / KYC for Verified Badge</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewVendorModal(false);
+                      localStorage.setItem('campuslink_dismissed_vendor_profile_prompt', 'true');
+                      localStorage.removeItem('campuslink_show_profile_completion_prompt');
+                      setActiveTab('settings');
+                    }}
+                    className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 active:bg-sky-700 text-white font-extrabold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <span>Go to Store Settings</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewVendorModal(false);
+                      localStorage.setItem('campuslink_dismissed_vendor_profile_prompt', 'true');
+                      localStorage.removeItem('campuslink_show_profile_completion_prompt');
+                    }}
+                    className="w-full py-2.5 text-slate-500 hover:text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                  >
+                    I'll do this later
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ========================================================================= */}
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
