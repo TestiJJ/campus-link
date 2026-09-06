@@ -615,8 +615,8 @@ export default function VendorDashboard() {
           if (!isMounted) return;
 
           if (retryCount < MAX_RETRIES) {
-            // Exponential backoff with jitter: 2s, ~4s, ~8s, ~16s, max 30s
-            const backoffMs = Math.min(30000, 2000 * Math.pow(1.8, retryCount) + Math.random() * 800);
+            // Exponential backoff: 3s, 6s, 12s, 24s, max 30s
+            const backoffMs = Math.min(30000, 3000 * Math.pow(2, retryCount));
             retryCount++;
             reconnectTimeout = setTimeout(connectWs, backoffMs);
           }

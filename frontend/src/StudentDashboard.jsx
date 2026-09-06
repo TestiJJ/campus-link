@@ -596,8 +596,8 @@ export default function StudentDashboard() {
           if (!isMounted) return;
 
           if (retryCount < MAX_RETRIES) {
-            // Exponential backoff with jitter: 2s, ~4s, ~8s, ~16s, max 30s
-            const backoffMs = Math.min(30000, 2000 * Math.pow(1.8, retryCount) + Math.random() * 800);
+            // Exponential backoff: 3s, 6s, 12s, 24s, max 30s
+            const backoffMs = Math.min(30000, 3000 * Math.pow(2, retryCount));
             retryCount++;
             reconnectTimeout = setTimeout(connectWs, backoffMs);
           }
@@ -4344,7 +4344,7 @@ export default function StudentDashboard() {
 
                           {/* AI Chat Input Bar */}
                           <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-drawer-bottom">
-                            <form onSubmit={handleSendMessage} className="flex items-center space-x-2">
+                            <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-2">
                               <input
                                 type="text"
                                 placeholder="Ask CampusLink AI anything (academics, definitions, reply ideas, math)..."

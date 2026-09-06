@@ -4590,10 +4590,9 @@ def get_ai_messages(
 async def chat_with_campus_ai(request: schemas.AIChatRequest):
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
-        fallback_msg = "Groq API key is missing on the server. Please verify GROQ_API_KEY in Render."
         return {
-            "reply": fallback_msg,
-            "content": fallback_msg,
+            "reply": "GROQ_API_KEY is not set on the server. Please check Render environment settings.",
+            "content": "GROQ_API_KEY is not set on the server. Please check Render environment settings.",
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
@@ -4612,39 +4611,16 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
     try:
         client = Groq(api_key=api_key)
 
-        # Fetch models list dynamically from Groq
-        model_to_use = None
-        try:
-            available_models = client.models.list()
-            valid_ids = [m.id for m in available_models.data]
-            # Pick the first valid text generation model
-            for pref in ["llama", "gemma", "mixtral", "qwen"]:
-                match = next((mid for mid in valid_ids if pref in mid.lower() and not any(x in mid.lower() for x in ["whisper", "guard", "embed", "vision"])), None)
-                if match:
-                    model_to_use = match
-                    break
-            if not model_to_use and valid_ids:
-                model_to_use = valid_ids[0]
-        except Exception as list_e:
-            print(f"Failed to query model list: {list_e}")
-            model_to_use = "llama-3.1-8b-instant"
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "You are CampusLink AI, an intelligent, authentic, and versatile campus companion. "
+                "You can answer any query across academics, coding, campus life, math, writing, and general knowledge. "
+                "Format your output cleanly using Markdown."
+            )
+        }
 
-        if not model_to_use:
-            model_to_use = "llama-3.1-8b-instant"
-
-        print(f"Attempting inference with Groq model: {model_to_use}")
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are CampusLink AI, a sharp, versatile assistant built for university students. "
-                    "Answer questions on academics, computer science, coding, campus life, math, and everyday topics. "
-                    "Be concise, engaging, and format output using Markdown."
-                )
-            }
-        ]
-
+        messages = [system_prompt]
         for item in (request.history or [])[-6:]:
             if isinstance(item, dict) and "content" in item:
                 role = item.get("role") if item.get("role") in ["user", "assistant"] else ("user" if item.get("sender") == "user" else "assistant")
@@ -4659,18 +4635,38 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
 
         messages.append({"role": "user", "content": user_msg})
 
-        completion = client.chat.completions.create(
-            model=model_to_use,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1000,
-        )
+        # Test production models in sequence
+        candidate_models = [
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
+            "gemma2-9b-it"
+        ]
 
-        reply_text = completion.choices[0].message.content or "I could not generate a response."
+        for model_name in candidate_models:
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1200,
+                )
+                reply_text = completion.choices[0].message.content
+                if reply_text:
+                    return {
+                        "reply": reply_text,
+                        "content": reply_text,
+                        "sender": "ai",
+                        "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+            except Exception as model_err:
+                print(f"Model {model_name} failed: {model_err}")
+                continue
 
+        fallback_unavail = "AI service is currently unable to reach an active model. Please check the backend logs."
         return {
-            "reply": reply_text,
-            "content": reply_text,
+            "reply": fallback_unavail,
+            "content": fallback_unavail,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
@@ -4678,10 +4674,10 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
 
     except Exception as e:
         print(f"Groq execution failed: {type(e).__name__} - {str(e)}")
-        err_reply = f"AI Engine Notice: {str(e)}"
+        err_msg = f"AI Engine Notice: {str(e)}"
         return {
-            "reply": err_reply,
-            "content": err_reply,
+            "reply": err_msg,
+            "content": err_msg,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
