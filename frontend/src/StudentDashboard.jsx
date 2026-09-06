@@ -1106,7 +1106,7 @@ export default function StudentDashboard() {
         .catch(() => {});
     };
 
-    syncInterval = setInterval(syncDashboard, 15000);
+    syncInterval = setInterval(syncDashboard, 60000); // 60s — WebSocket handles real-time, no need to hammer the server
     const onWindowFocus = () => {
       if (getAuthToken()) syncDashboard();
     };
@@ -1191,12 +1191,25 @@ export default function StudentDashboard() {
     }
   };
 
-  // Chat Stale-While-Revalidate (Auto-marks as read and updates conversations)
+  // Chat Stale-While-Revalidate — smart merge so existing bubbles never flicker
   const fetchMessagesForPartner = async (partnerId) => {
     if (!partnerId) return;
     try {
       await revalidateThreadMessages(partnerId, API, (fresh) => {
-        setChatMessages(fresh);
+        setChatMessages(prev => {
+          // Keep optimistic messages not yet confirmed by the server
+          const freshIds = new Set(fresh.map(m => String(m.id)));
+          const pendingOptimistic = prev.filter(m => m.is_optimistic && !freshIds.has(String(m.id)));
+          // Skip re-render entirely if nothing changed
+          if (
+            pendingOptimistic.length === 0 &&
+            prev.length === fresh.length &&
+            (prev.length === 0 || prev[prev.length - 1]?.id === fresh[fresh.length - 1]?.id)
+          ) {
+            return prev;
+          }
+          return [...fresh, ...pendingOptimistic];
+        });
         if (isUserNearBottom(chatContainerRef.current)) {
           smartScrollToBottom(chatContainerRef.current, false);
         }
@@ -1205,7 +1218,7 @@ export default function StudentDashboard() {
         prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
       );
     } catch (err) {
-      console.error('Error loading chat messages:', err);
+      // silent — WebSocket is the primary real-time source
     }
   };
 
@@ -1214,36 +1227,27 @@ export default function StudentDashboard() {
     if (selectedPartner.is_ai) return;
     if (!getAuthToken()) return;
 
-    // 1. Instantly load cached messages in 0ms to eliminate delay
+    // 1. Instantly show cached messages — zero latency
     const cached = getCachedThreadMessages(selectedPartner.partner_id);
     setChatMessages(cached);
     setIsLoadingChatMessages(false);
     smartScrollToBottom(chatContainerRef.current, false);
 
-    // 2. Fetch latest messages from server in background without blocking UI
+    // 2. Background revalidation — merges without flickering (WebSocket handles real-time)
     fetchMessagesForPartner(selectedPartner.partner_id);
 
-    // 3. Fast active chat polling (1.0s) to guarantee instant receipt alongside WebSockets
-    const pollTimer = setInterval(() => {
-      if (getAuthToken()) {
-        fetchMessagesForPartner(selectedPartner.partner_id);
-      } else {
-        clearInterval(pollTimer);
-      }
-    }, 1000);
-
-    const handleFocus = () => {
+    // 3. Refetch only when tab becomes visible again (covers missed messages while away)
+    const handleVisibility = () => {
       if (document.visibilityState === 'visible' && getAuthToken()) {
         fetchMessagesForPartner(selectedPartner.partner_id);
       }
     };
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      clearInterval(pollTimer);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [selectedPartner?.partner_id]);
 
@@ -1434,14 +1438,28 @@ export default function StudentDashboard() {
     appendThreadMessage(partnerId, optimisticMsg);
     setChatMessages(prev => [...prev, optimisticMsg]);
 
-    // Update conversation row in sidebar
+    // Update or create conversation row in sidebar immediately (no waiting for sync)
     setConversations(prev => {
       const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
       if (idx !== -1) {
+        // Existing conversation — move to top and update preview
         const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
         return [updated, ...prev.filter((_, i) => i !== idx)];
+      } else {
+        // New conversation — add immediately so it shows up in Active Chats right away
+        return [{
+          partner_id: partnerId,
+          partner_name: selectedPartner?.partner_name || 'Campus Peer',
+          partner_avatar: selectedPartner?.partner_avatar || null,
+          partner_role: selectedPartner?.partner_role || 'Student',
+          partner_phone: selectedPartner?.partner_phone || null,
+          is_friend: selectedPartner?.is_friend || false,
+          is_online: selectedPartner?.is_online || false,
+          unread_count: 0,
+          last_message: messageText,
+          last_timestamp: new Date().toISOString()
+        }, ...prev];
       }
-      return prev;
     });
 
     smartScrollToBottom(chatContainerRef.current, false);
