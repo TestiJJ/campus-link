@@ -702,12 +702,10 @@ export default function VendorDashboard() {
           clearTimers();
           if (!isMounted) return;
 
-          if (retryCount < MAX_RETRIES) {
-            // Exponential backoff: 3s, 6s, 12s, 24s, max 30s
-            const backoffMs = Math.min(30000, 3000 * Math.pow(2, retryCount));
-            retryCount++;
-            reconnectTimeout = setTimeout(connectWs, backoffMs);
-          }
+          // Continuous exponential backoff: 3s -> 4.5s -> 6.7s -> 10s -> max 12s (never stops retrying)
+          const backoffMs = Math.min(12000, 3000 * Math.pow(1.5, Math.min(retryCount, 6)));
+          retryCount++;
+          reconnectTimeout = setTimeout(connectWs, backoffMs);
         };
 
         socket.onerror = () => {
