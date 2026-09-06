@@ -1,5 +1,5 @@
 // src/StudentDashboard.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -354,6 +354,7 @@ export default function StudentDashboard() {
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
   const isSwitchingPartnerRef = useRef(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
@@ -738,6 +739,45 @@ export default function StudentDashboard() {
   const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const [studentSearch, setStudentSearch] = useState('');
+
+  // Universal Chat & Friends Directory Filtering (Facebook / WhatsApp Messenger Architecture)
+  const filteredConversations = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(c =>
+      (c.partner_name || '').toLowerCase().includes(q) ||
+      (c.last_message || '').toLowerCase().includes(q) ||
+      (c.partner_role || '').toLowerCase().includes(q)
+    );
+  }, [conversations, chatSearchQuery]);
+
+  const availablePeersToChat = useMemo(() => {
+    const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
+    const q = chatSearchQuery.trim().toLowerCase();
+
+    // Aggregate campus students, friends, and community users
+    const allUsers = [...campusStudents, ...myFriends, ...communityUsers].filter(
+      (u, idx, arr) => {
+        const uid = String(u.user_id || u.id);
+        return (
+          uid &&
+          uid !== String(currentUser?.user_id) &&
+          arr.findIndex(x => String(x.user_id || x.id) === uid) === idx
+        );
+      }
+    );
+
+    return allUsers.filter(u => {
+      const uid = String(u.user_id || u.id);
+      const notInActive = !activePartnerIds.has(uid);
+      if (!q) return notInActive;
+      return (
+        (u.full_name || u.name || '').toLowerCase().includes(q) ||
+        (u.department || '').toLowerCase().includes(q) ||
+        (u.university_name || '').toLowerCase().includes(q)
+      );
+    });
+  }, [conversations, campusStudents, myFriends, communityUsers, chatSearchQuery, currentUser?.user_id]);
 
   // Student Profile Modal State
   const [selectedProfile, setSelectedProfile] = useState(null);
@@ -1640,6 +1680,7 @@ export default function StudentDashboard() {
 
   const handleSelectAiChat = () => {
     setActiveTab('messages');
+    setMessageSubtab('chats');
     setSelectedPartner({
       partner_id: 'campus_ai',
       partner_name: 'CampusLink AI',
@@ -4106,6 +4147,29 @@ export default function StudentDashboard() {
                 <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
                   {/* Left Column: Conversations List */}
                   <div className={`w-full md:w-84 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+                    {/* Universal Chat & Directory Search */}
+                    <div className="p-2.5 border-b border-slate-100 bg-white">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search chats or find classmates..."
+                          value={chatSearchQuery}
+                          onChange={(e) => setChatSearchQuery(e.target.value)}
+                          className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100/90 focus:bg-white border border-transparent focus:border-sky-400 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
+                        />
+                        {chatSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setChatSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
                       {/* PINNED: CampusLink AI Assistant */}
                       <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/40 to-white">
@@ -4113,14 +4177,14 @@ export default function StudentDashboard() {
                           type="button"
                           onClick={handleSelectAiChat}
                           className={`w-full p-2.5 rounded-2xl text-left flex items-center space-x-3 transition-all cursor-pointer border ${
-                            selectedPartner?.is_ai
+                            (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
                               ? 'bg-blue-600 text-white shadow-md border-transparent'
                               : 'bg-white hover:bg-blue-50/60 border-blue-100/80 shadow-xs'
                           }`}
                         >
                           <div className="relative shrink-0">
                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-xs ${
-                              selectedPartner?.is_ai
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
                                 ? 'bg-white/20 text-white'
                                 : 'bg-blue-600 text-white'
                             }`}>
@@ -4131,24 +4195,24 @@ export default function StudentDashboard() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                               <span className={`text-xs font-black truncate flex items-center space-x-1.5 ${
-                                selectedPartner?.is_ai ? 'text-white' : 'text-slate-900'
+                                (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-white' : 'text-slate-900'
                               }`}>
                                 <span>CampusLink AI</span>
                                 <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
-                                  selectedPartner?.is_ai ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
+                                  (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
                                 }`}>
                                   AI
                                 </span>
                               </span>
                               <span className={`text-[10px] font-semibold flex items-center space-x-1 ${
-                                selectedPartner?.is_ai ? 'text-blue-100' : 'text-blue-600'
+                                (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-blue-600'
                               }`}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
                                 <span>Online 24/7</span>
                               </span>
                             </div>
                             <p className={`text-[11px] truncate mt-0.5 ${
-                              selectedPartner?.is_ai ? 'text-blue-100' : 'text-slate-500'
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-slate-500'
                             }`}>
                               {aiMessages.length > 0
                                 ? (aiMessages[aiMessages.length - 1].content || 'Ask anything about academics & campus')
@@ -4158,79 +4222,150 @@ export default function StudentDashboard() {
                         </button>
                       </div>
 
-                        {conversations.length > 0 ? (
-                        conversations.map((c) => {
-                          const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(c.partner_id));
-                          const hasStory = partnerStoryIdx !== -1;
-                          const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                          const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                      {/* Section: Active Conversations */}
+                      {filteredConversations.length > 0 && (
+                        <div>
+                          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                            <span>Recent Chats</span>
+                            <span className="font-bold text-sky-600">({filteredConversations.length})</span>
+                          </div>
+                          {filteredConversations.map((c) => {
+                            const pid = c.partner_id || c.user_id || c.id;
+                            const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                            const hasStory = partnerStoryIdx !== -1;
+                            const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                            const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                            const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
 
-                          return (
-                            <button
-                              key={c.partner_id}
-                              onClick={() => handleSelectPartner(c)}
-                              className={`w-full p-3.5 sm:p-4 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
-                                selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              {/* WhatsApp-Style Clickable Story Avatar */}
-                              <div
-                                onClick={(e) => {
-                                  if (hasStory) {
-                                    e.stopPropagation();
-                                    const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                    setActiveStatusViewer({
-                                      userIdx: partnerStoryIdx,
-                                      itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                    });
-                                  }
-                                }}
-                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
-                                className={`relative shrink-0 rounded-2xl transition-all ${
-                                  hasStory
-                                    ? `p-0.5 cursor-pointer ${
-                                        hasUnviewedStory
-                                          ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                          : 'bg-slate-200 border border-slate-300 opacity-70'
-                                      }`
-                                    : ''
+                            return (
+                              <button
+                                key={pid}
+                                onClick={() => handleSelectPartner(c)}
+                                className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                  isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
                                 }`}
                               >
-                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                  {c.partner_avatar ? (
-                                    <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                                      {c.partner_name?.charAt(0) || 'U'}
-                                    </div>
+                                {/* WhatsApp-Style Clickable Story Avatar */}
+                                <div
+                                  onClick={(e) => {
+                                    if (hasStory) {
+                                      e.stopPropagation();
+                                      const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                      setActiveStatusViewer({
+                                        userIdx: partnerStoryIdx,
+                                        itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                      });
+                                    }
+                                  }}
+                                  title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
+                                  className={`relative shrink-0 rounded-2xl transition-all ${
+                                    hasStory
+                                      ? `p-0.5 cursor-pointer ${
+                                          hasUnviewedStory
+                                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                            : 'bg-slate-200 border border-slate-300 opacity-70'
+                                        }`
+                                      : ''
+                                  }`}
+                                >
+                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                    {c.partner_avatar ? (
+                                      <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                        {c.partner_name?.charAt(0) || 'U'}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Online presence dot */}
+                                  <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                  {c.unread_count > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
+                                      {c.unread_count}
+                                    </span>
                                   )}
                                 </div>
-                                {/* Online presence dot */}
-                                <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                {c.unread_count > 0 && (
-                                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
-                                    {c.unread_count}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex-1 overflow-hidden">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                  <span className="text-[10px] font-medium text-slate-400">
-                                    {c.partner_role}
-                                  </span>
+                                <div className="flex-1 overflow-hidden">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                    <span className="text-[10px] font-medium text-slate-400">
+                                      {c.partner_role}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message}</p>
                                 </div>
-                                <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message}</p>
-                              </div>
-                            </button>
-                          );
-                        })
-                      ) : (
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Section: All Campus Peers & Friends (Facebook Messenger Architecture) */}
+                      {availablePeersToChat.length > 0 && (
+                        <div>
+                          <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                            <span>{chatSearchQuery ? 'Matching Campus Members' : 'Campus Peers & Friends'}</span>
+                            <span className="font-bold text-sky-600">({availablePeersToChat.length})</span>
+                          </div>
+                          {availablePeersToChat.map((s) => {
+                            const sid = s.user_id || s.id;
+                            const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(sid);
+                            return (
+                              <button
+                                key={sid}
+                                onClick={() => handleSelectPartner({
+                                  partner_id: sid,
+                                  partner_name: s.full_name || s.name || 'Campus Member',
+                                  partner_avatar: s.profile_picture_url || s.avatar_url,
+                                  partner_role: s.role || (s.is_vendor ? 'Vendor' : 'Student'),
+                                  partner_phone: s.phone_number,
+                                  department: s.department,
+                                  university_name: s.university_name,
+                                  is_friend: s.friendship_status === 'accepted' || s.is_friend || false,
+                                  friendship_status: s.friendship_status || 'none',
+                                  is_online: s.is_online,
+                                  last_seen: s.last_seen
+                                })}
+                                className={`w-full p-3 sm:p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                  isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                }`}
+                              >
+                                <div className="relative shrink-0">
+                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                    {s.profile_picture_url ? (
+                                      <SafeImage src={s.profile_picture_url} alt={s.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center">
+                                        {s.full_name?.charAt(0) || 'U'}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${s.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-900 truncate">{s.full_name}</span>
+                                    <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                                      {s.role || (s.is_vendor ? 'Vendor' : 'Student')}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    {s.department || s.university_name || 'Tap to start chatting'}
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {filteredConversations.length === 0 && availablePeersToChat.length === 0 && (
                         <div className="p-8 text-center text-xs text-slate-400">
                           <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-slate-600">No active chats yet</p>
-                          <p className="mt-1">Connect with classmates in "Find Campus Friends" or chat with sellers in the marketplace!</p>
+                          <p className="font-bold text-slate-600">No matching conversations</p>
+                          <p className="mt-1">Try searching for a different classmate or visit Find Campus Friends.</p>
                           <button
+                            type="button"
                             onClick={() => setMessageSubtab('friends')}
                             className="mt-3 px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded-xl cursor-pointer"
                           >
@@ -4244,7 +4379,7 @@ export default function StudentDashboard() {
                   {/* Right Column: Chat View */}
                   <div className={`flex-1 flex flex-col justify-between overflow-hidden bg-white ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                     {selectedPartner ? (
-                      selectedPartner.is_ai ? (
+                      (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                         <>
                           {/* AI Chat Header */}
                           <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">

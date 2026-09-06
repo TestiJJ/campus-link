@@ -1,5 +1,5 @@
 // src/VendorDashboard.jsx
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -259,8 +259,48 @@ export default function VendorDashboard() {
   const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
   const [communitySearch, setCommunitySearch] = useState('');
   const [communityRoleFilter, setCommunityRoleFilter] = useState('all'); // 'all' | 'student' | 'vendor'
-  const [friendsList, setFriendsList] = useState(() => getCachedData('friendsList', []));
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
+  const [chatSearchQuery, setChatSearchQuery] = useState('');
+
+  // Universal Chat & Directory Filtering for Vendor
+  const filteredConversations = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(c =>
+      (c.partner_name || '').toLowerCase().includes(q) ||
+      (c.last_message || '').toLowerCase().includes(q) ||
+      (c.role || '').toLowerCase().includes(q)
+    );
+  }, [conversations, chatSearchQuery]);
+
+  const availableCommunityToChat = useMemo(() => {
+    const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
+    const q = chatSearchQuery.trim().toLowerCase();
+
+    const allUsers = [...communityUsers, ...friendsList].filter(
+      (u, idx, arr) => {
+        const uid = String(u.user_id || u.id);
+        return (
+          uid &&
+          uid !== String(user?.user_id) &&
+          uid !== String(user?.id) &&
+          arr.findIndex(x => String(x.user_id || x.id) === uid) === idx
+        );
+      }
+    );
+
+    return allUsers.filter(u => {
+      const uid = String(u.user_id || u.id);
+      const notInActive = !activePartnerIds.has(uid);
+      if (!q) return notInActive;
+      return (
+        (u.full_name || u.name || '').toLowerCase().includes(q) ||
+        (u.department || '').toLowerCase().includes(q) ||
+        (u.university_name || '').toLowerCase().includes(q)
+      );
+    });
+  }, [conversations, communityUsers, friendsList, chatSearchQuery, user?.user_id, user?.id]);
+
   const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const aiMessagesEndRef = useRef(null);
@@ -2701,18 +2741,27 @@ export default function VendorDashboard() {
                 
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
-                  <div className="p-3.5 border-b border-slate-100 flex items-center justify-between font-bold text-xs text-slate-800">
-                    <div className="flex items-center space-x-2">
-                      <span>Recent Customer Chats</span>
-                      {totalUnreadChatCount > 0 && (
-                        <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs animate-pulse">
-                          {totalUnreadChatCount} new
-                        </span>
+                  {/* Universal Chat & Directory Search */}
+                  <div className="p-2.5 border-b border-slate-100 bg-white">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search chats or find customers..."
+                        value={chatSearchQuery}
+                        onChange={(e) => setChatSearchQuery(e.target.value)}
+                        className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100/90 focus:bg-white border border-transparent focus:border-sky-400 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
+                      />
+                      {chatSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setChatSearchQuery('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
                       )}
                     </div>
-                    <span className="text-[10px] bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full font-bold">
-                      {conversations.length} Active
-                    </span>
                   </div>
 
                   <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
@@ -2722,14 +2771,14 @@ export default function VendorDashboard() {
                         type="button"
                         onClick={handleSelectAiChat}
                         className={`w-full p-2.5 rounded-2xl text-left flex items-center space-x-3 transition-all cursor-pointer border ${
-                          selectedPartner?.is_ai
+                          (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
                             ? 'bg-blue-600 text-white shadow-md border-transparent'
                             : 'bg-white hover:bg-blue-50/60 border-blue-100/80 shadow-xs'
                         }`}
                       >
                         <div className="relative shrink-0">
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-xs ${
-                            selectedPartner?.is_ai
+                            (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
                               ? 'bg-white/20 text-white'
                               : 'bg-blue-600 text-white'
                           }`}>
@@ -2740,23 +2789,23 @@ export default function VendorDashboard() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className={`text-xs font-black truncate flex items-center space-x-1.5 ${
-                              selectedPartner?.is_ai ? 'text-white' : 'text-slate-900'
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-white' : 'text-slate-900'
                             }`}>
                               <span>CampusLink AI</span>
                               <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
-                                selectedPartner?.is_ai ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
+                                (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
                               }`}>
                                 AI
                               </span>
                             </span>
                             <span className={`text-[10px] font-semibold flex items-center space-x-0.5 ${
-                              selectedPartner?.is_ai ? 'text-blue-100' : 'text-blue-600'
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-blue-600'
                             }`}>
                               <span>Copilot</span>
                             </span>
                           </div>
                           <p className={`text-[11px] truncate mt-0.5 ${
-                            selectedPartner?.is_ai ? 'text-blue-100' : 'text-slate-500'
+                            (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-slate-500'
                           }`}>
                             {aiMessages.length > 0
                               ? (aiMessages[aiMessages.length - 1].content || 'Chat with your AI copilot')
@@ -2766,92 +2815,157 @@ export default function VendorDashboard() {
                       </button>
                     </div>
 
-                    {conversations.map((c) => {
-                        const pid = c.partner_id || c.user_id;
-                        const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
-                        const hasStory = partnerStoryIdx !== -1;
-                        const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                        const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                    {/* Section: Active Conversations */}
+                    {filteredConversations.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                          <span>Recent Chats</span>
+                          <span className="font-bold text-sky-600">({filteredConversations.length})</span>
+                        </div>
+                        {filteredConversations.map((c) => {
+                          const pid = c.partner_id || c.user_id || c.id;
+                          const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                          const hasStory = partnerStoryIdx !== -1;
+                          const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                          const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                          const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
 
-                        return (
-                          <button
-                            key={pid}
-                            onClick={() => handleSelectPartner(c)}
-                            className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
-                              selectedPartner?.partner_id === c.partner_id ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                            }`}
-                          >
-                            {/* WhatsApp-Style Clickable Story Avatar */}
-                            <div
-                              onClick={(e) => {
-                                if (hasStory) {
-                                  e.stopPropagation();
-                                  const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                  setActiveStatusViewer({
-                                    userIdx: partnerStoryIdx,
-                                    itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                  });
-                                } else {
-                                  e.stopPropagation();
-                                  handleOpenProfile(pid);
-                                }
-                              }}
-                              title={hasStory ? `Tap to view ${c.partner_name}'s story` : 'View Profile'}
-                              className={`relative shrink-0 rounded-2xl transition-all ${
-                                hasStory
-                                  ? `p-0.5 cursor-pointer ${
-                                      hasUnviewedStory
-                                        ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                        : 'bg-slate-200 border border-slate-300 opacity-70'
-                                    }`
-                                  : ''
+                          return (
+                            <button
+                              key={pid}
+                              onClick={() => handleSelectPartner(c)}
+                              className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
                               }`}
                             >
-                              <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                {c.partner_avatar ? (
-                                  <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
-                                    {c.partner_name?.charAt(0) || 'S'}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex-1 overflow-hidden">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                <div className="flex items-center space-x-1.5 shrink-0">
-                                  {c.unread_count > 0 && (
-                                    <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                                      {c.unread_count}
-                                    </span>
+                              {/* WhatsApp-Style Clickable Story Avatar */}
+                              <div
+                                onClick={(e) => {
+                                  if (hasStory) {
+                                    e.stopPropagation();
+                                    const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                    setActiveStatusViewer({
+                                      userIdx: partnerStoryIdx,
+                                      itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                    });
+                                  } else {
+                                    e.stopPropagation();
+                                    handleOpenProfile(pid);
+                                  }
+                                }}
+                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : 'View Profile'}
+                                className={`relative shrink-0 rounded-2xl transition-all ${
+                                  hasStory
+                                    ? `p-0.5 cursor-pointer ${
+                                        hasUnviewedStory
+                                          ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                          : 'bg-slate-200 border border-slate-300 opacity-70'
+                                      }`
+                                    : ''
+                                }`}
+                              >
+                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                  {c.partner_avatar ? (
+                                    <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                      {c.partner_name?.charAt(0) || 'S'}
+                                    </div>
                                   )}
-                                  <span className="text-[10px] text-slate-400">
-                                    {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
-                                  </span>
                                 </div>
                               </div>
-                              <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                {(() => {
-                                  if (!c.last_message) return 'Inquired about product...';
-                                  if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
-                                    const parsed = parseStatusReply(c.last_message);
-                                    return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
-                                  }
-                                  return c.last_message;
-                                })()}
-                              </p>
-                            </div>
-                          </button>
-                        );
-                      })}
 
-                    {conversations.length === 0 && (
+                              <div className="flex-1 overflow-hidden">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                  <div className="flex items-center space-x-1.5 shrink-0">
+                                    {c.unread_count > 0 && (
+                                      <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
+                                        {c.unread_count}
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-slate-400">
+                                      {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                  {(() => {
+                                    if (!c.last_message) return 'Inquired about product...';
+                                    if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
+                                      const parsed = parseStatusReply(c.last_message);
+                                      return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
+                                    }
+                                    return c.last_message;
+                                  })()}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Section: All Campus Customers & Members */}
+                    {availableCommunityToChat.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                          <span>{chatSearchQuery ? 'Matching Customers' : 'Campus Students & Customers'}</span>
+                          <span className="font-bold text-sky-600">({availableCommunityToChat.length})</span>
+                        </div>
+                        {availableCommunityToChat.map((s) => {
+                          const sid = s.user_id || s.id;
+                          const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(sid);
+                          return (
+                            <button
+                              key={sid}
+                              onClick={() => handleSelectPartner({
+                                partner_id: sid,
+                                partner_name: s.full_name || s.name || 'Campus Student',
+                                partner_avatar: s.profile_picture_url || s.avatar_url,
+                                role: s.role || (s.is_vendor ? 'vendor' : 'student'),
+                                partner_phone: s.phone_number,
+                                department: s.department,
+                                university_name: s.university_name,
+                                is_friend: true
+                              })}
+                              className={`w-full p-3 sm:p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="relative shrink-0">
+                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                  {s.profile_picture_url ? (
+                                    <SafeImage src={s.profile_picture_url} alt={s.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center">
+                                      {s.full_name?.charAt(0) || 'U'}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-slate-900 truncate">{s.full_name}</span>
+                                  <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                                    {s.role || (s.is_vendor ? 'Vendor' : 'Student')}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                  {s.department || s.university_name || 'Tap to chat with customer'}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {filteredConversations.length === 0 && availableCommunityToChat.length === 0 && (
                       <div className="p-6 text-center text-slate-400">
                         <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-xs font-semibold text-slate-500">No customer chats yet</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">When customers message your store, they will appear here.</p>
+                        <p className="text-xs font-semibold text-slate-500">No matching chats</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Try searching with a different term.</p>
                       </div>
                     )}
                   </div>
@@ -2860,7 +2974,7 @@ export default function VendorDashboard() {
                 {/* Chat Panel */}
                 <div className={`flex-1 min-h-0 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                   {selectedPartner ? (
-                    selectedPartner.is_ai ? (
+                    (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                       <>
                         {/* AI Chat Header */}
                         <div className="p-3.5 bg-white border-b border-slate-200 flex items-center justify-between">
