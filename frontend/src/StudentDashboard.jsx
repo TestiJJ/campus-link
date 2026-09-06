@@ -1635,7 +1635,7 @@ export default function StudentDashboard() {
     setIsAiTyping(true);
 
     try {
-      const formattedHistory = aiMessages.slice(-8).map(m => ({
+      const formattedHistory = aiMessages.slice(-6).map(m => ({
         role: m.sender === 'user' ? 'user' : 'assistant',
         content: m.content || m.reply || ''
       }));
@@ -1647,27 +1647,28 @@ export default function StudentDashboard() {
         store_as_info: storeInfoToggled
       });
 
-      const replyContent = res.data.reply || res.data.content || "I didn't receive a response. Please try asking again!";
+      const replyContent = res.data?.reply || res.data?.content || res.data?.message || res.data?.response || "I could not generate a response.";
 
       setAiMessages(prev => [...prev, {
-        id: res.data.id || ('ai-' + Date.now()),
+        id: res.data?.id || ('ai-' + Date.now()),
         sender: 'ai',
         content: replyContent,
         reply: replyContent,
-        is_memory_trigger: res.data.is_memory_trigger,
-        created_at: res.data.created_at || new Date().toISOString()
+        is_memory_trigger: res.data?.is_memory_trigger,
+        created_at: res.data?.created_at || new Date().toISOString()
       }]);
 
-      if (res.data.is_memory_trigger || storeInfoToggled) {
+      if (res.data?.is_memory_trigger || storeInfoToggled) {
         fetchAiMemories();
         setStoreInfoToggled(false);
       }
     } catch (err) {
-      console.error('Failed to chat with AI:', err);
+      console.error('AI chat error:', err);
+      const errDetail = err.response?.data?.detail || err.response?.data?.reply || err.response?.data?.content || err.message;
       setAiMessages(prev => [...prev, {
         id: 'err-' + Date.now(),
         sender: 'ai',
-        content: "Sorry, I ran into an issue connecting with your campus assistant. Please try asking again in a moment!",
+        content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
         created_at: new Date().toISOString()
       }]);
     } finally {

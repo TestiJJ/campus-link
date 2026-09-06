@@ -1213,7 +1213,7 @@ export default function VendorDashboard() {
     setIsAiTyping(true);
 
     try {
-      const formattedHistory = aiMessages.slice(-8).map(m => ({
+      const formattedHistory = aiMessages.slice(-6).map(m => ({
         role: m.sender === 'user' ? 'user' : 'assistant',
         content: m.content || m.reply || ''
       }));
@@ -1225,26 +1225,27 @@ export default function VendorDashboard() {
         role_context: 'vendor'
       });
 
-      const replyContent = res.data.reply || res.data.content || "I didn't receive a response. Please try asking again!";
+      const replyContent = res.data?.reply || res.data?.content || res.data?.message || res.data?.response || "I could not generate a response.";
 
       setAiMessages(prev => [
         ...prev,
         {
-          id: res.data.id || ('ai-' + Date.now()),
+          id: res.data?.id || ('ai-' + Date.now()),
           sender: 'ai',
           content: replyContent,
           reply: replyContent,
-          created_at: res.data.created_at || new Date().toISOString()
+          created_at: res.data?.created_at || new Date().toISOString()
         }
       ]);
     } catch (err) {
-      console.error('Failed to chat with AI:', err);
+      console.error('AI chat error:', err);
+      const errDetail = err.response?.data?.detail || err.response?.data?.reply || err.response?.data?.content || err.message;
       setAiMessages(prev => [
         ...prev,
         {
           id: 'err-' + Date.now(),
           sender: 'ai',
-          content: "I ran into a brief connection issue. Please try asking again!",
+          content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
           created_at: new Date().toISOString()
         }
       ]);

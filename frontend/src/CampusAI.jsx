@@ -61,7 +61,7 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
     }
     setLoading(true);
     try {
-      const formattedHistory = messages.slice(-8).map(m => ({
+      const formattedHistory = messages.slice(-6).map(m => ({
         role: m.sender === 'user' ? 'user' : 'assistant',
         content: m.content || m.reply || ''
       }));
@@ -72,26 +72,27 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
         history: formattedHistory
       });
 
-      const replyContent = res.data.reply || res.data.content || "I didn't receive a response. Please try asking again!";
+      const replyContent = res.data?.reply || res.data?.content || res.data?.message || res.data?.response || "I could not generate a response.";
 
       setMessages(prev => [
         ...prev,
         {
-          id: res.data.id || ('ai-' + Date.now()),
+          id: res.data?.id || ('ai-' + Date.now()),
           sender: 'ai',
           content: replyContent,
           reply: replyContent,
-          created_at: res.data.created_at || new Date().toISOString()
+          created_at: res.data?.created_at || new Date().toISOString()
         }
       ]);
     } catch (err) {
-      console.error('AI chat failed:', err);
+      console.error('AI chat error:', err);
+      const errDetail = err.response?.data?.detail || err.response?.data?.reply || err.response?.data?.content || err.message;
       setMessages(prev => [
         ...prev,
         {
           id: 'err-' + Date.now(),
           sender: 'ai',
-          content: "I'm having a brief connection issue reaching the AI network. Please check your internet or retry your prompt!",
+          content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
           created_at: new Date().toISOString()
         }
       ]);
