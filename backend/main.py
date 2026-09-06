@@ -3790,95 +3790,175 @@ import os
 import math
 import requests
 
-def call_gemini_if_available(prompt: str, user: models.User, user_memories: list, custom_api_key: str = None, history: list = None) -> str | None:
+def call_llm_if_available(prompt: str, user: models.User, user_memories: list, custom_api_key: str = None, history: list = None) -> str | None:
     """
-    Calls Google Gemini REST API (gemini-2.0-flash / gemini-1.5-flash) if an API key is available.
-    Supports user custom API key, environment variables (GEMINI_API_KEY, GOOGLE_API_KEY),
-    and multi-turn chat history.
+    Calls high-speed production LLMs (Groq, OpenAI, or Google Gemini) if an API key is available.
+    Supports environment variables (GROQ_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY)
+    as well as client-supplied custom API keys.
     """
-    api_key = custom_api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
+    groq_key = os.getenv("GROQ_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    # If custom key was passed in, classify by prefix
+    if custom_api_key and custom_api_key.strip():
+        k = custom_api_key.strip()
+        if k.startswith("gsk_"):
+            groq_key = k
+        elif k.startswith("sk-"):
+            openai_key = k
+        else:
+            gemini_key = k
+
+    if not (groq_key or openai_key or gemini_key):
         return None
 
-    api_key = api_key.strip()
-    is_vendor = (user.role == "vendor")
-    uni_name = user.university.name if user.university else "Nigerian University"
-    dept = user.department or ("Campus Commerce" if is_vendor else "General Studies")
-    level = user.level or ("Merchant Partner" if is_vendor else "Undergraduate")
+    is_vendor = (getattr(user, "role", None) == "vendor")
+    uni_obj = getattr(user, "university", None)
+    uni_name = uni_obj.name if uni_obj and hasattr(uni_obj, "name") else "Campus"
+    full_name = getattr(user, "full_name", None) or "User"
+    dept = getattr(user, "department", None) or ("Campus Commerce" if is_vendor else "General Studies")
+    level = getattr(user, "level", None) or ("Merchant Partner" if is_vendor else "Undergraduate")
 
     mem_context = ""
     if user_memories:
-        mem_lines = [f"- {m.title or 'Note'} ({m.category}): {m.content}" for m in user_memories[:10]]
+        mem_lines = [f"- {getattr(m, 'title', None) or 'Note'} ({getattr(m, 'category', None) or 'general'}): {getattr(m, 'content', '')}" for m in user_memories[:10]]
         mem_context = "User's Saved Information Vault:\n" + "\n".join(mem_lines) + "\n\n"
 
-    if is_vendor:
-        system_instruction = (
-            f"You are CampusLink AI, an intelligent, unrestricted, and highly versatile universal AI assistant and copilot for campus merchants, vendors, and entrepreneurs in Nigeria.\n"
-            f"Vendor Name: {user.full_name}\n"
-            f"Institution: {uni_name}\n\n"
-            f"{mem_context}"
-            f"You possess unrestricted universal knowledge across all domains: programming, math, science, business strategy, copy writing, customer replies, marketing, academic subjects, and conversational reasoning.\n"
-            f"You are never bound to narrow canned scripts. Answer all user prompts with high intelligence, nuance, and clear structure.\n"
-            f"Format all answers with clean GitHub-flavored markdown: headers (##, ###), bold text, bullet points, numbered lists, blockquotes, and fenced code blocks with language specifiers."
-        )
-    else:
-        system_instruction = (
-            f"You are CampusLink AI, an intelligent, unrestricted, and highly versatile universal conversational AI assistant for university students in Nigeria.\n"
-            f"Student Name: {user.full_name}\n"
-            f"Department: {dept} | Level: {level}\n"
-            f"University: {uni_name}\n\n"
-            f"{mem_context}"
-            f"You possess comprehensive universal intelligence across all domains: writing, coding and debugging (Python, JavaScript, React, C++, Java, SQL, Rust, Go, etc.), mathematics, science, literature, history, academic research, essay planning, grammar, career advice, and everyday discussions.\n"
-            f"You are never restricted to rigid FAQs or campus-only scripts. Provide clear, in-depth, and well-reasoned answers to any general question or challenge the user presents.\n"
-            f"Format all answers with clean GitHub-flavored markdown: headers (##, ###), bold text, bullet points, numbered lists, blockquotes, and fenced code blocks with language specifiers."
-        )
+    system_instruction = (
+        "You are CampusLink AI, an intelligent, helpful, and authentic assistant. "
+        "You can answer questions on academics, computer science, coding, campus life, writing, math, general knowledge, and casual conversation. "
+        "Provide clear, structured, and helpful responses.\n\n"
+        f"User Details: {full_name} | Role: {'Vendor' if is_vendor else 'Student'} | Institution: {uni_name} | Dept: {dept} | Level: {level}\n\n"
+        f"{mem_context}"
+        "Format your responses using clean GitHub-flavored Markdown: clear headings (##, ###), bullet lists, bold text for key terms, and fenced code blocks with language specifiers (e.g. ```python) for code snippets."
+    )
 
-    # Build conversation contents
-    contents = []
+    # Normalize conversation history
+    normalized_history = []
     if history:
         for msg in history[-8:]:
-            c_text = (msg.content or "").strip()
-            if c_text:
-                role = "user" if msg.sender == "user" else "model"
-                contents.append({"role": role, "parts": [{"text": c_text}]})
+            if isinstance(msg, dict):
+                r = msg.get("role") or ("user" if msg.get("sender") == "user" else "assistant")
+                c = msg.get("content") or msg.get("message") or ""
+            else:
+                r = "user" if getattr(msg, "sender", "user") == "user" else "assistant"
+                c = getattr(msg, "content", "") or ""
+            if c and c.strip():
+                normalized_history.append({"role": "user" if r == "user" else "assistant", "content": c.strip()})
 
-    contents.append({"role": "user", "parts": [{"text": prompt.strip()}]})
-
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-    for model_name in models_to_try:
+    # 1. Try Groq (Ultra-fast Llama 3.3 70B Versatile)
+    if groq_key:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-            body = {
-                "systemInstruction": {"parts": [{"text": system_instruction}]},
-                "contents": contents,
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 2048
+            groq_messages = [{"role": "system", "content": system_instruction}]
+            groq_messages.extend(normalized_history)
+            groq_messages.append({"role": "user", "content": prompt.strip()})
+
+            for model_name in ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]:
+                try:
+                    resp = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {groq_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": model_name,
+                            "messages": groq_messages,
+                            "temperature": 0.7,
+                            "max_tokens": 2048
+                        },
+                        timeout=12
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        choices = data.get("choices", [])
+                        if choices and choices[0].get("message", {}).get("content"):
+                            return choices[0]["message"]["content"].strip()
+                except Exception as g_err:
+                    print(f"Groq {model_name} error:", g_err)
+        except Exception as e:
+            print("Groq execution failed:", e)
+
+    # 2. Try OpenAI (GPT-4o Mini)
+    if openai_key:
+        try:
+            oai_messages = [{"role": "system", "content": system_instruction}]
+            oai_messages.extend(normalized_history)
+            oai_messages.append({"role": "user", "content": prompt.strip()})
+
+            for model_name in ["gpt-4o-mini", "gpt-3.5-turbo"]:
+                try:
+                    resp = requests.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {openai_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": model_name,
+                            "messages": oai_messages,
+                            "temperature": 0.7,
+                            "max_tokens": 2048
+                        },
+                        timeout=12
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        choices = data.get("choices", [])
+                        if choices and choices[0].get("message", {}).get("content"):
+                            return choices[0]["message"]["content"].strip()
+                except Exception as o_err:
+                    print(f"OpenAI {model_name} error:", o_err)
+        except Exception as e:
+            print("OpenAI execution failed:", e)
+
+    # 3. Try Google Gemini (gemini-2.0-flash / gemini-1.5-flash)
+    if gemini_key:
+        gemini_contents = []
+        for item in normalized_history:
+            gemini_contents.append({
+                "role": "user" if item["role"] == "user" else "model",
+                "parts": [{"text": item["content"]}]
+            })
+        gemini_contents.append({"role": "user", "parts": [{"text": prompt.strip()}]})
+
+        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                body = {
+                    "systemInstruction": {"parts": [{"text": system_instruction}]},
+                    "contents": gemini_contents,
+                    "generationConfig": {
+                        "temperature": 0.7,
+                        "maxOutputTokens": 2048
+                    }
                 }
-            }
-            res = requests.post(url, json=body, timeout=15)
-            if res.status_code == 200:
-                data = res.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and parts[0].get("text"):
-                        return parts[0]["text"].strip()
-            elif res.status_code == 400:
-                # Some versions require different systemInstruction format; fallback to prepending
-                alt_contents = [{"role": "user", "parts": [{"text": f"[System: {system_instruction}]\n\n{prompt}"}]}]
-                alt_res = requests.post(url, json={"contents": alt_contents}, timeout=15)
-                if alt_res.status_code == 200:
-                    data = alt_res.json()
+                res = requests.post(url, json=body, timeout=12)
+                if res.status_code == 200:
+                    data = res.json()
                     candidates = data.get("candidates", [])
                     if candidates:
                         parts = candidates[0].get("content", {}).get("parts", [])
                         if parts and parts[0].get("text"):
                             return parts[0]["text"].strip()
-        except Exception as err:
-            print(f"Gemini API attempt with {model_name} failed:", err)
+                elif res.status_code == 400:
+                    alt_contents = [{"role": "user", "parts": [{"text": f"[System: {system_instruction}]\n\n{prompt}"}]}]
+                    alt_res = requests.post(url, json={"contents": alt_contents}, timeout=12)
+                    if alt_res.status_code == 200:
+                        data = alt_res.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts and parts[0].get("text"):
+                                return parts[0]["text"].strip()
+            except Exception as gem_err:
+                print(f"Gemini API attempt with {model_name} failed:", gem_err)
 
     return None
+
+# Backward compatibility alias
+call_gemini_if_available = call_llm_if_available
 
 
 def generate_campus_ai_reply(
@@ -4535,9 +4615,11 @@ def chat_with_ai(
     # Custom API Key from payload
     custom_key = (payload.api_key or "").strip() or None
 
+    effective_history = history_msgs if history_msgs else (payload.history or [])
+
     # Generate response
     ai_text, is_mem, mem_title, mem_content, mem_cat, is_live_gemini = generate_campus_ai_reply(
-        msg_text, current_user, user_memories, custom_api_key=custom_key, history=history_msgs, db=db
+        msg_text, current_user, user_memories, custom_api_key=custom_key, history=effective_history, db=db
     )
 
     stored_memory_obj = None

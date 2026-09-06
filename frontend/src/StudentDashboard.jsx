@@ -4517,6 +4517,7 @@ export default function StudentDashboard() {
                               const isMine = msg.sender_id === currentUser.user_id;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
+                              const isPopoverOpen = activePopoverMsgId === msg.id;
                               return (
                                 <div
                                   key={msg.id}

@@ -14,32 +14,36 @@ raw_db_url = os.getenv("DATABASE_URL")
 if not raw_db_url and (os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID")):
     raw_db_url = DEFAULT_SUPABASE_URL
 
-if raw_db_url and raw_db_url.strip():
-    # SQLAlchemy requires postgresql:// instead of legacy postgres://
-    clean_url = raw_db_url.strip()
-    if clean_url.startswith("postgres://"):
-        clean_url = clean_url.replace("postgres://", "postgresql+psycopg2://", 1)
-    elif clean_url.startswith("postgresql://") and "+psycopg2" not in clean_url:
-        clean_url = clean_url.replace("postgresql://", "postgresql+psycopg2://", 1)
-    
-    DATABASE_URL = clean_url
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_recycle=300,
-        pool_size=10,
-        max_overflow=20,
-        connect_args={"connect_timeout": 10}
-    )
-    # Log database host safely without printing sensitive passwords
-    safe_db_name = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "Cloud Database"
-    print(f"[Database] Connected to PostgreSQL via DATABASE_URL ({safe_db_name}).")
-else:
-    # 2. Local Fallback: MySQL on localhost if running, else local SQLite
-    MYSQL_URL = os.getenv("MYSQL_URL", "mysql+pymysql://root:@localhost:3306/campuslink_db")
-    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "campuslink.db")
-    SQLITE_URL = f"sqlite:///{DB_PATH}"
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "campuslink.db")
+SQLITE_URL = f"sqlite:///{DB_PATH}"
+MYSQL_URL = os.getenv("MYSQL_URL", "mysql+pymysql://root:@localhost:3306/campuslink_db")
 
+engine = None
+if raw_db_url and raw_db_url.strip():
+    try:
+        # SQLAlchemy requires postgresql:// instead of legacy postgres://
+        clean_url = raw_db_url.strip()
+        if clean_url.startswith("postgres://"):
+            clean_url = clean_url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif clean_url.startswith("postgresql://") and "+psycopg2" not in clean_url:
+            clean_url = clean_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        
+        DATABASE_URL = clean_url
+        engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            pool_size=10,
+            max_overflow=20,
+            connect_args={"connect_timeout": 10}
+        )
+        safe_db_name = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "Cloud Database"
+        print(f"[Database] Connected to PostgreSQL via DATABASE_URL ({safe_db_name}).")
+    except Exception as pg_err:
+        print(f"[Database] PostgreSQL connection failed ({pg_err}), falling back to local DB...")
+        engine = None
+
+if not engine:
     try:
         test_engine = create_engine(MYSQL_URL, connect_args={"connect_timeout": 1})
         with test_engine.connect() as conn:

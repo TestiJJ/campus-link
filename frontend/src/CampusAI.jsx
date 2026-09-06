@@ -60,9 +60,11 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
       textareaRef.current.style.height = 'auto';
     }
     setLoading(true);
-
     try {
-      const res = await API.post('/ai/chat', { content: textToSend });
+      const res = await API.post('/ai/chat', { 
+        content: textToSend,
+        message: textToSend
+      });
 
       setMessages(prev => [
         ...prev,

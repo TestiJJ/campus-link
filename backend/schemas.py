@@ -491,6 +491,7 @@ class NotificationOut(BaseModel):
 class AIChatRequest(BaseModel):
     message: Optional[str] = None
     content: Optional[str] = None
+    history: Optional[List[Any]] = None
     api_key: Optional[str] = None
     role_context: Optional[str] = None
     store_information: Optional[bool] = False
