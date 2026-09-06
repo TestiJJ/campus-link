@@ -4590,9 +4590,10 @@ def get_ai_messages(
 async def chat_with_campus_ai(request: schemas.AIChatRequest):
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
+        fallback_msg = "Server AI key missing. Please verify GROQ_API_KEY on Render."
         return {
-            "reply": "GROQ_API_KEY is not set on the server. Please check Render environment settings.",
-            "content": "GROQ_API_KEY is not set on the server. Please check Render environment settings.",
+            "reply": fallback_msg,
+            "content": fallback_msg,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
@@ -4615,8 +4616,8 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
             "role": "system",
             "content": (
                 "You are CampusLink AI, an intelligent, authentic, and versatile campus companion. "
-                "You can answer any query across academics, coding, campus life, math, writing, and general knowledge. "
-                "Format your output cleanly using Markdown."
+                "You can assist students with coursework, coding, computer science, math, campus life, "
+                "essay writing, and open-ended conversation. Provide structured, clear answers using Markdown."
             )
         }
 
@@ -4635,38 +4636,38 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
 
         messages.append({"role": "user", "content": user_msg})
 
-        # Test production models in sequence
-        candidate_models = [
+        MODELS_TO_TRY = [
+            "qwen/qwen3.8-27b",
+            "qwen/qwen3.6-27b",
+            "openai/gpt-oss-20b",
+            "openai/gpt-oss-120b",
             "llama-3.1-8b-instant",
-            "llama-3.3-70b-versatile",
-            "gemma2-9b-it"
+            "llama-3.3-70b-versatile"
         ]
 
-        for model_name in candidate_models:
+        reply_text = None
+        for model_name in MODELS_TO_TRY:
             try:
                 completion = client.chat.completions.create(
                     model=model_name,
                     messages=messages,
                     temperature=0.7,
-                    max_tokens=1200,
+                    max_tokens=1500,
                 )
-                reply_text = completion.choices[0].message.content
-                if reply_text:
-                    return {
-                        "reply": reply_text,
-                        "content": reply_text,
-                        "sender": "ai",
-                        "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
-            except Exception as model_err:
-                print(f"Model {model_name} failed: {model_err}")
+                if completion.choices and completion.choices[0].message:
+                    reply_text = completion.choices[0].message.content
+                    if reply_text:
+                        break
+            except Exception as err:
+                print(f"Model {model_name} failed: {err}")
                 continue
 
-        fallback_unavail = "AI service is currently unable to reach an active model. Please check the backend logs."
+        if not reply_text:
+            reply_text = "Unable to generate a response at this moment. Please try again."
+
         return {
-            "reply": fallback_unavail,
-            "content": fallback_unavail,
+            "reply": reply_text,
+            "content": reply_text,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
