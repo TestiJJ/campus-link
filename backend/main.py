@@ -4588,12 +4588,9 @@ def get_ai_messages(
 @app.post("/api/ai/chat")
 @app.post("/ai/chat")
 async def chat_with_campus_ai(request: schemas.AIChatRequest):
-    user_msg = (request.message or request.content or "").strip()
-    if not user_msg:
-        raise HTTPException(status_code=400, detail="Message cannot be empty.")
-
-    if not groq_client:
-        fallback_msg = "CampusLink AI is currently undergoing scheduled maintenance. Please check back shortly!"
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        fallback_msg = "CampusLink AI is not configured. Please add GROQ_API_KEY."
         return {
             "reply": fallback_msg,
             "content": fallback_msg,
@@ -4602,69 +4599,102 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
+    user_msg = (request.message or request.content or "").strip()
+    if not user_msg:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
     try:
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are CampusLink AI, a sharp, versatile, and supportive AI assistant built for students and campus life. "
-                    "You can answer anything—from coding, debugging, and academic essays to campus life, math, career advice, "
-                    "and everyday conversation. Be concise, engaging, and format responses cleanly with Markdown."
-                )
-            }
-        ]
-        history_list = request.history or []
-        for item in history_list[-8:]:
-            if isinstance(item, dict):
-                r = item.get("role") or ("user" if item.get("sender") == "user" else "assistant")
-                c = item.get("content") or item.get("message") or ""
-            else:
-                r = "user" if getattr(item, "sender", "user") == "user" else "assistant"
-                c = getattr(item, "content", "") or ""
-            if c and c.strip():
-                messages.append({"role": r, "content": c.strip()})
+        client = Groq(api_key=api_key.strip())
+
+        # 1. Attempt to fetch active models dynamically from Groq
+        chat_candidates = []
+        try:
+            models_data = client.models.list()
+            chat_candidates = [
+                m.id for m in models_data.data
+                if any(k in m.id.lower() for k in ["llama", "gemma", "mixtral", "qwen"])
+                and not any(x in m.id.lower() for x in ["guard", "whisper", "vision", "embed", "safeguard"])
+            ]
+            if chat_candidates:
+                print(f"Dynamically discovered Groq models: {chat_candidates[:3]}")
+        except Exception as list_err:
+            print(f"Dynamic model listing skipped: {list_err}")
+
+        # 2. Known standard model fallbacks if dynamic lookup is empty
+        candidate_list = list(chat_candidates) if chat_candidates else []
+        candidate_list.extend([
+            "llama-3.3-70b-specdec",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "gemma2-9b-it",
+            "mixtral-8x7b-32768"
+        ])
+        # Remove None and duplicates while preserving order
+        models_to_try = list(dict.fromkeys([m for m in candidate_list if m]))
+
+        system_message = {
+            "role": "system",
+            "content": (
+                "You are CampusLink AI, an intelligent, helpful, and versatile campus assistant. "
+                "Answer questions accurately across academics, coding, campus life, and general knowledge. "
+                "Use clear, clean Markdown formatting."
+            )
+        }
+
+        messages = [system_message]
+        for item in (request.history or [])[-8:]:
+            if isinstance(item, dict) and "content" in item:
+                role = item.get("role") if item.get("role") in ["user", "assistant"] else ("user" if item.get("sender") == "user" else "assistant")
+                content = str(item.get("content") or item.get("message") or "").strip()
+                if content:
+                    messages.append({"role": role, "content": content})
+            elif hasattr(item, "content"):
+                role = "user" if getattr(item, "sender", "user") == "user" else "assistant"
+                content = str(getattr(item, "content", "")).strip()
+                if content:
+                    messages.append({"role": role, "content": content})
 
         messages.append({"role": "user", "content": user_msg})
 
-        MODELS_TO_TRY = ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]
-        
-        reply_content = None
+        reply = None
         last_err = None
-        for model_name in MODELS_TO_TRY:
+        for model_name in models_to_try:
             try:
-                completion = groq_client.chat.completions.create(
+                completion = client.chat.completions.create(
                     model=model_name,
                     messages=messages,
                     temperature=0.7,
                     max_tokens=1500,
                 )
                 if completion.choices and completion.choices[0].message:
-                    reply_content = completion.choices[0].message.content
-                    if reply_content:
+                    reply = completion.choices[0].message.content
+                    if reply:
                         break
             except Exception as err:
                 last_err = err
-                print(f"Groq model {model_name} error: {err}")
+                print(f"Failed model {model_name}: {err}")
                 continue
 
-        if not reply_content:
+        if not reply:
             if last_err:
                 raise last_err
-            reply_content = "I'm ready to help! What would you like to explore today?"
+            reply = "I'm ready to help! What would you like to explore today?"
 
         return {
-            "reply": reply_content,
-            "content": reply_content,
+            "reply": reply,
+            "content": reply,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
+
     except Exception as e:
-        print(f"Groq AI error: {e}")
-        fallback_err = "I ran into a temporary hiccup processing that request. Please try again!"
+        print(f"Groq execution failure: {e}")
+        err_msg = f"AI error: {str(e)}"
         return {
-            "reply": fallback_err,
-            "content": fallback_err,
+            "reply": err_msg,
+            "content": err_msg,
             "sender": "ai",
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
