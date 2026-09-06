@@ -418,25 +418,13 @@ export default function StudentDashboard() {
     setPushLoading(false);
     if (res.success) {
       setPushState('granted');
-      setPushMessage('🎉 Phone push notifications enabled!');
-      setTimeout(() => setPushMessage(''), 4000);
+      setPushMessage('🔔 Phone alerts enabled! A confirmation ping is on its way.');
+      setTimeout(() => setPushMessage(''), 5000);
+      // Auto-fire a push right away to confirm delivery works
+      sendTestPushNotification(API).catch(() => {});
     } else {
       setPushMessage(res.error || 'Could not enable push.');
-      setTimeout(() => setPushMessage(''), 5000);
-    }
-  };
-
-  const handleTestPush = async () => {
-    setPushLoading(true);
-    setPushMessage('');
-    const res = await sendTestPushNotification(API);
-    setPushLoading(false);
-    if (res.success) {
-      setPushMessage('🔔 Test alert sent to your phone lock-screen!');
-      setTimeout(() => setPushMessage(''), 4000);
-    } else {
-      setPushMessage(res.error || 'Failed to send test push.');
-      setTimeout(() => setPushMessage(''), 5000);
+      setTimeout(() => setPushMessage(''), 6000);
     }
   };
 
@@ -7167,8 +7155,8 @@ export default function StudentDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-0.5">
-                      {pushState !== 'granted' ? (
+                    {pushState !== 'granted' && (
+                      <div className="flex items-center gap-2 pt-0.5">
                         <button
                           type="button"
                           disabled={pushLoading}
@@ -7178,18 +7166,8 @@ export default function StudentDashboard() {
                           <Bell className="w-3.5 h-3.5" />
                           <span>{pushLoading ? 'Enabling...' : 'Enable Phone Alerts'}</span>
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={pushLoading}
-                          onClick={handleTestPush}
-                          className="flex-1 py-2 px-3 bg-white hover:bg-slate-50 active:scale-98 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-sky-500" />
-                          <span>{pushLoading ? 'Sending...' : 'Send Test Alert to Phone'}</span>
-                        </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
                     {pushMessage && (
                       <p className="text-[11px] font-bold text-sky-700 animate-in fade-in duration-200">

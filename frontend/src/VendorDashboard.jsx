@@ -4796,39 +4796,12 @@ export default function VendorDashboard() {
                   <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
                 </div>
               ) : pushEnabled ? (
-                <div className="space-y-3">
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                      <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
-                    </div>
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
+                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={pushLoading}
-                    onClick={async () => {
-                      setPushLoading(true);
-                      setPushTestMsg('');
-                      try {
-                        await sendTestPushNotification();
-                        setPushTestMsg('✅ Test alert sent! Check your phone notifications.');
-                      } catch (e) {
-                        setPushTestMsg('❌ ' + (e?.message || 'Test failed. Please try again.'));
-                      } finally {
-                        setPushLoading(false);
-                      }
-                    }}
-                    className="w-full py-2.5 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Bell className="w-4 h-4" />
-                    <span>{pushLoading ? 'Sending...' : 'Send Test Alert to My Phone'}</span>
-                  </button>
-                  {pushTestMsg && (
-                    <p className={`text-xs font-semibold text-center px-3 py-2 rounded-xl ${
-                      pushTestMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                    }`}>{pushTestMsg}</p>
-                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -4848,12 +4821,19 @@ export default function VendorDashboard() {
                       setPushLoading(true);
                       setPushTestMsg('');
                       try {
-                        const state = await getNotificationPermissionState();
+                        const state = getNotificationPermissionState();
                         if (state === 'denied') { setPushPermission('denied'); return; }
-                        const sub = await subscribeUserToPush();
-                        if (sub) { setPushEnabled(true); setPushPermission('granted'); }
+                        const res = await subscribeUserToPush();
+                        if (res?.success) {
+                          setPushEnabled(true);
+                          setPushPermission('granted');
+                          // Auto-fire a confirmation push
+                          sendTestPushNotification().catch(() => {});
+                        } else {
+                          setPushTestMsg(res?.error || 'Could not enable notifications.');
+                        }
                       } catch (e) {
-                        setPushTestMsg('❌ ' + (e?.message || 'Could not enable notifications.'));
+                        setPushTestMsg(e?.message || 'Could not enable notifications.');
                       } finally {
                         setPushLoading(false);
                       }
