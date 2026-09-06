@@ -106,10 +106,10 @@ export default function SwipeableMessageBubble({
   const isTriggered = offsetX >= TRIGGER_THRESHOLD;
 
   return (
-    <div className="relative flex items-center group max-w-full">
+    <div className={`w-full flex ${isMine ? 'justify-end items-end' : 'justify-start items-start'} relative overflow-hidden group my-1 px-1 sm:px-2`}>
       {/* Swipe to Reply Curved Arrow Backing Indicator */}
       <div
-        className={`absolute left-1 z-0 pointer-events-none flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 ${
+        className={`absolute left-2 z-0 pointer-events-none flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 ${
           isTriggered
             ? 'bg-blue-600 text-white scale-110 shadow-sm'
             : 'bg-slate-200/80 text-slate-500 scale-90'
@@ -130,7 +130,7 @@ export default function SwipeableMessageBubble({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUpOrCancel}
         onPointerCancel={handlePointerUpOrCancel}
-        className={`relative z-10 select-text ${className}`}
+        className={`relative z-10 select-text flex flex-col ${isMine ? 'items-end' : 'items-start'} w-full max-w-full ${className}`}
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: isSwiping ? 'none' : 'transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)',

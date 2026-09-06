@@ -69,6 +69,30 @@ const setCachedData = (key, value) => {
   } catch {}
 };
 
+// Clean Raw JSON Strings & Extract Status/Chat Content
+export const getDisplayContent = (content) => {
+  if (!content) return "";
+  if (typeof content === "object") {
+    return content.reply_text || content.text || content.caption || content.message || JSON.stringify(content);
+  }
+  if (typeof content === "string" && content.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(content);
+      return parsed.reply_text || parsed.text || parsed.caption || parsed.message || content;
+    } catch {
+      return content;
+    }
+  }
+  return content;
+};
+
+export const isStatusReplyContent = (content) => {
+  if (!content) return false;
+  if (typeof content === "object" && (content.type === "status_reply" || content.status_id)) return true;
+  if (typeof content === "string" && (content.includes('"type":"status_reply"') || content.includes('"status_reply"') || content.startsWith('Replying to status'))) return true;
+  return false;
+};
+
 // Chat Reply Parser for Quoted Messages
 export const parseChatReply = (msg) => {
   if (!msg) return null;
@@ -324,6 +348,7 @@ export default function StudentDashboard() {
   const [newMsgText, setNewMsgText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef(null);
+  const aiMessagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
@@ -414,27 +439,33 @@ export default function StudentDashboard() {
   }, []);
 
   // Chat auto-scroll helpers: Instant on open, smooth on new message
-  const scrollToChatBottom = (instant = true) => {
-    if (chatContainerRef.current) {
-      if (instant) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      } else {
-        try {
-          chatContainerRef.current.scrollTo({
-            top: chatContainerRef.current.scrollHeight,
-            behavior: 'smooth'
-          });
-        } catch {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      }
-    }
+  const scrollToBottom = (behavior = "auto") => {
+    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
   };
+
+  const scrollAiToBottom = (behavior = "auto") => {
+    aiMessagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+  };
+
+  const scrollToChatBottom = (instant = true) => {
+    scrollToBottom(instant ? "auto" : "smooth");
+  };
+
+  // Trigger on active conversation switch or messages length change
+  useEffect(() => {
+    scrollToBottom("auto");
+  }, [selectedPartner?.partner_id, activeTab, messageSubtab, chatMessages?.length]);
+
+  // Trigger on AI tab switch or aiMessages length change
+  useEffect(() => {
+    scrollAiToBottom("auto");
+  }, [activeTab, messageSubtab, aiMessages?.length]);
 
   // Instant snap to bottom on partner selection or messages update (shows most recent chat)
   useEffect(() => {
     if (selectedPartner) {
       const snap = () => {
+        scrollToBottom("auto");
         if (chatContainerRef.current) {
           chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
         }
@@ -458,7 +489,7 @@ export default function StudentDashboard() {
         clearTimeout(t5);
       };
     }
-  }, [selectedPartner?.partner_id, chatMessages]);
+  }, [selectedPartner?.partner_id, chatMessages?.length]);
 
   // DOM observer to keep chat pinned to recent messages as photos/media elements load
   useEffect(() => {
@@ -4262,7 +4293,7 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Messages */}
-                          <div className="flex-1 p-3.5 sm:p-6 overflow-y-auto space-y-4 chat-thread-container">
+                          <div className="flex-1 p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-4 chat-thread-container">
                             {aiMessages.length > 0 ? (
                               aiMessages.map((msg, idx) => (
                                 <div
@@ -4340,6 +4371,7 @@ export default function StudentDashboard() {
                                 </div>
                               </div>
                             )}
+                            <div ref={aiMessagesEndRef} />
                           </div>
 
                           {/* AI Chat Input Bar */}
@@ -4501,7 +4533,7 @@ export default function StudentDashboard() {
                           )}
 
                           {/* Chat Messages */}
-                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 overflow-y-auto space-y-3 chat-thread-container">
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
@@ -4524,34 +4556,27 @@ export default function StudentDashboard() {
                               </div>
                             </div>
                           ) : chatMessages.length > 0 ? (
-                            chatMessages.map((msg) => {
+                            chatMessages.map((msg, idx) => {
                               const isMine = msg.sender_id === currentUser.user_id;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
                               const isPopoverOpen = activePopoverMsgId === msg.id;
                               return (
                                 <div
-                                  key={msg.id}
+                                  key={msg.id || idx}
                                   id={`chat-msg-${msg.id}`}
                                   data-msg-id={msg.id}
-                                  className={`relative flex items-center transition-all duration-200 ${
-                                    isMine ? 'justify-end' : 'justify-start'
-                                  }`}
+                                  className="w-full"
                                 >
                                   <SwipeableMessageBubble
                                     onSwipeReply={() => handleStartReply(msg)}
+                                    onReply={() => handleStartReply(msg)}
+                                    message={msg}
                                     isMine={isMine}
-                                    className="w-full flex"
                                   >
                                     <div
                                       onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
-                                      className={`relative max-w-[85%] sm:max-w-[70%] p-3 rounded-2xl text-xs sm:text-[13px] leading-relaxed transition-all cursor-pointer chat-bubble-tactile ${
-                                        isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
-                                      } ${
-                                        isMine
-                                          ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
-                                          : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
-                                      }`}
+                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text`}
                                     >
                                       {/* Floating Action Popover Mini-Toolbar */}
                                       {isPopoverOpen && (
@@ -4615,118 +4640,135 @@ export default function StudentDashboard() {
                                         <Reply className="w-3 h-3" />
                                       </button>
 
-                                      {/* Quoted Message Card (Clickable to jump to original message) */}
-                                      {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
-                                        <div
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const targetId = msg.reply_to_id || chatReply?.replyToId;
-                                            if (targetId) {
-                                              handleScrollToQuotedMessage(targetId);
-                                            }
-                                          }}
-                                          className={`mb-1.5 p-2 rounded-r-xl border-l-4 text-[11px] text-left cursor-pointer transition-all hover:opacity-90 active:scale-[0.98] ${
-                                            isMine
-                                              ? 'bg-blue-700/60 border-white text-blue-100 shadow-inner'
-                                              : 'bg-slate-100 border-blue-500 text-slate-700 hover:bg-slate-200/80'
-                                          }`}
-                                          title="Click to jump to original message"
-                                        >
-                                          <div className="flex items-center space-x-1 font-bold text-[10px] mb-0.5">
-                                            <Reply className="w-2.5 h-2.5 shrink-0" />
-                                            <span>{msg.reply_to_sender || chatReply?.replyToSender || 'Campus Peer'}</span>
-                                          </div>
-                                          <p className="truncate opacity-90">{msg.reply_to_text || chatReply?.replyToText || 'Original message'}</p>
-                                        </div>
-                                      )}
-
-                                      {/* Bubble Body Content */}
-                                      {chatReply ? (
-                                        <p className="whitespace-pre-wrap break-words">{chatReply.text}</p>
-                                      ) : parseStatusReply(msg) ? (
-                                        <StoryReplyBubble
-                                          msg={msg}
-                                          isMine={isMine}
-                                          onStoryClick={(statusId) => {
-                                            const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
-                                            if (gIdx !== -1) {
-                                              const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
-                                              setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
-                                            }
-                                          }}
-                                        />
-                                      ) : msg.message_type === 'audio' ? (
-                                        <div className="flex items-center space-x-3 py-1">
-                                          <button
-                                            type="button"
+                                      {/* Main Message Bubble */}
+                                      <div
+                                        className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
+                                          isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                        } ${
+                                          isMine
+                                            ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
+                                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
+                                        }`}
+                                      >
+                                        {/* Quoted Reply Header Box */}
+                                        {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
+                                          <div
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              handlePlayAudio(msg.id, msg.media_url);
+                                              const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                              if (targetId) {
+                                                handleScrollToQuotedMessage(targetId);
+                                              }
                                             }}
-                                            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                                              isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                            className={`w-full p-1.5 px-2 rounded mb-1 text-xs border-l-[3px] select-none cursor-pointer transition-all hover:opacity-90 ${
+                                              isMine
+                                                ? 'bg-black/15 border-white text-white'
+                                                : 'bg-slate-100 dark:bg-slate-700/60 border-blue-600 text-slate-800 dark:text-slate-200'
                                             }`}
+                                            title="Click to jump to original message"
                                           >
-                                            {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                                          </button>
-                                          <div>
-                                            <div className="flex items-center space-x-1 mb-1">
-                                              {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
-                                                <span
-                                                  key={i}
-                                                  className={`w-1 rounded-full transition-all ${
-                                                    playingAudioId === msg.id
-                                                      ? 'animate-pulse bg-emerald-400'
-                                                      : isMine
-                                                        ? 'bg-blue-200'
-                                                        : 'bg-slate-300'
-                                                  }`}
-                                                  style={{ height: `${h}px` }}
-                                                />
-                                              ))}
-                                            </div>
-                                            <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
-                                              🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
-                                            </span>
+                                            <p className="font-bold text-[11px] truncate">{msg.reply_to_sender || chatReply?.replyToSender || 'Campus Peer'}</p>
+                                            <p className="truncate max-w-[220px] text-[11px] opacity-85">{getDisplayContent(msg.reply_to_text || chatReply?.replyToText || 'Original message')}</p>
                                           </div>
-                                        </div>
-                                      ) : (msg.message_type === 'image' || msg.message_type === 'images' || (msg.media_url && !['video', 'audio'].includes(msg.message_type))) ? (
-                                        <div className="space-y-1.5">
-                                          <ChatMediaGallery mediaUrl={msg.media_url} />
-                                          {msg.content && !['Photo', 'Video', 'Voice note'].includes(msg.content) && !msg.content.startsWith('Shared ') && (
-                                            <p className="break-words mt-1">{msg.content}</p>
+                                        )}
+
+                                        {/* Bubble Body Content */}
+                                        {chatReply ? (
+                                          <p className="whitespace-pre-wrap break-words">{getDisplayContent(chatReply.text)}</p>
+                                        ) : isStatusReplyContent(msg.content) ? (
+                                          <div className="space-y-1">
+                                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${
+                                              isMine ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                            }`}>
+                                              <span>📷 Replying to status</span>
+                                            </div>
+                                            <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                          </div>
+                                        ) : parseStatusReply(msg) ? (
+                                          <StoryReplyBubble
+                                            msg={msg}
+                                            isMine={isMine}
+                                            onStoryClick={(statusId) => {
+                                              const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
+                                              if (gIdx !== -1) {
+                                                const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
+                                                setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
+                                              }
+                                            }}
+                                          />
+                                        ) : msg.message_type === 'audio' ? (
+                                          <div className="flex items-center space-x-3 py-1">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePlayAudio(msg.id, msg.media_url);
+                                              }}
+                                              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                                isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                              }`}
+                                            >
+                                              {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                            </button>
+                                            <div>
+                                              <div className="flex items-center space-x-1 mb-1">
+                                                {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
+                                                  <span
+                                                    key={i}
+                                                    className={`w-1 rounded-full transition-all ${
+                                                      playingAudioId === msg.id
+                                                        ? 'animate-pulse bg-emerald-400'
+                                                        : isMine
+                                                          ? 'bg-blue-200'
+                                                          : 'bg-slate-300'
+                                                    }`}
+                                                    style={{ height: `${h}px` }}
+                                                  />
+                                                ))}
+                                              </div>
+                                              <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
+                                              </span>
+                                            </div>
+                                          </div>
+                                        ) : (msg.message_type === 'image' || msg.message_type === 'images' || (msg.media_url && !['video', 'audio'].includes(msg.message_type))) ? (
+                                          <div className="space-y-1.5">
+                                            <ChatMediaGallery mediaUrl={msg.media_url} />
+                                            {msg.content && !['Photo', 'Video', 'Voice note'].includes(msg.content) && !msg.content.startsWith('Shared ') && (
+                                              <p className="break-words mt-1">{getDisplayContent(msg.content)}</p>
+                                            )}
+                                          </div>
+                                        ) : msg.message_type === 'video' ? (
+                                          <div className="space-y-1.5">
+                                            <video
+                                              src={msg.media_url}
+                                              controls
+                                              className="rounded-xl max-h-64 w-full bg-black"
+                                            />
+                                            {msg.content && msg.content !== 'Video' && <p>{getDisplayContent(msg.content)}</p>}
+                                          </div>
+                                        ) : (
+                                          <p className="leading-relaxed whitespace-pre-wrap">{getDisplayContent(msg.content || msg.text)}</p>
+                                        )}
+
+                                        {/* Inline Timestamp & Read Receipt Checkmarks */}
+                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-75 ${
+                                          isMine ? 'text-blue-100' : 'text-slate-400'
+                                        }`}>
+                                          <span>{safeTime(msg.created_at, 'Just now')}</span>
+                                          {isMine && (
+                                            <span className="inline-flex items-center">
+                                              {msg.is_optimistic ? (
+                                                <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                              ) : msg.is_read ? (
+                                                <CheckCheck className="w-3 h-3 text-sky-200" />
+                                              ) : (
+                                                <Check className="w-2.5 h-2.5 opacity-80" />
+                                              )}
+                                            </span>
                                           )}
                                         </div>
-                                      ) : msg.message_type === 'video' ? (
-                                        <div className="space-y-1.5">
-                                          <video
-                                            src={msg.media_url}
-                                            controls
-                                            className="rounded-xl max-h-64 w-full bg-black"
-                                          />
-                                          {msg.content && msg.content !== 'Video' && <p>{msg.content}</p>}
-                                        </div>
-                                      ) : (
-                                        <p className="whitespace-pre-wrap break-words">{msg.content || msg.text}</p>
-                                      )}
-
-                                      {/* Inline Timestamp & Read Receipt Checkmarks */}
-                                      <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
-                                        isMine ? 'text-blue-100/90' : 'text-slate-400'
-                                      }`}>
-                                        <span>{safeTime(msg.created_at, 'Just now')}</span>
-                                        {isMine && (
-                                          <span className="inline-flex items-center">
-                                            {msg.is_optimistic ? (
-                                              <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
-                                            ) : msg.is_read ? (
-                                              <CheckCheck className="w-3 h-3 text-sky-200" />
-                                            ) : (
-                                              <Check className="w-2.5 h-2.5 opacity-80" />
-                                            )}
-                                          </span>
-                                        )}
-                                      </span>
+                                      </div>
                                     </div>
                                   </SwipeableMessageBubble>
                                 </div>

@@ -219,6 +219,8 @@ body {
     text-rendering: optimizeLegibility;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden !important;
+    max-width: 100%;
   }
 
   /* WhatsApp/iMessage-Style Bubble Micro-Tactile Tap Feedback */

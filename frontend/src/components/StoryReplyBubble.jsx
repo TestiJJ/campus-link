@@ -74,8 +74,8 @@ export function parseStatusReply(msg) {
 /**
  * Renders an Instagram/WhatsApp/Facebook style quoted story preview card inside chat bubbles.
  */
-export default function StoryReplyBubble({ msg, isMine, onStoryClick }) {
-  const story = parseStatusReply(msg);
+export default function StoryReplyBubble({ msg, statusData, isMine, onStoryClick }) {
+  const story = statusData || parseStatusReply(msg);
   if (!story) return null;
 
   return (

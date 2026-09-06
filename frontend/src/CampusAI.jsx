@@ -28,8 +28,8 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
     scrollToBottom();
   }, [messages, loading]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior = 'auto') => {
+    messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
   };
 
   const fetchMessages = async () => {
@@ -409,7 +409,7 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
       </div>
 
       {/* Chat Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full p-4 sm:p-6 space-y-6">
         {messages.length === 0 ? (
           /* Welcome Screen */
           <div className="max-w-2xl mx-auto py-8 text-center flex flex-col items-center justify-center min-h-full">
