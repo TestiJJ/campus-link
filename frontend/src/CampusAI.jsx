@@ -61,17 +61,26 @@ export default function CampusAI({ user, isVendor = false, onClose = null }) {
     }
     setLoading(true);
     try {
+      const formattedHistory = messages.slice(-8).map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.content || m.reply || ''
+      }));
+
       const res = await API.post('/ai/chat', { 
         content: textToSend,
-        message: textToSend
+        message: textToSend,
+        history: formattedHistory
       });
+
+      const replyContent = res.data.reply || res.data.content || "I didn't receive a response. Please try asking again!";
 
       setMessages(prev => [
         ...prev,
         {
           id: res.data.id || ('ai-' + Date.now()),
           sender: 'ai',
-          content: res.data.content || res.data.reply,
+          content: replyContent,
+          reply: replyContent,
           created_at: res.data.created_at || new Date().toISOString()
         }
       ]);

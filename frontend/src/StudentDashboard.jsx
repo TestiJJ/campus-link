@@ -1635,15 +1635,25 @@ export default function StudentDashboard() {
     setIsAiTyping(true);
 
     try {
+      const formattedHistory = aiMessages.slice(-8).map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.content || m.reply || ''
+      }));
+
       const res = await API.post('/ai/chat', {
+        message: textToSend,
         content: textToSend,
+        history: formattedHistory,
         store_as_info: storeInfoToggled
       });
+
+      const replyContent = res.data.reply || res.data.content || "I didn't receive a response. Please try asking again!";
 
       setAiMessages(prev => [...prev, {
         id: res.data.id || ('ai-' + Date.now()),
         sender: 'ai',
-        content: res.data.content,
+        content: replyContent,
+        reply: replyContent,
         is_memory_trigger: res.data.is_memory_trigger,
         created_at: res.data.created_at || new Date().toISOString()
       }]);

@@ -16,6 +16,13 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
 import models, schemas, auth, database
+try:
+    from groq import Groq
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    groq_client = Groq(api_key=groq_api_key) if groq_api_key else None
+except Exception as _groq_err:
+    print(f"[CampusLink AI] Groq init notice: {_groq_err}")
+    groq_client = None
 
 try:
     models.Base.metadata.create_all(bind=database.engine)
@@ -4579,108 +4586,70 @@ def get_ai_messages(
 
 
 @app.post("/api/ai/chat")
-def chat_with_ai(
-    payload: schemas.AIChatRequest,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(database.get_db)
-):
-    # Accept either message or content
-    msg_text = (payload.message or payload.content or "").strip()
-    if not msg_text:
+@app.post("/ai/chat")
+async def chat_with_campus_ai(request: schemas.AIChatRequest):
+    user_msg = (request.message or request.content or "").strip()
+    if not user_msg:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
-    store_flag = payload.store_information or payload.store_as_info or False
-
-    # Fetch recent message history (last 10 messages)
-    history_msgs = db.query(models.AIMessage).filter(
-        models.AIMessage.user_id == current_user.user_id
-    ).order_by(models.AIMessage.created_at.desc()).limit(10).all()
-    history_msgs.reverse()
-
-    # Save user message
-    user_msg = models.AIMessage(
-        user_id=current_user.user_id,
-        sender="user",
-        content=msg_text,
-        is_memory_trigger=store_flag
-    )
-    db.add(user_msg)
-    db.commit()
-
-    # Fetch user's existing memories
-    user_memories = db.query(models.AIMemory).filter(
-        models.AIMemory.user_id == current_user.user_id
-    ).order_by(models.AIMemory.created_at.desc()).all()
-
-    # Custom API Key from payload
-    custom_key = (payload.api_key or "").strip() or None
-
-    effective_history = history_msgs if history_msgs else (payload.history or [])
-
-    # Generate response
-    ai_text, is_mem, mem_title, mem_content, mem_cat, is_live_gemini = generate_campus_ai_reply(
-        msg_text, current_user, user_memories, custom_api_key=custom_key, history=effective_history, db=db
-    )
-
-    stored_memory_obj = None
-    if store_flag and not is_mem:
-        is_mem = True
-        mem_title = " ".join(msg_text.split()[:6]) + ("..." if len(msg_text.split()) > 6 else "")
-        mem_content = msg_text
-        mem_cat = payload.category or "general"
-        first_name = current_user.full_name.split()[0] if current_user.full_name else "friend"
-        ai_text = (
-            f"Saved into your Memory Vault, {first_name}! ðŸ§ \n\n"
-            f"📌 **{mem_title}**\n"
-            f"> \"{mem_content}\"\n\n"
-            f"You can view and search it anytime in your **Saved Information** vault."
-        )
-
-    if is_mem and mem_content:
-        new_memory = models.AIMemory(
-            user_id=current_user.user_id,
-            title=mem_title or "Saved Note",
-            content=mem_content,
-            category=mem_cat or "general"
-        )
-        db.add(new_memory)
-        db.commit()
-        db.refresh(new_memory)
-        stored_memory_obj = {
-            "id": new_memory.id,
-            "title": new_memory.title,
-            "content": new_memory.content,
-            "category": new_memory.category,
-            "created_at": new_memory.created_at
+    if not groq_client:
+        fallback_msg = "CampusLink AI is currently undergoing scheduled maintenance. Please check back shortly!"
+        return {
+            "reply": fallback_msg,
+            "content": fallback_msg,
+            "sender": "ai",
+            "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
-    # Save AI response
-    ai_msg = models.AIMessage(
-        user_id=current_user.user_id,
-        sender="ai",
-        content=ai_text,
-        is_memory_trigger=is_mem
-    )
-    db.add(ai_msg)
-    db.commit()
-    db.refresh(ai_msg)
+    try:
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are CampusLink AI, a sharp, versatile, and supportive AI assistant built for students and campus life. "
+                    "You can answer anything—from coding, debugging, and academic essays to campus life, math, career advice, "
+                    "and everyday conversation. Be concise, engaging, and format responses cleanly with Markdown."
+                )
+            }
+        ]
+        history_list = request.history or []
+        for item in history_list[-8:]:
+            if isinstance(item, dict):
+                r = item.get("role") or ("user" if item.get("sender") == "user" else "assistant")
+                c = item.get("content") or item.get("message") or ""
+            else:
+                r = "user" if getattr(item, "sender", "user") == "user" else "assistant"
+                c = getattr(item, "content", "") or ""
+            if c and c.strip():
+                messages.append({"role": r, "content": c.strip()})
 
-    total_memories = db.query(models.AIMemory).filter(
-        models.AIMemory.user_id == current_user.user_id
-    ).count()
+        messages.append({"role": "user", "content": user_msg})
 
-    return {
-        "id": ai_msg.id,
-        "sender": "ai",
-        "reply": ai_text,
-        "content": ai_text,
-        "is_gemini_live": is_live_gemini,
-        "is_memory_stored": is_mem,
-        "is_memory_trigger": is_mem,
-        "stored_memory": stored_memory_obj,
-        "total_memories": total_memories,
-        "created_at": ai_msg.created_at
-    }
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1500,
+        )
+        reply_content = completion.choices[0].message.content
+        return {
+            "reply": reply_content,
+            "content": reply_content,
+            "sender": "ai",
+            "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        print(f"Groq AI error: {e}")
+        fallback_err = "I ran into a temporary hiccup processing that request. Please try again!"
+        return {
+            "reply": fallback_err,
+            "content": fallback_err,
+            "sender": "ai",
+            "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
 
 
 @app.get("/api/ai/memories", response_model=List[schemas.AIMemoryOut])
