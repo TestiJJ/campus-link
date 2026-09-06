@@ -735,8 +735,11 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner]);
 
-  // My AI & Memory Vault State (SWR Instant Load)
-  const [aiMessages, setAiMessages] = useState([]);
+  // My AI & Memory Vault State (SWR Instant Load scoped strictly to current user)
+  const [aiMessages, setAiMessages] = useState(() => {
+    const uid = currentUser?.user_id || currentUser?.id;
+    return uid ? getCachedData(`ai_messages_${uid}`, []) : [];
+  });
   const [aiMemories, setAiMemories] = useState(() => getCachedData('aiMemories', []));
   const [memoryModalOpen, setMemoryModalOpen] = useState(false);
   const [memorySearch, setMemorySearch] = useState('');
@@ -1676,7 +1679,12 @@ export default function StudentDashboard() {
   const fetchAiMessages = async () => {
     try {
       const res = await API.get('/ai/messages');
-      setAiMessages(res.data || []);
+      const list = res.data || [];
+      setAiMessages(list);
+      const uid = currentUser?.user_id || currentUser?.id;
+      if (uid) {
+        setCachedData(`ai_messages_${uid}`, list);
+      }
     } catch (err) {
       console.error('Failed to fetch AI messages:', err);
     }
@@ -1715,7 +1723,12 @@ export default function StudentDashboard() {
       created_at: new Date().toISOString()
     };
     
-    setAiMessages(prev => [...prev, userMessageObj]);
+    setAiMessages(prev => {
+      const updated = [...prev, userMessageObj];
+      const uid = currentUser?.user_id || currentUser?.id;
+      if (uid) setCachedData(`ai_messages_${uid}`, updated);
+      return updated;
+    });
     setNewMsgText('');
     setIsAiTyping(true);
 
@@ -1734,14 +1747,21 @@ export default function StudentDashboard() {
 
       const replyContent = res.data?.reply || res.data?.content || res.data?.message || res.data?.response || "I could not generate a response.";
 
-      setAiMessages(prev => [...prev, {
+      const aiReplyObj = {
         id: res.data?.id || ('ai-' + Date.now()),
         sender: 'ai',
         content: replyContent,
         reply: replyContent,
         is_memory_trigger: res.data?.is_memory_trigger,
         created_at: res.data?.created_at || new Date().toISOString()
-      }]);
+      };
+
+      setAiMessages(prev => {
+        const updated = [...prev, aiReplyObj];
+        const uid = currentUser?.user_id || currentUser?.id;
+        if (uid) setCachedData(`ai_messages_${uid}`, updated);
+        return updated;
+      });
 
       if (res.data?.is_memory_trigger || storeInfoToggled) {
         fetchAiMemories();
@@ -1750,12 +1770,17 @@ export default function StudentDashboard() {
     } catch (err) {
       console.error('AI chat error:', err);
       const errDetail = err.response?.data?.detail || err.response?.data?.reply || err.response?.data?.content || err.message;
-      setAiMessages(prev => [...prev, {
-        id: 'err-' + Date.now(),
-        sender: 'ai',
-        content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
-        created_at: new Date().toISOString()
-      }]);
+      setAiMessages(prev => {
+        const updated = [...prev, {
+          id: 'err-' + Date.now(),
+          sender: 'ai',
+          content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
+          created_at: new Date().toISOString()
+        }];
+        const uid = currentUser?.user_id || currentUser?.id;
+        if (uid) setCachedData(`ai_messages_${uid}`, updated);
+        return updated;
+      });
     } finally {
       setIsAiTyping(false);
     }
@@ -2489,8 +2514,17 @@ export default function StudentDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_') || k === 'token' || k === 'user' || k === 'campuslink_student_tab')) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch {}
+    setAiMessages([]);
     navigate('/login');
   };
 

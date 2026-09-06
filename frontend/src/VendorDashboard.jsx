@@ -361,8 +361,11 @@ export default function VendorDashboard() {
   }, []);
 
 
-  // CampusLink AI Chat States
-  const [aiMessages, setAiMessages] = useState([]);
+  // CampusLink AI Chat States (Scoped strictly to current merchant user)
+  const [aiMessages, setAiMessages] = useState(() => {
+    const uid = user?.user_id || user?.id;
+    return uid ? getCachedData(`ai_messages_${uid}`, []) : [];
+  });
   const [isAiTyping, setIsAiTyping] = useState(false);
 
   // Status Stories States (SWR Instant-Load Cache)
@@ -1265,7 +1268,12 @@ export default function VendorDashboard() {
   const fetchAiMessages = async () => {
     try {
       const res = await API.get('/ai/messages');
-      setAiMessages(res.data || []);
+      const list = res.data || [];
+      setAiMessages(list);
+      const uid = user?.user_id || user?.id;
+      if (uid) {
+        setCachedData(`ai_messages_${uid}`, list);
+      }
     } catch (err) {
       console.error('Failed to load AI messages:', err);
     }
@@ -1294,7 +1302,12 @@ export default function VendorDashboard() {
       created_at: new Date().toISOString()
     };
 
-    setAiMessages(prev => [...prev, userMessageObj]);
+    setAiMessages(prev => {
+      const updated = [...prev, userMessageObj];
+      const uid = user?.user_id || user?.id;
+      if (uid) setCachedData(`ai_messages_${uid}`, updated);
+      return updated;
+    });
     setNewMsgText('');
     setIsAiTyping(true);
 
@@ -1313,28 +1326,34 @@ export default function VendorDashboard() {
 
       const replyContent = res.data?.reply || res.data?.content || res.data?.message || res.data?.response || "I could not generate a response.";
 
-      setAiMessages(prev => [
-        ...prev,
-        {
-          id: res.data?.id || ('ai-' + Date.now()),
-          sender: 'ai',
-          content: replyContent,
-          reply: replyContent,
-          created_at: res.data?.created_at || new Date().toISOString()
-        }
-      ]);
+      const aiReplyObj = {
+        id: res.data?.id || ('ai-' + Date.now()),
+        sender: 'ai',
+        content: replyContent,
+        reply: replyContent,
+        created_at: res.data?.created_at || new Date().toISOString()
+      };
+
+      setAiMessages(prev => {
+        const updated = [...prev, aiReplyObj];
+        const uid = user?.user_id || user?.id;
+        if (uid) setCachedData(`ai_messages_${uid}`, updated);
+        return updated;
+      });
     } catch (err) {
       console.error('AI chat error:', err);
       const errDetail = err.response?.data?.detail || err.response?.data?.reply || err.response?.data?.content || err.message;
-      setAiMessages(prev => [
-        ...prev,
-        {
+      setAiMessages(prev => {
+        const updated = [...prev, {
           id: 'err-' + Date.now(),
           sender: 'ai',
           content: `⚠️ Unable to get a response: ${errDetail}. Please try again.`,
           created_at: new Date().toISOString()
-        }
-      ]);
+        }];
+        const uid = user?.user_id || user?.id;
+        if (uid) setCachedData(`ai_messages_${uid}`, updated);
+        return updated;
+      });
     } finally {
       setIsAiTyping(false);
     }
@@ -1981,8 +2000,17 @@ export default function VendorDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_') || k === 'token' || k === 'user' || k === 'campuslink_vendor_tab')) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch {}
+    setAiMessages([]);
     navigate('/login');
   };
 

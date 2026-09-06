@@ -233,6 +233,7 @@ async def on_app_startup():
         asyncio.create_task(keep_render_awake_loop())
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/login", auto_error=False)
 
 # --- AUTH DEPENDENCIES & ROLE CONTROL ---
 
@@ -251,6 +252,14 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             detail="User account associated with this session does not exist.",
         )
     return user
+
+def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional), db: Session = Depends(database.get_db)) -> Optional[models.User]:
+    if not token:
+        return None
+    token_data = auth.verify_token(token)
+    if not token_data:
+        return None
+    return db.query(models.User).filter(models.User.user_id == token_data.user_id).first()
 
 def require_role(allowed_roles: list[str]):
     def role_checker(current_user: models.User = Depends(get_current_user)):
@@ -4543,6 +4552,9 @@ def generate_campus_ai_reply(
 
 
 @app.get("/api/ai/messages")
+@app.get("/api/ai/history")
+@app.get("/ai/messages")
+@app.get("/ai/history")
 def get_ai_messages(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
@@ -4587,7 +4599,11 @@ def get_ai_messages(
 
 @app.post("/api/ai/chat")
 @app.post("/ai/chat")
-async def chat_with_campus_ai(request: schemas.AIChatRequest, db: Session = Depends(database.get_db)):
+async def chat_with_campus_ai(
+    request: schemas.AIChatRequest,
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
+    db: Session = Depends(database.get_db)
+):
     user_msg = (request.message or request.content or "").strip()
     if not user_msg:
         greeting = "Hello! 👋 I'm CampusLink AI, your personal campus companion. How can I assist you with your academics, coding, or campus life today?"
@@ -4598,6 +4614,21 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest, db: Session = Depe
             "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
+
+    # If authenticated, persist the user message strictly under their user_id
+    if current_user:
+        try:
+            user_db_msg = models.AIMessage(
+                user_id=current_user.user_id,
+                sender="user",
+                content=user_msg,
+                is_memory_trigger=False
+            )
+            db.add(user_db_msg)
+            db.commit()
+        except Exception as e:
+            print(f"Error saving user AI message: {e}")
+            db.rollback()
 
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     reply_text = None
@@ -4634,10 +4665,12 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest, db: Session = Depe
             ])
             models_to_try = list(dict.fromkeys([m for m in candidate_models if m]))
 
+            first_name = current_user.full_name.split()[0] if (current_user and current_user.full_name) else "Student"
+
             system_prompt = {
                 "role": "system",
                 "content": (
-                    "You are CampusLink AI, an intelligent, authentic, and versatile campus companion. "
+                    f"You are CampusLink AI, an intelligent, authentic, and versatile campus companion for {first_name}. "
                     "You can assist students with coursework, coding, computer science, math, campus life, "
                     "essay writing, and open-ended conversation. Provide structured, clear answers using Markdown."
                 )
@@ -4679,9 +4712,10 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest, db: Session = Depe
 
     # Fallback to local intelligence reasoning engine so every prompt (greetings, questions, math) ALWAYS succeeds
     if not reply_text:
+        fallback_user = {"full_name": current_user.full_name if current_user else "Student", "role": current_user.role if current_user else "student"}
         fallback_res, _, _, _, _, _ = generate_campus_ai_reply(
             user_msg,
-            {"full_name": "Student", "role": "student"},
+            fallback_user,
             [],
             custom_api_key=request.api_key,
             history=request.history,
@@ -4689,12 +4723,33 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest, db: Session = Depe
         )
         reply_text = fallback_res or f"Hello! 👋 I'm CampusLink AI, your personal campus companion. I'm ready to help you with course concepts, coding, assignments, formulas, or campus advice. What's on your mind today?"
 
+    msg_id = "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000))
+    created_at_str = datetime.now(timezone.utc).isoformat()
+
+    # If authenticated, persist the AI reply strictly under their user_id
+    if current_user:
+        try:
+            ai_db_msg = models.AIMessage(
+                user_id=current_user.user_id,
+                sender="ai",
+                content=reply_text,
+                is_memory_trigger=bool(request.store_as_info)
+            )
+            db.add(ai_db_msg)
+            db.commit()
+            db.refresh(ai_db_msg)
+            msg_id = ai_db_msg.id
+            created_at_str = ai_db_msg.created_at.isoformat() if ai_db_msg.created_at else created_at_str
+        except Exception as e:
+            print(f"Error saving AI response: {e}")
+            db.rollback()
+
     return {
         "reply": reply_text,
         "content": reply_text,
         "sender": "ai",
-        "id": "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000)),
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "id": msg_id,
+        "created_at": created_at_str
     }
 
 
