@@ -34,12 +34,12 @@ import {
 } from './chatCache';
 
 // Aliases for compatibility
-const getCachedChatMessages = getCachedThreadMessages;
-const setCachedChatMessages = setCachedThreadMessages;
-const prefetchRecentConversations = primeConversationsCache;
+export const getCachedChatMessages = getCachedThreadMessages;
+export const setCachedChatMessages = setCachedThreadMessages;
+export const prefetchRecentConversations = primeConversationsCache;
 
 // Clean Raw JSON Strings & Extract Status/Chat Content
-export const getDisplayContent = (content) => {
+export function getDisplayContent(content) {
   if (!content) return "";
   if (typeof content === "object") {
     return content.reply_text || content.text || content.caption || content.message || JSON.stringify(content);
@@ -53,17 +53,31 @@ export const getDisplayContent = (content) => {
     }
   }
   return content;
-};
+}
 
-export const isStatusReplyContent = (content) => {
+export function formatTime(timestamp) {
+  if (!timestamp) return "";
+  try {
+    let cleanStr = typeof timestamp === 'string' ? timestamp.trim() : timestamp;
+    if (!cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
+    return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return "";
+  }
+}
+
+export function isStatusReplyContent(content) {
   if (!content) return false;
   if (typeof content === "object" && (content.type === "status_reply" || content.status_id)) return true;
   if (typeof content === "string" && (content.includes('"type":"status_reply"') || content.includes('"status_reply"') || content.startsWith('Replying to status'))) return true;
   return false;
-};
+}
 
 // Chat Reply Parser for Quoted Messages
-export const parseChatReply = (msg) => {
+export function parseChatReply(msg) {
   if (!msg) return null;
   const content = msg.content || msg.text || '';
   if (
@@ -86,27 +100,27 @@ export const parseChatReply = (msg) => {
     }
   }
   return null;
-};
+}
 
 
 // Stale-While-Revalidate Caching Utilities for Vendor
-const getCachedData = (key, fallback) => {
+export function getCachedData(key, fallback) {
   try {
     const raw = localStorage.getItem(`cl_cache_vendor_${key}`);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
-};
+}
 
-const setCachedData = (key, value) => {
+export function setCachedData(key, value) {
   try {
     localStorage.setItem(`cl_cache_vendor_${key}`, JSON.stringify(value));
   } catch {}
-};
+}
 
 // Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit and ensures accurate UTC handling)
-const safeTime = (dateStr, fallback = 'Recently') => {
+export function safeTime(dateStr, fallback = 'Recently') {
   if (!dateStr) return fallback;
   try {
     let iso = String(dateStr).trim();
@@ -119,9 +133,9 @@ const safeTime = (dateStr, fallback = 'Recently') => {
   } catch {
     return fallback;
   }
-};
+}
 
-const safeDate = (dateStr, fallback = 'Recent') => {
+export function safeDate(dateStr, fallback = 'Recent') {
   if (!dateStr) return fallback;
   try {
     let iso = String(dateStr).trim();
@@ -134,10 +148,10 @@ const safeDate = (dateStr, fallback = 'Recent') => {
   } catch {
     return fallback;
   }
-};
+}
 
 // Presence: format accurate last seen or active now (with rock-solid UTC timezone handling)
-const formatLastSeen = (lastSeenIso, isOnline) => {
+export function formatLastSeen(lastSeenIso, isOnline) {
   if (isOnline) return { label: 'Active now', online: true };
   if (!lastSeenIso) return { label: 'Offline', online: false };
   try {
@@ -164,10 +178,10 @@ const formatLastSeen = (lastSeenIso, isOnline) => {
   } catch {
     return { label: 'Offline', online: false };
   }
-};
+}
 
 // URL and localStorage tab persistence for Vendor
-const getInitialVendorTab = () => {
+export function getInitialVendorTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
@@ -180,7 +194,7 @@ const getInitialVendorTab = () => {
     }
   } catch {}
   return 'inventory';
-};
+}
 
 export default function VendorDashboard() {
   const navigate = useNavigate();

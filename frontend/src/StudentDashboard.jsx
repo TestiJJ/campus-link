@@ -35,11 +35,11 @@ import {
 } from './chatCache';
 
 // Aliases for compatibility
-const getCachedChatMessages = getCachedThreadMessages;
-const setCachedChatMessages = setCachedThreadMessages;
-const prefetchRecentConversations = primeConversationsCache;
+export const getCachedChatMessages = getCachedThreadMessages;
+export const setCachedChatMessages = setCachedThreadMessages;
+export const prefetchRecentConversations = primeConversationsCache;
 
-const renderCategoryIcon = (name) => {
+export function renderCategoryIcon(name) {
   const n = (name || '').toLowerCase();
   if (n.includes('food') || n.includes('meal') || n.includes('snack')) return <Utensils className="w-3.5 h-3.5" />;
   if (n.includes('fashion') || n.includes('shoe') || n.includes('thrift')) return <ShoppingBag className="w-3.5 h-3.5" />;
@@ -50,27 +50,26 @@ const renderCategoryIcon = (name) => {
   if (n.includes('repair') || n.includes('skill')) return <Wrench className="w-3.5 h-3.5" />;
   if (n.includes('hair') || n.includes('beauty')) return <Scissors className="w-3.5 h-3.5" />;
   return <ShoppingBag className="w-3.5 h-3.5" />;
-};
-
+}
 
 // Stale-While-Revalidate Caching Utilities
-const getCachedData = (key, fallback) => {
+export function getCachedData(key, fallback) {
   try {
     const raw = localStorage.getItem(`cl_cache_${key}`);
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
-};
+}
 
-const setCachedData = (key, value) => {
+export function setCachedData(key, value) {
   try {
     localStorage.setItem(`cl_cache_${key}`, JSON.stringify(value));
   } catch {}
-};
+}
 
 // Clean Raw JSON Strings & Extract Status/Chat Content
-export const getDisplayContent = (content) => {
+export function getDisplayContent(content) {
   if (!content) return "";
   if (typeof content === "object") {
     return content.reply_text || content.text || content.caption || content.message || JSON.stringify(content);
@@ -84,17 +83,31 @@ export const getDisplayContent = (content) => {
     }
   }
   return content;
-};
+}
 
-export const isStatusReplyContent = (content) => {
+export function formatTime(timestamp) {
+  if (!timestamp) return "";
+  try {
+    let cleanStr = typeof timestamp === 'string' ? timestamp.trim() : timestamp;
+    if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
+    return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return "";
+  }
+}
+
+export function isStatusReplyContent(content) {
   if (!content) return false;
   if (typeof content === "object" && (content.type === "status_reply" || content.status_id)) return true;
   if (typeof content === "string" && (content.includes('"type":"status_reply"') || content.includes('"status_reply"') || content.startsWith('Replying to status'))) return true;
   return false;
-};
+}
 
 // Chat Reply Parser for Quoted Messages
-export const parseChatReply = (msg) => {
+export function parseChatReply(msg) {
   if (!msg) return null;
   const content = msg.content || msg.text || '';
   if (
@@ -117,10 +130,10 @@ export const parseChatReply = (msg) => {
     }
   }
   return null;
-};
+}
 
 // Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit)
-const safeTime = (dateStr, fallback = 'Recently') => {
+export function safeTime(dateStr, fallback = 'Recently') {
   if (!dateStr) return fallback;
   try {
     let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
@@ -132,9 +145,9 @@ const safeTime = (dateStr, fallback = 'Recently') => {
   } catch {
     return fallback;
   }
-};
+}
 
-const safeDate = (dateStr, fallback = 'Recent') => {
+export function safeDate(dateStr, fallback = 'Recent') {
   if (!dateStr) return fallback;
   try {
     let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
@@ -146,10 +159,10 @@ const safeDate = (dateStr, fallback = 'Recent') => {
   } catch {
     return fallback;
   }
-};
+}
 
 // Presence: format accurate last seen or active now (with rock-solid UTC timezone handling)
-const formatLastSeen = (lastSeenIso, isOnline) => {
+export function formatLastSeen(lastSeenIso, isOnline) {
   if (isOnline) return { label: 'Active now', online: true };
   if (!lastSeenIso) return { label: 'Offline', online: false };
   try {
@@ -179,10 +192,10 @@ const formatLastSeen = (lastSeenIso, isOnline) => {
   } catch {
     return { label: 'Offline', online: false };
   }
-};
+}
 
 // URL and localStorage tab persistence
-const getInitialStudentTab = () => {
+export function getInitialStudentTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
@@ -195,7 +208,7 @@ const getInitialStudentTab = () => {
     }
   } catch {}
   return 'marketplace';
-};
+}
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
