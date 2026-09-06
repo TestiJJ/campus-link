@@ -208,7 +208,8 @@ export default function VendorDashboard() {
   });
   const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
   const [activeTab, setActiveTab] = useState(getInitialVendorTab);
-  // New Vendor Profile Completion Prompt State (only shows for new vendor registrations)
+  
+  // New Vendor Profile Completion Prompt State
   const [showNewVendorModal, setShowNewVendorModal] = useState(() => {
     try {
       if (localStorage.getItem('campuslink_show_profile_completion_prompt') === 'true') {
@@ -229,7 +230,6 @@ export default function VendorDashboard() {
     } catch {}
     return false;
   });
-
 
   // Operational & Store Status States
   const [storeStatus, setStoreStatus] = useState(() => localStorage.getItem('vendor_store_status') || 'open'); // 'open' | 'break' | 'closed'
@@ -271,95 +271,17 @@ export default function VendorDashboard() {
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
+  const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
   const [communitySearch, setCommunitySearch] = useState('');
   const [communityRoleFilter, setCommunityRoleFilter] = useState('all'); // 'all' | 'student' | 'vendor'
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const [chatSearchQuery, setChatSearchQuery] = useState('');
-
-  // Universal Chat & Directory Filtering for Vendor
-  const filteredConversations = useMemo(() => {
-    const q = chatSearchQuery.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter(c =>
-      (c.partner_name || '').toLowerCase().includes(q) ||
-      (c.last_message || '').toLowerCase().includes(q) ||
-      (c.role || '').toLowerCase().includes(q)
-    );
-  }, [conversations, chatSearchQuery]);
-
-  const availableCommunityToChat = useMemo(() => {
-    const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
-    const q = chatSearchQuery.trim().toLowerCase();
-
-    const allUsers = [...communityUsers, ...friendsList].filter(
-      (u, idx, arr) => {
-        const uid = String(u.user_id || u.id);
-        return (
-          uid &&
-          uid !== String(user?.user_id) &&
-          uid !== String(user?.id) &&
-          arr.findIndex(x => String(x.user_id || x.id) === uid) === idx
-        );
-      }
-    );
-
-    return allUsers.filter(u => {
-      const uid = String(u.user_id || u.id);
-      const notInActive = !activePartnerIds.has(uid);
-      if (!q) return notInActive;
-      return (
-        (u.full_name || u.name || '').toLowerCase().includes(q) ||
-        (u.department || '').toLowerCase().includes(q) ||
-        (u.university_name || '').toLowerCase().includes(q)
-      );
-    });
-  }, [conversations, communityUsers, friendsList, chatSearchQuery, user?.user_id, user?.id]);
-
   const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const aiMessagesEndRef = useRef(null);
   const chatBottomRef = messagesEndRef;
   const chatContainerRef = useRef(null);
   const chatMediaInputRef = useRef(null);
-
-  // Close floating action popovers on click outside
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
-        setActivePopoverMsgId(null);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  // Synchronize activeTab with URL query params and localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('campuslink_vendor_tab', activeTab);
-      const url = new URL(window.location.href);
-      if (url.searchParams.get('tab') !== activeTab) {
-        url.searchParams.set('tab', activeTab);
-        window.history.replaceState({}, '', url.toString());
-      }
-    } catch {}
-  }, [activeTab]);
-
-  // Support browser Back/Forward navigation
-  useEffect(() => {
-    const handlePopState = () => {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tab)) {
-          setActiveTab(tab);
-        }
-      } catch {}
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
 
   // CampusLink AI Chat States (Scoped strictly to current merchant user)
   const [aiMessages, setAiMessages] = useState(() => {
@@ -421,13 +343,13 @@ export default function VendorDashboard() {
   const avatarInputRef = useRef(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Verification Form State (with comprehensive ID options for students, graduates & school restaurants)
+  // Verification Form State
   const [idFrontFile, setIdFrontFile] = useState(null);
   const [idFrontPreview, setIdFrontPreview] = useState(null);
   const [idBackFile, setIdBackFile] = useState(null);
   const [idBackPreview, setIdBackPreview] = useState(null);
   const [verificationForm, setVerificationForm] = useState({
-    id_card_type: 'national_id', // 'student_id' | 'national_id' | 'voter_card' | 'driver_license' | 'graduate_cert' | 'cac_permit'
+    id_card_type: 'national_id',
     id_card_number: '',
     id_card_front: '',
     id_card_back: '',
@@ -438,6 +360,83 @@ export default function VendorDashboard() {
 
   // Product Form & Editing States
   const [editingProduct, setEditingProduct] = useState(null);
+
+  // Universal Chat & Directory Filtering for Vendor
+  const filteredConversations = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(c =>
+      (c.partner_name || '').toLowerCase().includes(q) ||
+      (c.last_message || '').toLowerCase().includes(q) ||
+      (c.role || '').toLowerCase().includes(q)
+    );
+  }, [conversations, chatSearchQuery]);
+
+  const availableCommunityToChat = useMemo(() => {
+    const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
+    const q = chatSearchQuery.trim().toLowerCase();
+
+    const allUsers = [...communityUsers, ...myFriends].filter(
+      (u, idx, arr) => {
+        const uid = String(u.user_id || u.id);
+        return (
+          uid &&
+          uid !== String(user?.user_id) &&
+          uid !== String(user?.id) &&
+          arr.findIndex(x => String(x.user_id || x.id) === uid) === idx
+        );
+      }
+    );
+
+    return allUsers.filter(u => {
+      const uid = String(u.user_id || u.id);
+      const notInActive = !activePartnerIds.has(uid);
+      if (!q) return notInActive;
+      return (
+        (u.full_name || u.name || '').toLowerCase().includes(q) ||
+        (u.department || '').toLowerCase().includes(q) ||
+        (u.university_name || '').toLowerCase().includes(q)
+      );
+    });
+  }, [conversations, communityUsers, myFriends, chatSearchQuery, user?.user_id, user?.id]);
+
+  // Close floating action popovers on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
+        setActivePopoverMsgId(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Synchronize activeTab with URL query params and localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('campuslink_vendor_tab', activeTab);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== activeTab) {
+        url.searchParams.set('tab', activeTab);
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {}
+  }, [activeTab]);
+
+  // Support browser Back/Forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tab)) {
+          setActiveTab(tab);
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [universities, setUniversities] = useState([]);
   const [showUpdateDocs, setShowUpdateDocs] = useState(false);
   const [prodFile, setProdFile] = useState(null);

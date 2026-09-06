@@ -262,43 +262,6 @@ export default function StudentDashboard() {
   const reelFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
 
-  // Synchronize activeTab and marketType with browser URL and localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('campuslink_student_tab', activeTab);
-      const url = new URL(window.location.href);
-      if (url.searchParams.get('tab') !== activeTab) {
-        url.searchParams.set('tab', activeTab);
-        if (activeTab === 'marketplace' && marketType) {
-          url.searchParams.set('marketType', marketType);
-        } else {
-          url.searchParams.delete('marketType');
-        }
-        window.history.replaceState({}, '', url.toString());
-      }
-    } catch {}
-  }, [activeTab, marketType]);
-
-  // Support browser Back/Forward navigation between tabs
-  useEffect(() => {
-    const handlePopState = () => {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tab)) {
-          setActiveTab(tab);
-        }
-        const mt = params.get('marketType');
-        if (mt === 'products' || mt === 'services') {
-          setMarketType(mt);
-        }
-      } catch {}
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-
   // Campus Notice Board & Lost/Found State (SWR Instant Load)
   const [notices, setNotices] = useState(() => getCachedData('notices', []));
   const [activeNoticeMenuId, setActiveNoticeMenuId] = useState(null);
@@ -381,6 +344,124 @@ export default function StudentDashboard() {
   const [showMediaEditor, setShowMediaEditor] = useState(false);
   const chatInputRef = useRef(null);
 
+  // My AI & Memory Vault State (SWR Instant Load scoped strictly to current user)
+  const [aiMessages, setAiMessages] = useState(() => {
+    const uid = currentUser?.user_id || currentUser?.id;
+    return uid ? getCachedData(`ai_messages_${uid}`, []) : [];
+  });
+  const [aiMemories, setAiMemories] = useState(() => getCachedData('aiMemories', []));
+  const [memoryModalOpen, setMemoryModalOpen] = useState(false);
+  const [memorySearch, setMemorySearch] = useState('');
+  const [newMemoryForm, setNewMemoryForm] = useState({ title: '', content: '', category: 'academic' });
+  const [isSavingMemory, setIsSavingMemory] = useState(false);
+  const [storeInfoToggled, setStoreInfoToggled] = useState(false);
+  const [isAiTyping, setIsAiTyping] = useState(false);
+  
+  // Campus Community Directory & Friends (SWR Instant Load)
+  const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
+  const [friendsFilter, setFriendsFilter] = useState('all'); // 'all' | 'students' | 'sellers'
+  const [campusStudents, setCampusStudents] = useState(() => getCachedData('campusStudents', []));
+  const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
+  const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
+  const [studentSearch, setStudentSearch] = useState('');
+
+  // Student Profile Modal State
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+
+  // Orders State (SWR Instant Load)
+  const [orderModalItem, setOrderModalItem] = useState(null);
+  const [orderDeliveryLocation, setOrderDeliveryLocation] = useState('');
+  const [orderQuantity, setOrderQuantity] = useState(1);
+  const [myOrders, setMyOrders] = useState(() => getCachedData('myOrders', []));
+
+  // Profile Settings State
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    bio: '',
+    phone_number: '',
+    department: '',
+    level: '',
+    hostel: '',
+    current_password: ''
+  });
+  const [passwordForm, setPasswordForm] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: ''
+  });
+  const avatarInputRef = useRef(null);
+
+  const [notifications, setNotifications] = useState(() => getCachedData('notifications', []));
+  const [unreadCount, setUnreadCount] = useState(() => getCachedData('unreadCount', 0));
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
+
+  // New User Profile Completion Prompt State (only shows for new accounts)
+  const [showNewUserModal, setShowNewUserModal] = useState(() => {
+    try {
+      if (localStorage.getItem('campuslink_show_profile_completion_prompt') === 'true') {
+        return true;
+      }
+      if (localStorage.getItem('campuslink_dismissed_profile_prompt') === 'true') {
+        return false;
+      }
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        const isIncomplete = !u.department || !u.hostel || !u.phone_number;
+        if (u.created_at) {
+          const createdTime = new Date(u.created_at).getTime();
+          const isRecent = (Date.now() - createdTime) < 48 * 3600 * 1000;
+          if (isRecent && isIncomplete) return true;
+        }
+      }
+    } catch {}
+    return false;
+  });
+
+  // Feedback Toast
+  const [toast, setToast] = useState({ text: '', type: '' });
+
+  // Synchronize activeTab and marketType with browser URL and localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('campuslink_student_tab', activeTab);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== activeTab) {
+        url.searchParams.set('tab', activeTab);
+        if (activeTab === 'marketplace' && marketType) {
+          url.searchParams.set('marketType', marketType);
+        } else {
+          url.searchParams.delete('marketType');
+        }
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch {}
+  }, [activeTab, marketType]);
+
+  // Support browser Back/Forward navigation between tabs
+  useEffect(() => {
+    const handlePopState = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tab)) {
+          setActiveTab(tab);
+        }
+        const mt = params.get('marketType');
+        if (mt === 'products' || mt === 'services') {
+          setMarketType(mt);
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
@@ -400,8 +481,6 @@ export default function StudentDashboard() {
   }, [activeTab]);
 
   // --- PRESENCE HEARTBEAT ---
-  // Sends a heartbeat every 30 s so the backend knows we are online.
-  // Also fires an offline signal when the tab is hidden or closed.
   useEffect(() => {
     const token = getAuthToken();
     if (!token) return;
@@ -420,7 +499,6 @@ export default function StudentDashboard() {
     const sendOffline = () => {
       const activeToken = getAuthToken();
       if (!activeToken) return;
-      // fetch with keepalive:true survives page unload and supports Bearer auth
       const baseUrl = (API.defaults.baseURL || '').replace(/\/api$/, '');
       const offlineUrl = `${baseUrl}/api/presence/offline`;
       fetch(offlineUrl, {
@@ -438,7 +516,7 @@ export default function StudentDashboard() {
       else sendHeartbeat();
     };
 
-    sendHeartbeat(); // mark online immediately on mount
+    sendHeartbeat();
     interval = setInterval(sendHeartbeat, 30000);
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', sendOffline);
@@ -448,11 +526,11 @@ export default function StudentDashboard() {
       if (interval) clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', sendOffline);
-      sendOffline(); // mark offline on component unmount (logout)
+      sendOffline();
     };
   }, []);
 
-  // Chat auto-scroll helpers: Instant on open, smooth on new message
+  // Chat auto-scroll helpers
   const scrollToBottom = (behavior = "auto") => {
     messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
   };
@@ -475,7 +553,7 @@ export default function StudentDashboard() {
     scrollAiToBottom("auto");
   }, [activeTab, messageSubtab, aiMessages?.length]);
 
-  // Instant snap to bottom on partner selection or messages update (shows most recent chat)
+  // Instant snap to bottom on partner selection or messages update
   useEffect(() => {
     if (selectedPartner) {
       const snap = () => {
@@ -505,7 +583,7 @@ export default function StudentDashboard() {
     }
   }, [selectedPartner?.partner_id, chatMessages?.length]);
 
-  // DOM observer to keep chat pinned to recent messages as photos/media elements load
+  // DOM observer to keep chat pinned to recent messages
   useEffect(() => {
     const el = chatContainerRef.current;
     if (!el) return;
@@ -556,26 +634,25 @@ export default function StudentDashboard() {
         socket = new WebSocket(wsUrl);
 
         socket.onopen = () => {
-          retryCount = 0; // Successfully connected, reset retry counter
+          retryCount = 0;
           pingInterval = setInterval(() => {
             if (socket && socket.readyState === WebSocket.OPEN) {
               try {
                 socket.send(JSON.stringify({ type: 'ping' }));
               } catch (_) {}
             }
-          }, 35000); // 35-second keepalive heartbeat for Render proxy
+          }, 35000);
         };
 
         socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'pong') return; // Heartbeat response
+            if (data.type === 'pong') return;
 
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
               const isFromMe = newM.sender_id === currentUser.user_id;
 
-              // Immediately append to thread cache
               appendThreadMessage(newM.sender_id, newM);
               appendThreadMessage(newM.recipient_id, newM);
 
@@ -593,7 +670,6 @@ export default function StudentDashboard() {
                     smartScrollToBottom(chatContainerRef.current, true);
                   }
                 } else {
-                  // Pop up in-app notification banner across Reels, Marketplace, etc.
                   setInAppBanner({
                     id: newM.id || Date.now(),
                     senderId: newM.sender_id,
@@ -605,7 +681,6 @@ export default function StudentDashboard() {
                   });
                   playChatNotificationSound();
 
-                  // Immediately increment unread count in conversations state
                   setConversations(prev => {
                     const existing = prev.find(c => String(c.partner_id) === String(newM.sender_id));
                     if (existing) {
@@ -631,9 +706,7 @@ export default function StudentDashboard() {
                 }
               }
             }
-          } catch (err) {
-            // Suppress error storms
-          }
+          } catch (err) {}
         };
 
         socket.onclose = () => {
@@ -641,7 +714,6 @@ export default function StudentDashboard() {
           if (!isMounted) return;
 
           if (retryCount < MAX_RETRIES) {
-            // Exponential backoff: 3s, 6s, 12s, 24s, max 30s
             const backoffMs = Math.min(30000, 3000 * Math.pow(2, retryCount));
             retryCount++;
             reconnectTimeout = setTimeout(connectWs, backoffMs);
@@ -653,9 +725,7 @@ export default function StudentDashboard() {
             try { socket.close(); } catch (_) {}
           }
         };
-      } catch (err) {
-        // Fall back gracefully to polling
-      }
+      } catch (err) {}
     };
 
     const handleReconnectTrigger = () => {
@@ -720,7 +790,7 @@ export default function StudentDashboard() {
     };
   }, [totalUnreadChatCount]);
 
-  // Mobile back button / swipe gesture support (WhatsApp-style back navigation)
+  // Mobile back button / swipe gesture support
   useEffect(() => {
     if (!selectedPartner) return;
     const handlePopState = () => {
@@ -735,28 +805,7 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner]);
 
-  // My AI & Memory Vault State (SWR Instant Load scoped strictly to current user)
-  const [aiMessages, setAiMessages] = useState(() => {
-    const uid = currentUser?.user_id || currentUser?.id;
-    return uid ? getCachedData(`ai_messages_${uid}`, []) : [];
-  });
-  const [aiMemories, setAiMemories] = useState(() => getCachedData('aiMemories', []));
-  const [memoryModalOpen, setMemoryModalOpen] = useState(false);
-  const [memorySearch, setMemorySearch] = useState('');
-  const [newMemoryForm, setNewMemoryForm] = useState({ title: '', content: '', category: 'academic' });
-  const [isSavingMemory, setIsSavingMemory] = useState(false);
-  const [storeInfoToggled, setStoreInfoToggled] = useState(false);
-  const [isAiTyping, setIsAiTyping] = useState(false);
-  
-  // Campus Community Directory & Friends (SWR Instant Load)
-  const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
-  const [friendsFilter, setFriendsFilter] = useState('all'); // 'all' | 'students' | 'sellers'
-  const [campusStudents, setCampusStudents] = useState(() => getCachedData('campusStudents', []));
-  const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
-  const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
-  const [studentSearch, setStudentSearch] = useState('');
-
-  // Universal Chat & Friends Directory Filtering (Facebook / WhatsApp Messenger Architecture)
+  // Universal Chat & Friends Directory Filtering
   const filteredConversations = useMemo(() => {
     const q = chatSearchQuery.trim().toLowerCase();
     if (!q) return conversations;
@@ -795,41 +844,6 @@ export default function StudentDashboard() {
     });
   }, [conversations, campusStudents, myFriends, communityUsers, chatSearchQuery, currentUser?.user_id]);
 
-  // Student Profile Modal State
-  const [selectedProfile, setSelectedProfile] = useState(null);
-  const [profileModalOpen, setProfileModalOpen] = useState(false);
-
-  // Orders State (SWR Instant Load)
-  const [orderModalItem, setOrderModalItem] = useState(null);
-  const [orderDeliveryLocation, setOrderDeliveryLocation] = useState('');
-  const [orderQuantity, setOrderQuantity] = useState(1);
-  const [myOrders, setMyOrders] = useState(() => getCachedData('myOrders', []));
-
-  // Profile Settings State
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [profileForm, setProfileForm] = useState({
-    full_name: '',
-    bio: '',
-    phone_number: '',
-    department: '',
-    level: '',
-    hostel: '',
-    current_password: ''
-  });
-  const [passwordForm, setPasswordForm] = useState({
-    current_password: '',
-    new_password: '',
-    confirm_password: ''
-  });
-  const avatarInputRef = useRef(null);
-
-  const [notifications, setNotifications] = useState(() => getCachedData('notifications', []));
-  const [unreadCount, setUnreadCount] = useState(() => getCachedData('unreadCount', 0));
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
-
   // Mobile back button & Escape key support for notification slide-over drawer
   useEffect(() => {
     if (!notificationsOpen) return;
@@ -851,33 +865,6 @@ export default function StudentDashboard() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [notificationsOpen]);
-
-  // New User Profile Completion Prompt State (only shows for new accounts)
-  const [showNewUserModal, setShowNewUserModal] = useState(() => {
-    try {
-      if (localStorage.getItem('campuslink_show_profile_completion_prompt') === 'true') {
-        return true;
-      }
-      if (localStorage.getItem('campuslink_dismissed_profile_prompt') === 'true') {
-        return false;
-      }
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const u = JSON.parse(stored);
-        const isIncomplete = !u.department || !u.hostel || !u.phone_number;
-        if (u.created_at) {
-          const createdTime = new Date(u.created_at).getTime();
-          const isRecent = (Date.now() - createdTime) < 48 * 3600 * 1000;
-          if (isRecent && isIncomplete) return true;
-        }
-      }
-    } catch {}
-    return false;
-  });
-
-
-  // Feedback Toast
-  const [toast, setToast] = useState({ text: '', type: '' });
 
   const loadAllData = async () => {
     // Only show full skeleton spinner if we don't already have cached items on screen
