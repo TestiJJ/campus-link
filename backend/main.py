@@ -3861,7 +3861,7 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
             groq_messages.extend(normalized_history)
             groq_messages.append({"role": "user", "content": prompt.strip()})
 
-            for model_name in ["llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "llama-3.1-8b-instant"]:
+            for model_name in ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]:
                 try:
                     resp = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
@@ -4626,13 +4626,32 @@ async def chat_with_campus_ai(request: schemas.AIChatRequest):
 
         messages.append({"role": "user", "content": user_msg})
 
-        completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1500,
-        )
-        reply_content = completion.choices[0].message.content
+        MODELS_TO_TRY = ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]
+        
+        reply_content = None
+        last_err = None
+        for model_name in MODELS_TO_TRY:
+            try:
+                completion = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=1500,
+                )
+                if completion.choices and completion.choices[0].message:
+                    reply_content = completion.choices[0].message.content
+                    if reply_content:
+                        break
+            except Exception as err:
+                last_err = err
+                print(f"Groq model {model_name} error: {err}")
+                continue
+
+        if not reply_content:
+            if last_err:
+                raise last_err
+            reply_content = "I'm ready to help! What would you like to explore today?"
+
         return {
             "reply": reply_content,
             "content": reply_content,
