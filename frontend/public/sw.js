@@ -139,3 +139,75 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// ==========================================
+// Native Web Push Notification Handlers
+// ==========================================
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'CampusLink Alert',
+    body: 'You have a new campus notification',
+    icon: '/pwa-192x192.png',
+    badge: '/pwa-icon.svg',
+    url: '/',
+    tag: 'campuslink-alert'
+  };
+
+  if (event.data) {
+    try {
+      const parsed = event.data.json();
+      data = { ...data, ...parsed };
+    } catch (_) {
+      try {
+        data.body = event.data.text() || data.body;
+      } catch (__) {}
+    }
+  }
+
+  const title = data.title || 'CampusLink';
+  const options = {
+    body: data.body,
+    icon: data.icon || '/pwa-192x192.png',
+    badge: data.badge || '/pwa-icon.svg',
+    image: data.image || undefined,
+    data: {
+      url: data.url || '/',
+      timestamp: Date.now(),
+      ...(data.data || {})
+    },
+    tag: data.tag || `campuslink-${Date.now()}`,
+    renotify: true,
+    vibrate: [200, 100, 200, 100, 200],
+    requireInteraction: false,
+    actions: data.actions || [
+      { action: 'open', title: 'Open CampusLink' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // If there's an existing open tab for CampusLink, focus and navigate it
+      for (const client of windowClients) {
+        if (client.url && 'focus' in client) {
+          if (targetUrl && targetUrl !== '/') {
+            client.navigate(targetUrl).catch(() => {});
+          }
+          return client.focus();
+        }
+      }
+      // Otherwise open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});

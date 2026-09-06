@@ -22,6 +22,12 @@ import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import {
+  isPushSupported,
+  getNotificationPermissionState,
+  subscribeUserToPush,
+  sendTestPushNotification
+} from './utils/pushNotifications';
+import {
   getCachedThreadMessages,
   setCachedThreadMessages,
   mergeThreadMessages,
@@ -343,6 +349,12 @@ export default function VendorDashboard() {
   const avatarInputRef = useRef(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
+  // Push Notification States
+  const [pushPermission, setPushPermission] = useState('default'); // 'default'|'granted'|'denied'
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushTestMsg, setPushTestMsg] = useState('');
+
   // Verification Form State
   const [idFrontFile, setIdFrontFile] = useState(null);
   const [idFrontPreview, setIdFrontPreview] = useState(null);
@@ -409,6 +421,21 @@ export default function VendorDashboard() {
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Initialize push notification permission state on mount
+  useEffect(() => {
+    if (isPushSupported()) {
+      getNotificationPermissionState().then(state => {
+        setPushPermission(state);
+        if (state === 'granted') {
+          // Check if already subscribed
+          subscribeUserToPush().then(sub => {
+            if (sub) setPushEnabled(true);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   // Synchronize activeTab with URL query params and localStorage
@@ -4739,6 +4766,105 @@ export default function VendorDashboard() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* ============================================================ */}
+            {/* Push Notification Card (Vendor)                               */}
+            {/* ============================================================ */}
+            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
+                  <Smartphone className="w-5 h-5 text-violet-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Phone Push Notifications</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Get instant order, chat & payment alerts on your phone — even when the app is closed.</p>
+                </div>
+              </div>
+
+              {!isPushSupported() ? (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-xs text-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p>Push notifications are not supported on this browser. Try opening CampusLink in Chrome or Edge on your phone.</p>
+                </div>
+              ) : pushPermission === 'denied' ? (
+                <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1">
+                  <p className="font-bold flex items-center space-x-1.5"><AlertCircle className="w-4 h-4" /><span>Notifications blocked by browser</span></p>
+                  <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
+                </div>
+              ) : pushEnabled ? (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
+                      <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={pushLoading}
+                    onClick={async () => {
+                      setPushLoading(true);
+                      setPushTestMsg('');
+                      try {
+                        await sendTestPushNotification();
+                        setPushTestMsg('✅ Test alert sent! Check your phone notifications.');
+                      } catch (e) {
+                        setPushTestMsg('❌ ' + (e?.message || 'Test failed. Please try again.'));
+                      } finally {
+                        setPushLoading(false);
+                      }
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Bell className="w-4 h-4" />
+                    <span>{pushLoading ? 'Sending...' : 'Send Test Alert to My Phone'}</span>
+                  </button>
+                  {pushTestMsg && (
+                    <p className={`text-xs font-semibold text-center px-3 py-2 rounded-xl ${
+                      pushTestMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                    }`}>{pushTestMsg}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-4 rounded-2xl bg-violet-50 border border-violet-200 text-xs text-violet-800 space-y-1.5">
+                    <p className="font-bold">🔔 What you'll get notified about:</p>
+                    <ul className="space-y-1 list-disc list-inside text-violet-700">
+                      <li>New student orders placed at your store</li>
+                      <li>New chat messages from customers</li>
+                      <li>Payment confirmations</li>
+                      <li>Campus notices &amp; broadcasts</li>
+                    </ul>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={pushLoading}
+                    onClick={async () => {
+                      setPushLoading(true);
+                      setPushTestMsg('');
+                      try {
+                        const state = await getNotificationPermissionState();
+                        if (state === 'denied') { setPushPermission('denied'); return; }
+                        const sub = await subscribeUserToPush();
+                        if (sub) { setPushEnabled(true); setPushPermission('granted'); }
+                      } catch (e) {
+                        setPushTestMsg('❌ ' + (e?.message || 'Could not enable notifications.'));
+                      } finally {
+                        setPushLoading(false);
+                      }
+                    }}
+                    className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-md shadow-violet-200"
+                  >
+                    <Bell className="w-4 h-4" />
+                    <span>{pushLoading ? 'Enabling...' : 'Enable Phone Notifications'}</span>
+                  </button>
+                  {pushTestMsg && (
+                    <p className="text-xs text-red-600 font-semibold text-center">{pushTestMsg}</p>
+                  )}
+                </div>
+              )}
             </div>
 
           </div>

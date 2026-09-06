@@ -23,6 +23,12 @@ import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import {
+  isPushSupported,
+  getNotificationPermissionState,
+  subscribeUserToPush,
+  sendTestPushNotification
+} from './utils/pushNotifications';
+import {
   getCachedThreadMessages,
   setCachedThreadMessages,
   mergeThreadMessages,
@@ -399,6 +405,40 @@ export default function StudentDashboard() {
   const [unreadCount, setUnreadCount] = useState(() => getCachedData('unreadCount', 0));
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
+
+  // Native Phone Push Notifications State
+  const [pushState, setPushState] = useState(() => getNotificationPermissionState());
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushMessage, setPushMessage] = useState('');
+
+  const handleEnablePush = async () => {
+    setPushLoading(true);
+    setPushMessage('');
+    const res = await subscribeUserToPush(API);
+    setPushLoading(false);
+    if (res.success) {
+      setPushState('granted');
+      setPushMessage('🎉 Phone push notifications enabled!');
+      setTimeout(() => setPushMessage(''), 4000);
+    } else {
+      setPushMessage(res.error || 'Could not enable push.');
+      setTimeout(() => setPushMessage(''), 5000);
+    }
+  };
+
+  const handleTestPush = async () => {
+    setPushLoading(true);
+    setPushMessage('');
+    const res = await sendTestPushNotification(API);
+    setPushLoading(false);
+    if (res.success) {
+      setPushMessage('🔔 Test alert sent to your phone lock-screen!');
+      setTimeout(() => setPushMessage(''), 4000);
+    } else {
+      setPushMessage(res.error || 'Failed to send test push.');
+      setTimeout(() => setPushMessage(''), 5000);
+    }
+  };
 
   // New User Profile Completion Prompt State (only shows for new accounts)
   const [showNewUserModal, setShowNewUserModal] = useState(() => {
@@ -7096,6 +7136,68 @@ export default function StudentDashboard() {
                     Orders
                   </button>
                 </div>
+
+                {/* Native Phone Push Notification Card */}
+                {isPushSupported() && (
+                  <div className="mx-4 my-2.5 p-3 rounded-2xl bg-gradient-to-r from-sky-50 via-blue-50 to-indigo-50 border border-sky-100 flex flex-col gap-2 shadow-2xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${pushState === 'granted' ? 'bg-emerald-500 text-white shadow-xs' : 'bg-sky-500 text-white shadow-xs'}`}>
+                          <Bell className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-xs font-black text-slate-900">Phone Push Alerts</span>
+                            {pushState === 'granted' ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-700">
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800">
+                                Off
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                            {pushState === 'granted'
+                              ? 'Your phone receives lock-screen alerts for chats & orders.'
+                              : 'Get instant phone alerts even when CampusLink is closed.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-0.5">
+                      {pushState !== 'granted' ? (
+                        <button
+                          type="button"
+                          disabled={pushLoading}
+                          onClick={handleEnablePush}
+                          className="flex-1 py-2 px-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>{pushLoading ? 'Enabling...' : 'Enable Phone Alerts'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={pushLoading}
+                          onClick={handleTestPush}
+                          className="flex-1 py-2 px-3 bg-white hover:bg-slate-50 active:scale-98 border border-slate-200 text-slate-800 text-xs font-bold rounded-xl shadow-2xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-sky-500" />
+                          <span>{pushLoading ? 'Sending...' : 'Send Test Alert to Phone'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {pushMessage && (
+                      <p className="text-[11px] font-bold text-sky-700 animate-in fade-in duration-200">
+                        {pushMessage}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Notifications List */}
                 <div className="flex-1 overflow-y-auto divide-y divide-slate-100">

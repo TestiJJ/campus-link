@@ -524,3 +524,19 @@ class AIMessageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# --- Push Notifications ---
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+    user_agent: Optional[str] = None
+
+class PushTestRequest(BaseModel):
+    title: Optional[str] = "CampusLink Alert"
+    body: Optional[str] = "This is a test notification from CampusLink!"
+    url: Optional[str] = "/"

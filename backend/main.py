@@ -936,8 +936,100 @@ def change_user_password(
     return {"message": "Password updated successfully!"}
 
 # ==========================================
-# NOTIFICATIONS SYSTEM
+# NOTIFICATIONS & NATIVE WEB PUSH SYSTEM
 # ==========================================
+
+import threading
+
+VAPID_PUBLIC_KEY = os.getenv(
+    "VAPID_PUBLIC_KEY",
+    "BDVBRCeZGsrIqbuGY-xUUGpf6EdkMZQjOx3Qt6gp3L1rmaWLRDgd2qY995z4-G_YuONaPKnoVO7ODkUyeIukYvA"
+)
+VAPID_PRIVATE_KEY = os.getenv(
+    "VAPID_PRIVATE_KEY",
+    "L2JeXpY0G6Fs4PZvz28MThp1VAUCM5Sney2BBJhJNHc"
+)
+VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:notifications@campuslink.ng")
+
+def send_web_push(subscription_info: dict, payload_data: dict):
+    """
+    Sends a Web Push message to a browser/device push subscription.
+    """
+    try:
+        from pywebpush import webpush
+    except ImportError:
+        print("[Push] pywebpush library not installed.")
+        return False
+
+    try:
+        webpush(
+            subscription_info=subscription_info,
+            data=json.dumps(payload_data),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_CLAIM_EMAIL},
+            ttl=86400
+        )
+        return True
+    except Exception as e:
+        status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+        print(f"[Push] WebPush delivery notice (status={status_code}): {e}")
+        # Return 'expired' for 404 or 410 Gone subscriptions so they can be cleaned up
+        if status_code in (404, 410):
+            return "expired"
+        return False
+
+def dispatch_push_notification_to_user(
+    user_id: str,
+    title: str,
+    body: str,
+    url: str = "/",
+    icon: str = "/pwa-192x192.png",
+    badge: str = "/pwa-icon.svg",
+    tag: str = "campuslink-alert",
+    data: Optional[dict] = None
+):
+    """
+    Background worker that retrieves all registered push devices for a user and dispatches native push notifications.
+    """
+    try:
+        with database.SessionLocal() as db:
+            subs = db.query(models.PushSubscription).filter(
+                models.PushSubscription.user_id == str(user_id)
+            ).all()
+
+            if not subs:
+                return
+
+            payload = {
+                "title": title,
+                "body": body,
+                "url": url,
+                "icon": icon,
+                "badge": badge,
+                "tag": tag,
+                "data": data or {}
+            }
+
+            expired_ids = []
+            for s in subs:
+                sub_info = {
+                    "endpoint": s.endpoint,
+                    "keys": {
+                        "p256dh": s.p256dh,
+                        "auth": s.auth
+                    }
+                }
+                res = send_web_push(sub_info, payload)
+                if res == "expired":
+                    expired_ids.append(s.id)
+
+            if expired_ids:
+                db.query(models.PushSubscription).filter(
+                    models.PushSubscription.id.in_(expired_ids)
+                ).delete(synchronize_session=False)
+                db.commit()
+    except Exception as err:
+        print(f"[Push] Background dispatch notice for user {user_id}: {err}")
 
 def create_notification(
     db: Session,
@@ -961,8 +1053,121 @@ def create_notification(
         )
         db.add(notif)
         db.commit()
+
+        # Target URL resolution for push click handler
+        target_url = "/"
+        if notification_type in ("friend_request", "friend_accept"):
+            target_url = "/student-dashboard?tab=community"
+        elif notification_type in ("like", "comment", "reel"):
+            target_url = "/student-dashboard?tab=reels"
+        elif notification_type == "order":
+            target_url = "/vendor-dashboard?tab=orders"
+        elif notification_type == "notice":
+            target_url = "/student-dashboard?tab=notices"
+        elif notification_type == "message":
+            target_url = f"/chat?partner={reference_id}" if reference_id else "/chat"
+
+        # Dispatch real-time lockscreen phone push notification in background thread
+        threading.Thread(
+            target=dispatch_push_notification_to_user,
+            args=(
+                user_id,
+                title,
+                message,
+                target_url,
+                "/pwa-192x192.png",
+                "/pwa-icon.svg",
+                f"campuslink-{notification_type}"
+            ),
+            daemon=True
+        ).start()
     except Exception as e:
         print(f"[Notifications] Error creating notification: {e}")
+
+@app.get("/api/notifications/vapid-public-key")
+def get_vapid_public_key():
+    """Returns the VAPID public key required by the browser to subscribe to push notifications."""
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+@app.post("/api/notifications/subscribe")
+def subscribe_push_notifications(
+    sub_data: schemas.PushSubscriptionCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Registers or updates a device Web Push subscription for the authenticated student or vendor."""
+    existing = db.query(models.PushSubscription).filter(
+        models.PushSubscription.endpoint == sub_data.endpoint
+    ).first()
+
+    if existing:
+        existing.user_id = current_user.user_id
+        existing.p256dh = sub_data.keys.p256dh
+        existing.auth = sub_data.keys.auth
+        existing.user_agent = sub_data.user_agent
+        db.commit()
+    else:
+        new_sub = models.PushSubscription(
+            user_id=current_user.user_id,
+            endpoint=sub_data.endpoint,
+            p256dh=sub_data.keys.p256dh,
+            auth=sub_data.keys.auth,
+            user_agent=sub_data.user_agent,
+            created_at=datetime.utcnow()
+        )
+        db.add(new_sub)
+        db.commit()
+
+    return {"message": "Push notification subscription registered successfully!"}
+
+@app.post("/api/notifications/unsubscribe")
+def unsubscribe_push_notifications(
+    endpoint_data: dict,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Removes a device Web Push subscription."""
+    endpoint = endpoint_data.get("endpoint")
+    if endpoint:
+        db.query(models.PushSubscription).filter(
+            models.PushSubscription.endpoint == endpoint,
+            models.PushSubscription.user_id == current_user.user_id
+        ).delete()
+        db.commit()
+    return {"message": "Unsubscribed successfully"}
+
+@app.post("/api/notifications/test-push")
+def send_test_push(
+    test_data: schemas.PushTestRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Immediately triggers a test push notification to all devices registered for current_user."""
+    subs_count = db.query(models.PushSubscription).filter(
+        models.PushSubscription.user_id == current_user.user_id
+    ).count()
+
+    if subs_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No device subscriptions found. Please tap 'Enable Notifications' first."
+        )
+
+    threading.Thread(
+        target=dispatch_push_notification_to_user,
+        args=(
+            current_user.user_id,
+            test_data.title or "🔔 CampusLink Alert Verified!",
+            test_data.body or "Your phone is now connected for real-time messages & order alerts!",
+            test_data.url or "/",
+            "/pwa-192x192.png",
+            "/pwa-icon.svg",
+            "campuslink-test"
+        ),
+        daemon=True
+    ).start()
+
+    return {"message": f"Test push dispatched to {subs_count} device(s)!"}
 
 @app.get("/api/notifications")
 def get_user_notifications(
@@ -1001,7 +1206,7 @@ def get_user_notifications(
             user_id=current_user.user_id,
             actor_id=peer_id,
             notification_type="notice",
-            title="ðŸ” Campus Lost & Found Alert",
+            title="🔍 Campus Lost & Found Alert",
             message="Faculty of Engineering: Blue Scientific Calculator & Keys found near Lecture Theater 2.",
             reference_id="notice"
         )
@@ -1060,6 +1265,7 @@ def mark_all_notifications_read(
     ).update({"is_read": True})
     db.commit()
     return {"message": "All notifications marked as read"}
+
 
 
 
