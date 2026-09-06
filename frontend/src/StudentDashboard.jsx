@@ -3046,13 +3046,14 @@ export default function StudentDashboard() {
 
         {/* --- TAB 2: CAMPUS REELS --- */}
         {activeTab === 'reels' && (
-          <div className="max-w-3xl mx-auto space-y-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
                   Campus Reels & Feed
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
                   Watch student video drops, campus clips, and share updates across campus.
                 </p>
               </div>
@@ -3060,27 +3061,27 @@ export default function StudentDashboard() {
                 type="button"
                 onClick={() => handleManualRefresh(true)}
                 disabled={isRefreshing}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
-                title="Refresh feed & posts"
+                className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                title="Refresh feed"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-                <span className="hidden sm:inline">{isRefreshing ? 'Syncing...' : 'Refresh Feed'}</span>
+                <span className="hidden sm:inline">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
               </button>
             </div>
 
-            {/* Facebook-Style Post Creator Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
-              <div className="flex items-center space-x-3 mb-4">
+            {/* Post Creator Card */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-4 shadow-xs">
+              <div className="flex items-center space-x-3 mb-3">
                 {currentUser?.profile_picture_url ? (
-                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-10 h-10 rounded-full object-cover border border-sky-200" />
+                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-9 h-9 rounded-full object-cover border border-sky-200 shrink-0" />
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
                     {currentUser?.full_name?.charAt(0) || 'U'}
                   </div>
                 )}
-                <div>
-                  <span className="font-bold text-xs text-slate-900 block">{currentUser?.full_name}</span>
-                  <span className="text-[10px] text-slate-400">Share with students across {universityName}</span>
+                <div className="min-w-0">
+                  <span className="font-bold text-xs text-slate-900 block truncate">{currentUser?.full_name}</span>
+                  <span className="text-[10px] text-slate-400 truncate block">Share with students across {universityName}</span>
                 </div>
               </div>
 
@@ -3089,131 +3090,101 @@ export default function StudentDashboard() {
                   rows={3}
                   value={reelText}
                   onChange={(e) => setReelText(e.target.value)}
-                  placeholder={`What's happening on campus, ${currentUser?.full_name?.split(' ')[0]}? Share thoughts, announcements, photos, or videos...`}
-                  className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed"
+                  placeholder={`What's happening on campus? Share thoughts, announcements, photos or videos...`}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed"
                 />
 
                 {reelPreview && (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 max-h-72 bg-slate-900 flex items-center justify-center">
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
                     {reelFile?.type?.startsWith('video') ? (
-                      <video src={getMediaUrl(reelPreview)} controls className="max-h-72 w-full object-contain" />
+                      <video src={getMediaUrl(reelPreview)} controls className="max-h-56 w-full object-contain" />
                     ) : (
-                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-72 w-full object-contain" />
+                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-56 w-full object-contain" />
                     )}
                     <button
                       type="button"
-                      onClick={() => {
-                        setReelFile(null);
-                        setReelPreview(null);
-                      }}
-                      className="absolute top-3 right-3 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
+                      onClick={() => { setReelFile(null); setReelPreview(null); }}
+                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
 
-                {/* Quick Location Selector & GPS */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Tag Location:</span>
-                  <button
-                    type="button"
-                    onClick={handleDetectGpsLocation}
-                    disabled={detectingGps}
-                    className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors"
-                    title="Detect device GPS location"
-                  >
+                {/* Location Tags - horizontal scroll on mobile */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Tag:</span>
+                  <button type="button" onClick={handleDetectGpsLocation} disabled={detectingGps}
+                    className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0">
                     <Navigation className={`w-3 h-3 text-sky-600 ${detectingGps ? 'animate-spin' : ''}`} />
-                    <span>{detectingGps ? 'Locating...' : 'My Live GPS'}</span>
+                    <span>{detectingGps ? 'Locating...' : 'GPS'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelLocation(`📍 ${universityName} Campus`)}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer"
-                  >
-                    🏫 {universityName.split(' ')[0]} Campus
+                  <button type="button" onClick={() => setReelLocation(`📍 ${universityName} Campus`)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                    🏫 Campus
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelLocation('📍 Central Library')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer"
-                  >
+                  <button type="button" onClick={() => setReelLocation('📍 Central Library')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     📚 Library
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelLocation('📍 Student Union (SUB)')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer"
-                  >
+                  <button type="button" onClick={() => setReelLocation('📍 Student Union (SUB)')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     🏛️ SUB
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelLocation('📍 Hostels Quad')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer"
-                  >
-                    🛏️ Hostels Quad
+                  <button type="button" onClick={() => setReelLocation('📍 Hostels Quad')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                    🛏️ Hostels
                   </button>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      ref={reelFileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={handleReelFileSelect}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => reelFileInputRef.current?.click()}
-                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-600 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer"
-                    >
+                {/* Toolbar + Submit */}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <input ref={reelFileInputRef} type="file" accept="image/*,video/*" onChange={handleReelFileSelect} className="hidden" />
+                    <button type="button" onClick={() => reelFileInputRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-600 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
                       <Camera className="w-4 h-4 text-sky-500" />
-                      <span>{reelFile ? 'Change Photo/Video' : 'Add Photo / Video'}</span>
+                      <span className="hidden xs:inline sm:inline">{reelFile ? 'Change' : 'Photo/Video'}</span>
                     </button>
-
-                    <div className="flex items-center space-x-1 bg-slate-100 px-3 py-1.5 rounded-xl text-xs text-slate-600">
-                      <MapPin className="w-3.5 h-3.5 text-sky-500" />
+                    <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
+                      <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                       <input
                         type="text"
                         value={reelLocation}
                         onChange={(e) => setReelLocation(e.target.value)}
-                        placeholder="Custom Location Tag"
-                        className="bg-transparent border-none text-xs text-slate-800 focus:outline-none w-36 sm:w-44"
+                        placeholder="Location tag"
+                        className="bg-transparent border-none text-xs text-slate-800 focus:outline-none min-w-0 w-full"
                       />
                     </div>
                   </div>
-
                   <button
                     type="submit"
                     disabled={reelPosting || (!reelFile && !reelText.trim())}
-                    className="px-6 py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all cursor-pointer disabled:opacity-50 self-end sm:self-auto"
+                    className="px-4 py-2 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                   >
-                    {reelPosting ? 'Posting...' : 'Post to Campus'}
+                    {reelPosting ? 'Posting...' : 'Post'}
                   </button>
                 </div>
               </form>
             </div>
 
             {/* Reels Feed */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               {reels.filter(r => !hiddenPostIds.includes(r.id)).map((reel) => {
                 const isAuthor = (currentUser?.user_id && reel.user_id === currentUser.user_id) ||
                                  (currentUser?.id && reel.user_id === currentUser.id) ||
                                  currentUser?.role === 'admin';
 
                 return (
-                <div key={reel.id} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+                <div key={reel.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
                   {/* Post Header */}
-                  <div className="p-4 flex items-center justify-between border-b border-slate-100 relative">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shadow-xs">
+                  <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
+                    <div className="flex items-start space-x-2.5 min-w-0">
+                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shadow-xs shrink-0">
                         {reel.author_name?.charAt(0) || 'U'}
                       </div>
-                      <div>
-                        <div className="flex items-center space-x-1.5">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1">
                           <button
                             type="button"
                             onClick={() => reel.user_id && handleViewProfile(reel.user_id)}
@@ -3221,21 +3192,20 @@ export default function StudentDashboard() {
                           >
                             {reel.author_name}
                           </button>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                             reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
                           }`}>
-                            {reel.author_role === 'vendor' ? 'Campus Merchant' : 'Student'}
+                            {reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
                           </span>
                           {(reel.author_university_abbr || reel.author_university) && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-0.5">
-                              <span>📍</span>
-                              <span>{reel.author_university_abbr || reel.author_university}</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              📍 {reel.author_university_abbr || reel.author_university}
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center space-x-1.5 text-[11px] text-slate-400 mt-0.5">
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 flex-wrap">
                           <span className="flex items-center space-x-0.5 text-sky-600 font-semibold">
-                            <MapPin className="w-3 h-3 text-sky-500" />
+                            <MapPin className="w-2.5 h-2.5 text-sky-500" />
                             <span>{reel.location || 'Campus'}</span>
                           </span>
                           <span>•</span>
@@ -3245,7 +3215,7 @@ export default function StudentDashboard() {
                     </div>
 
                     {/* Post Settings Menu */}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                       <button
                         type="button"
                         onClick={() => setActivePostMenuId(activePostMenuId === reel.id ? null : reel.id)}
@@ -3257,59 +3227,34 @@ export default function StudentDashboard() {
 
                       {activePostMenuId === reel.id && (
                         <>
-                          <div
-                            className="fixed inset-0 z-20"
-                            onClick={() => setActivePostMenuId(null)}
-                          />
-                          <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                          <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
+                          <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
                             {isAuthor && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteReel(reel.id)}
-                                className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                              >
+                              <button type="button" onClick={() => handleDeleteReel(reel.id)}
+                                className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
                                 <Trash2 className="w-4 h-4 text-rose-500" />
                                 <span>Delete Post</span>
                               </button>
                             )}
-
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPostLink(reel)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                            >
+                            <button type="button" onClick={() => handleCopyPostLink(reel)}
+                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
                               <Copy className="w-4 h-4 text-slate-400" />
-                              <span>Copy Post Link</span>
+                              <span>Copy Link</span>
                             </button>
-
                             {reel.user_id && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActivePostMenuId(null);
-                                  handleViewProfile(reel.user_id);
-                                }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                              >
+                              <button type="button" onClick={() => { setActivePostMenuId(null); handleViewProfile(reel.user_id); }}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
                                 <User className="w-4 h-4 text-slate-400" />
-                                <span>View Creator Profile</span>
+                                <span>View Profile</span>
                               </button>
                             )}
-
-                            <button
-                              type="button"
-                              onClick={() => handleHidePost(reel.id)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                            >
+                            <button type="button" onClick={() => handleHidePost(reel.id)}
+                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
                               <EyeOff className="w-4 h-4 text-slate-400" />
-                              <span>Hide from Feed</span>
+                              <span>Hide Post</span>
                             </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleReportPost(reel.id)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                            >
+                            <button type="button" onClick={() => handleReportPost(reel.id)}
+                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
                               <Flag className="w-4 h-4 text-slate-400" />
                               <span>Report Post</span>
                             </button>
@@ -3320,33 +3265,44 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Post Content */}
-                  {/* If text-only post, render with rich Facebook status card typography */}
                   {(!reel.media_url || reel.media_type === 'text') ? (
-                    <div className="p-6 bg-gradient-to-br from-slate-50 via-sky-50/20 to-slate-50 border-y border-slate-100">
-                      <p className="text-slate-800 text-sm sm:text-base font-semibold leading-relaxed whitespace-pre-line">
+                    <div className="px-4 pb-3 pt-1 bg-gradient-to-br from-slate-50 via-sky-50/20 to-slate-50 border-y border-slate-100">
+                      <p className="text-slate-800 text-sm font-semibold leading-relaxed whitespace-pre-line">
                         {reel.description || reel.title}
                       </p>
                     </div>
                   ) : (
                     <>
                       {reel.description && (
-                        <div className="px-5 py-3 text-xs text-slate-700 leading-relaxed font-medium">
+                        <div className="px-4 pb-2 pt-1 text-xs text-slate-700 leading-relaxed font-medium">
                           {reel.description}
                         </div>
                       )}
-
-                      <div className="w-full bg-slate-950 max-h-[520px] overflow-hidden flex items-center justify-center">
+                      {/* Media — full width, aspect-ratio on mobile */}
+                      <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '70vw', minHeight: '200px' }}>
                         {reel.media_type === 'video' ? (
-                          <video src={getMediaUrl(reel.media_url)} controls className="max-h-[520px] w-full object-contain" />
+                          <video
+                            src={getMediaUrl(reel.media_url)}
+                            controls
+                            playsInline
+                            className="w-full h-full object-contain"
+                            style={{ maxHeight: '70vw', minHeight: '200px' }}
+                          />
                         ) : (
-                          <SafeImage src={reel.media_url} alt={reel.title} fallbackType="product" className="max-h-[520px] w-full object-contain" />
+                          <SafeImage
+                            src={reel.media_url}
+                            alt={reel.title}
+                            fallbackType="product"
+                            className="w-full h-full object-contain"
+                            style={{ maxHeight: '70vw', minHeight: '200px' }}
+                          />
                         )}
                       </div>
                     </>
                   )}
 
-                  {/* Action Bar (Likes & Comments Toggle) */}
-                  <div className="p-3.5 px-5 flex items-center justify-between border-t border-slate-100 bg-white">
+                  {/* Action Bar */}
+                  <div className="px-4 py-2.5 flex items-center justify-between border-t border-slate-100 bg-white">
                     <div className="flex items-center space-x-4">
                       <button
                         onClick={() => handleLikeReel(reel.id)}
@@ -3355,7 +3311,7 @@ export default function StudentDashboard() {
                         }`}
                       >
                         <Heart className={`w-4 h-4 ${reel.has_liked ? 'fill-rose-500 text-rose-500' : 'text-slate-500'}`} />
-                        <span>{reel.likes_count || 0} Likes</span>
+                        <span>{reel.likes_count || 0}</span>
                       </button>
 
                       <button
@@ -3363,77 +3319,59 @@ export default function StudentDashboard() {
                         className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
                       >
                         <MessageCircle className="w-4 h-4 text-sky-500" />
-                        <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)} Comments</span>
+                        <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)}</span>
                       </button>
                     </div>
-
-                    <span className="text-[11px] font-semibold text-slate-400">Campus Stories</span>
+                    <span className="text-[10px] font-semibold text-slate-300 hidden sm:block">Campus Stories</span>
                   </div>
 
                   {/* Interactive Comments Drawer */}
                   {activeCommentsReelId === reel.id && (
-                    <div className="p-4 bg-slate-50/80 border-t border-slate-100 space-y-3">
+                    <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 space-y-3">
                       {/* Comments List */}
-                      <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
                         {reel.comments && reel.comments.length > 0 ? (
                           reel.comments.map((comment, idx) => {
                             const canDeleteComment = (currentUser?.user_id && comment.user_id === currentUser.user_id) ||
                                                      (currentUser?.id && comment.user_id === currentUser.id) ||
-                                                     isAuthor ||
-                                                     currentUser?.role === 'admin';
+                                                     isAuthor || currentUser?.role === 'admin';
 
                             return (
-                            <div key={comment.id || idx} className="p-3 bg-white rounded-2xl border border-slate-100 shadow-2xs text-xs">
-                              <div className="flex items-center justify-between mb-1">
-                                <div className="flex items-center space-x-1.5 flex-wrap">
-                                  <span className="font-bold text-slate-900">{comment.author_name}</span>
+                            <div key={comment.id || idx} className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs text-xs">
+                              <div className="flex items-center justify-between mb-1 gap-2">
+                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                  <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
                                   {comment.reply_to_author && (
-                                    <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                                    <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
                                       <Reply className="w-2.5 h-2.5" />
                                       <span>@{comment.reply_to_author}</span>
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-[10px] text-slate-400">
+                                <div className="flex items-center space-x-2 shrink-0">
+                                  <span className="text-[10px] text-slate-400 whitespace-nowrap">
                                     {safeTime(comment.created_at, 'Just now')}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setReplyingToComment({
-                                        reelId: reel.id,
-                                        commentId: comment.id,
-                                        authorName: comment.author_name,
-                                        text: comment.content
-                                      });
-                                      setTimeout(() => commentInputRef.current?.focus(), 60);
-                                    }}
-                                    className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold"
-                                    title="Reply to this comment"
-                                  >
+                                  <button type="button"
+                                    onClick={() => { setReplyingToComment({ reelId: reel.id, commentId: comment.id, authorName: comment.author_name, text: comment.content }); setTimeout(() => commentInputRef.current?.focus(), 60); }}
+                                    className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold">
                                     <Reply className="w-3 h-3" />
-                                    <span>Reply</span>
                                   </button>
                                   {canDeleteComment && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteReelComment(reel.id, comment.id)}
-                                      className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
-                                      title="Delete comment"
-                                    >
+                                    <button type="button" onClick={() => handleDeleteReelComment(reel.id, comment.id)}
+                                      className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer">
                                       <Trash2 className="w-3 h-3" />
                                     </button>
                                   )}
                                 </div>
                               </div>
-                              <p className="text-slate-700 leading-relaxed pl-0.5">{comment.content}</p>
+                              <p className="text-slate-700 leading-relaxed">{comment.content}</p>
                             </div>
                             );
                           })
                         ) : (
                           <div className="py-4 text-center text-xs text-slate-400">
-                            No comments yet. Be the first to share your thoughts!
+                            No comments yet. Be the first!
                           </div>
                         )}
                       </div>
@@ -3441,46 +3379,35 @@ export default function StudentDashboard() {
                       {/* Replying Indicator Banner */}
                       {replyingToComment && replyingToComment.reelId === reel.id && (
                         <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-200/80 rounded-xl text-xs text-sky-800">
-                          <div className="flex items-center space-x-1.5 overflow-hidden">
+                          <div className="flex items-center space-x-1.5 overflow-hidden min-w-0">
                             <Reply className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                             <span className="truncate">
                               Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setReplyingToComment(null)}
-                            className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer"
-                            title="Cancel reply"
-                          >
+                          <button type="button" onClick={() => setReplyingToComment(null)}
+                            className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer shrink-0">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       )}
 
-                      {/* Comment Input Form */}
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          handlePostComment(reel.id);
-                        }}
-                        className="flex items-center space-x-2 pt-2 border-t border-slate-200/60"
-                      >
+                      {/* Comment Input */}
+                      <form onSubmit={(e) => { e.preventDefault(); handlePostComment(reel.id); }}
+                        className="flex items-center space-x-2 pt-2 border-t border-slate-200/60">
                         <input
                           ref={commentInputRef}
                           type="text"
-                          placeholder={replyingToComment && replyingToComment.reelId === reel.id ? `Reply to @${replyingToComment.authorName}...` : "Write a comment on this post..."}
+                          placeholder={replyingToComment && replyingToComment.reelId === reel.id
+                            ? `Reply to @${replyingToComment.authorName}...`
+                            : "Write a comment..."}
                           value={newCommentText}
                           onChange={(e) => setNewCommentText(e.target.value)}
                           className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
                         />
-                        <button
-                          type="submit"
-                          disabled={postingComment || !newCommentText.trim()}
-                          className="p-2.5 px-3.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50 flex items-center space-x-1"
-                        >
+                        <button type="submit" disabled={postingComment || !newCommentText.trim()}
+                          className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
                           <Send className="w-3.5 h-3.5" />
-                          <span>{replyingToComment && replyingToComment.reelId === reel.id ? 'Reply' : 'Post'}</span>
                         </button>
                       </form>
                     </div>
@@ -3490,15 +3417,16 @@ export default function StudentDashboard() {
               })}
 
               {reels.filter(r => !hiddenPostIds.includes(r.id)).length === 0 && (
-                <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center">
-                  <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <h3 className="font-bold text-slate-700 text-sm">No campus posts to show</h3>
-                  <p className="text-xs text-slate-400 mt-1">Be the first to share a photo, video or thought with campus!</p>
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-10 text-center">
+                  <Video className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <h3 className="font-bold text-slate-700 text-sm">No campus posts yet</h3>
+                  <p className="text-xs text-slate-400 mt-1">Be the first to share a photo, video or thought!</p>
                 </div>
               )}
             </div>
           </div>
         )}
+
 
         {/* --- TAB 3: CAMPUS NOTICE BOARD & LOST & FOUND HUB --- */}
         {activeTab === 'campus' && (
