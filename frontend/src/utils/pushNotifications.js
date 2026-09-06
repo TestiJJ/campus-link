@@ -66,34 +66,48 @@ export const subscribeUserToPush = async (customApi = API) => {
     // 1. Request user permission
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      return { success: false, error: 'Notification permission was not granted.' };
+      return { success: false, error: 'Notification permission was not granted. Please allow notifications when prompted.' };
     }
 
     // 2. Ensure Service Worker is ready
-    let registration = await navigator.serviceWorker.getRegistration();
+    let registration = await navigator.serviceWorker.getRegistration('/');
     if (!registration) {
       registration = await registerServiceWorker();
     }
     if (!registration) {
-      return { success: false, error: 'Service worker is not active.' };
+      return { success: false, error: 'Service worker could not be registered. Try refreshing the page.' };
     }
 
+    // Wait for SW to be fully active
+    await navigator.serviceWorker.ready;
+
     // 3. Fetch VAPID Public Key from backend
-    const keyRes = await customApi.get('/notifications/vapid-public-key');
-    const vapidPublicKey = keyRes.data?.public_key;
+    let vapidPublicKey;
+    try {
+      const keyRes = await customApi.get('/notifications/vapid-public-key');
+      vapidPublicKey = keyRes.data?.public_key;
+    } catch (keyErr) {
+      return { success: false, error: 'Could not reach the server. Make sure you are connected and try again.' };
+    }
+
     if (!vapidPublicKey) {
-      return { success: false, error: 'Failed to retrieve push encryption key from server.' };
+      return { success: false, error: 'Server did not return a push key. Please try again later.' };
     }
 
     const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
 
     // 4. Check existing subscription or create new
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: convertedVapidKey,
-      });
+    let subscription;
+    try {
+      subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey,
+        });
+      }
+    } catch (subErr) {
+      return { success: false, error: 'Browser blocked the subscription. Check site notification permissions in your browser settings.' };
     }
 
     // 5. Send subscription to CampusLink backend
@@ -121,6 +135,7 @@ export const subscribeUserToPush = async (customApi = API) => {
     };
   }
 };
+
 
 /**
  * Unsubscribes the current device from Push Notifications

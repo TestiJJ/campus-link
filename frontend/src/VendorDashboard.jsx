@@ -425,12 +425,15 @@ export default function VendorDashboard() {
 
   // Initialize push notification permission state on mount
   useEffect(() => {
-    if (isPushSupported()) {
-      getNotificationPermissionState().then(state => {
-        setPushPermission(state);
-        if (state === 'granted') {
-          // Check if already subscribed
-          subscribeUserToPush().then(sub => {
+    if (!isPushSupported()) return;
+    // getNotificationPermissionState is synchronous
+    const state = getNotificationPermissionState();
+    setPushPermission(state);
+    if (state === 'granted') {
+      // Silently check if already subscribed (no permission prompt)
+      navigator.serviceWorker.getRegistration('/').then(reg => {
+        if (reg) {
+          reg.pushManager.getSubscription().then(sub => {
             if (sub) setPushEnabled(true);
           }).catch(() => {});
         }
