@@ -1107,27 +1107,15 @@ export default function StudentDashboard() {
     };
 
     syncInterval = setInterval(syncDashboard, 60000); // 60s — WebSocket handles real-time, no need to hammer the server
-
-    // Sync immediately when the user returns to the app (tab focus or visibility restored).
-    // This covers both: switching browser tabs AND returning from a native app/OS-level exit.
-    // Without this, stale conversations would show for up to 60 seconds after re-entering.
     const onWindowFocus = () => {
       if (getAuthToken()) syncDashboard();
     };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && getAuthToken()) {
-        // Fire immediately without waiting for the 60s poll
-        syncDashboard();
-      }
-    };
     window.addEventListener('focus', onWindowFocus);
-    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       syncCancelled = true;
       if (syncInterval) clearInterval(syncInterval);
       window.removeEventListener('focus', onWindowFocus);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [navigate]);
 

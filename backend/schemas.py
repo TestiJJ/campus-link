@@ -59,13 +59,9 @@ class UserOut(UserBase):
     is_online: Optional[bool] = False
     last_seen: Optional[datetime] = None
     created_at: Optional[datetime] = None
-    # Embedded at login time so the client never needs a secondary round-trip
-    university_name: Optional[str] = None
 
     class Config:
         from_attributes = True
-        # Allow extra fields so the enriched dict from login_user() passes validation
-        populate_by_name = True
 
 class UserRegistrationOut(UserOut):
     email_dispatched: Optional[bool] = True
