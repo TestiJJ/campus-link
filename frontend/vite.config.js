@@ -45,9 +45,19 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('framer-motion') || id.includes('lucide-react') || id.includes('lenis')) {
-              return 'vendor-ui';
+            // Capacitor mobile runtime — never needed on web initial load
+            if (id.includes('@capacitor')) {
+              return 'vendor-capacitor';
             }
+            // Heavy animation libraries — deferred, not in critical path
+            if (id.includes('framer-motion') || id.includes('lenis')) {
+              return 'vendor-animation';
+            }
+            // Icon library — large, only needed after route hydration
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+            // Core React runtime — kept lean for fastest FCP
             if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom') || id.includes('axios')) {
               return 'vendor-core';
             }
@@ -55,6 +65,8 @@ export default defineConfig({
         },
       },
     },
-    chunkSizeWarningLimit: 1000,
+    // Raise warning limit — dashboard chunks are intentionally large (feature-rich SPA)
+    chunkSizeWarningLimit: 1500,
   },
 });
+

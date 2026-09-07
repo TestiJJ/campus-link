@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { prefetchAfterLogin } from './prefetch';
 import {
   ShieldCheck, ArrowRight, Lock, Mail, Phone,
   User, Building2, Store, CheckCircle2,
@@ -301,6 +302,10 @@ export default function Auth() {
       if (isLogin) {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
+
+        // Background prefetch: kick off profile/notifications/conversations fetches
+        // in parallel BEFORE navigate() so the dashboard sees data instantly.
+        prefetchAfterLogin(data.user, data.access_token);
 
         if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
           localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');

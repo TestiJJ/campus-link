@@ -4,7 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy.exc import SQLAlchemyError
 import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
 from dotenv import load_dotenv
@@ -668,7 +668,14 @@ def resend_otp(payload: schemas.ResendOTPSchema, db: Session = Depends(database.
 def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.get_db)):
     clean_email = (credentials.email or "").strip().lower()
     try:
-        user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+        # Eager-load university in the same query to avoid a secondary round-trip
+        # for profile display (university_name is embedded directly in the Token response)
+        user = (
+            db.query(models.User)
+            .options(joinedload(models.User.university))
+            .filter(func.lower(models.User.email) == clean_email)
+            .first()
+        )
     except SQLAlchemyError as db_err:
         print(f"[Login Database Error] SQLAlchemyError: {db_err}")
         try:
@@ -695,22 +702,50 @@ def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.ge
 
     if not user.is_email_verified:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Email not verified. Please complete email verification first."
         )
 
     if getattr(user, "status", "active") == "suspended":
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been suspended by administration. Please contact support."
         )
 
     access_token = auth.create_access_token(data={"sub": user.user_id, "role": user.role})
-    
+
+    # Resolve university_name from the eager-loaded relationship so the client
+    # never needs a secondary /api/me or /api/universities/{id} round-trip.
+    university_name = user.university.name if user.university else None
+
+    # Build an enriched user dict that includes university_name.
+    # We convert the ORM object to a dict manually so we can add computed fields.
+    user_dict = {
+        "user_id": user.user_id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone_number": user.phone_number,
+        "role": user.role,
+        "status": getattr(user, "status", "active"),
+        "university_id": user.university_id,
+        "university_name": university_name,
+        "state": user.state,
+        "department": user.department,
+        "level": user.level,
+        "hostel": user.hostel,
+        "bio": user.bio,
+        "profile_picture_url": user.profile_picture_url,
+        "matric_number": user.matric_number,
+        "is_email_verified": user.is_email_verified,
+        "is_online": user.is_online,
+        "last_seen": user.last_seen,
+        "created_at": user.created_at,
+    }
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user
+        "user": user_dict,
     }
 
 @app.get("/api/me", response_model=schemas.UserOut)
@@ -1174,7 +1209,7 @@ def get_user_notifications(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    # If the student has zero notifications, seed starter campus notifications
+    # Seed starter notifications for brand-new users
     if db.query(models.Notification).filter(models.Notification.user_id == current_user.user_id).count() == 0:
         peer = db.query(models.User).filter(
             models.User.university_id == current_user.university_id,
@@ -1211,32 +1246,40 @@ def get_user_notifications(
             reference_id="notice"
         )
 
-    notifs = db.query(models.Notification).filter(
-        models.Notification.user_id == current_user.user_id
-    ).order_by(models.Notification.created_at.desc()).limit(60).all()
+    # FIX: Use selectinload so all actor profiles are fetched in a single
+    # additional SQL query instead of one lazy-load per notification (N+1).
+    # Before: 1 + N queries for N notifications.
+    # After : exactly 2 queries regardless of notification count.
+    notifs = (
+        db.query(models.Notification)
+        .options(selectinload(models.Notification.actor))
+        .filter(models.Notification.user_id == current_user.user_id)
+        .order_by(models.Notification.created_at.desc())
+        .limit(60)
+        .all()
+    )
 
-    unread_count = db.query(models.Notification).filter(
-        models.Notification.user_id == current_user.user_id,
-        models.Notification.is_read == False
-    ).count()
+    # Count unread in the same query pass — avoids a separate COUNT(*) round-trip
+    unread_count = sum(1 for n in notifs if not n.is_read)
 
-    results = []
-    for n in notifs:
-        actor = n.actor
-        results.append({
+    results = [
+        {
             "id": n.id,
             "user_id": n.user_id,
             "actor_id": n.actor_id,
-            "actor_name": actor.full_name if actor else "Campus Peer",
-            "actor_avatar": actor.profile_picture_url if actor else None,
-            "actor_dept": actor.department if actor else None,
+            # actor is already loaded in memory — no additional DB hit
+            "actor_name": n.actor.full_name if n.actor else "Campus Peer",
+            "actor_avatar": n.actor.profile_picture_url if n.actor else None,
+            "actor_dept": n.actor.department if n.actor else None,
             "notification_type": n.notification_type,
             "title": n.title,
             "message": n.message,
             "reference_id": n.reference_id,
             "is_read": n.is_read,
-            "created_at": n.created_at
-        })
+            "created_at": n.created_at,
+        }
+        for n in notifs
+    ]
     return {"notifications": results, "unread_count": unread_count}
 
 @app.post("/api/notifications/{notification_id}/read")

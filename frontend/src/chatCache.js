@@ -9,6 +9,19 @@ const messageThreadsCache = new Map();
 const threadMetaCache = new Map();
 const activeFetches = new Map();
 
+/**
+ * Evict all in-memory thread caches without touching localStorage.
+ * Called on login so the next thread open always fetches fresh data from the
+ * server instead of serving pre-exit stale messages from the JS heap.
+ * localStorage previews are kept so the conversation list stays populated.
+ */
+export const clearThreadMemoryCache = () => {
+  messageThreadsCache.clear();
+  threadMetaCache.clear();
+  activeFetches.clear();
+};
+
+
 // Helper to normalize partner ID to string
 const toKey = (partnerId) => String(partnerId || '').trim();
 
