@@ -427,6 +427,7 @@ class CampusNoticeOut(BaseModel):
     author_name: Optional[str] = None
     author_avatar: Optional[str] = None
     author_dept: Optional[str] = None
+    author_department: Optional[str] = None
     type: str
     title: str
     category: str

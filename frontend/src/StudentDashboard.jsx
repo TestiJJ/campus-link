@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -286,6 +286,8 @@ export default function StudentDashboard() {
     image_url: ''
   });
   const [submittingNotice, setSubmittingNotice] = useState(false);
+  const [uploadingNoticeImage, setUploadingNoticeImage] = useState(false);
+  const noticeFileInputRef = useRef(null);
   const [universityName, setUniversityName] = useState('University Campus');
 
   // WhatsApp-Style Campus Status State (SWR Instant Load)
@@ -325,8 +327,37 @@ export default function StudentDashboard() {
   // Messages, Friends & Social Graph State (SWR Instant Load)
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [conversations, setConversations] = useState(() => getCachedData('conversations', []));
-  const [selectedPartner, setSelectedPartner] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
+  const [selectedPartner, setSelectedPartner] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const chatId = params.get('chat');
+      if (chatId) {
+        if (chatId === 'campus_ai') {
+          return {
+            partner_id: 'campus_ai',
+            partner_name: 'CampusLink AI',
+            partner_role: 'Campus AI Assistant',
+            is_ai: true
+          };
+        }
+        const cachedConvs = getCachedData('conversations', []);
+        const found = cachedConvs.find(c => String(c.partner_id || c.user_id || c.id) === String(chatId));
+        if (found) return found;
+        return { partner_id: chatId, partner_name: 'Campus Peer' };
+      }
+    } catch {}
+    return null;
+  });
+  const [chatMessages, setChatMessages] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const chatId = params.get('chat');
+      if (chatId && chatId !== 'campus_ai') {
+        return getCachedThreadMessages(chatId);
+      }
+    } catch {}
+    return [];
+  });
   const [newMsgText, setNewMsgText] = useState('');
   const [sendingMsg, setSendingMsg] = useState(false);
   const messagesEndRef = useRef(null);
@@ -454,24 +485,46 @@ export default function StudentDashboard() {
   // Feedback Toast
   const [toast, setToast] = useState({ text: '', type: '' });
 
-  // Synchronize activeTab and marketType with browser URL and localStorage
+  // Synchronize activeTab, marketType, and selectedPartner with browser URL and localStorage
   useEffect(() => {
     try {
       localStorage.setItem('campuslink_student_tab', activeTab);
       const url = new URL(window.location.href);
+      let changed = false;
+
       if (url.searchParams.get('tab') !== activeTab) {
         url.searchParams.set('tab', activeTab);
-        if (activeTab === 'marketplace' && marketType) {
+        changed = true;
+      }
+
+      if (activeTab === 'marketplace' && marketType) {
+        if (url.searchParams.get('marketType') !== marketType) {
           url.searchParams.set('marketType', marketType);
-        } else {
-          url.searchParams.delete('marketType');
+          changed = true;
         }
+      } else if (url.searchParams.has('marketType')) {
+        url.searchParams.delete('marketType');
+        changed = true;
+      }
+
+      if (activeTab === 'messages' && selectedPartner) {
+        const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
+        if (pId && url.searchParams.get('chat') !== pId) {
+          url.searchParams.set('chat', pId);
+          changed = true;
+        }
+      } else if (url.searchParams.has('chat')) {
+        url.searchParams.delete('chat');
+        changed = true;
+      }
+
+      if (changed) {
         window.history.replaceState({}, '', url.toString());
       }
     } catch {}
-  }, [activeTab, marketType]);
+  }, [activeTab, marketType, selectedPartner]);
 
-  // Support browser Back/Forward navigation between tabs
+  // Support browser Back/Forward navigation between tabs and closing active chat
   useEffect(() => {
     const handlePopState = () => {
       try {
@@ -483,6 +536,10 @@ export default function StudentDashboard() {
         const mt = params.get('marketType');
         if (mt === 'products' || mt === 'services') {
           setMarketType(mt);
+        }
+        const chatId = params.get('chat');
+        if (!chatId && selectedPartnerRef.current) {
+          setSelectedPartner(null);
         }
       } catch {}
     };
@@ -558,84 +615,72 @@ export default function StudentDashboard() {
     };
   }, []);
 
-  // Chat auto-scroll helpers
+  // Chat auto-scroll helpers (Strictly container-scoped to prevent displacing the page)
   const scrollToBottom = (behavior = "auto") => {
-    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    const el = chatContainerRef.current;
+    if (el) {
+      if (behavior === "smooth") {
+        try {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          return;
+        } catch {}
+      }
+      el.scrollTop = el.scrollHeight;
+    }
   };
 
   const scrollAiToBottom = (behavior = "auto") => {
-    aiMessagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    const el = aiMessagesEndRef.current?.parentElement;
+    if (el) {
+      if (behavior === "smooth") {
+        try {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          return;
+        } catch {}
+      }
+      el.scrollTop = el.scrollHeight;
+    }
   };
 
   const scrollToChatBottom = (instant = true) => {
     scrollToBottom(instant ? "auto" : "smooth");
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
   };
 
-  // Trigger on active conversation switch or messages length change
+  // Instant snap to bottom on partner selection or switching to chat tab
   useEffect(() => {
-    scrollToBottom("auto");
-    requestAnimationFrame(() => {
-      if (chatContainerRef.current) {
-        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-      }
-    });
-  }, [selectedPartner?.partner_id, activeTab, messageSubtab, chatMessages?.length]);
+    if (selectedPartner) {
+      const snap = () => scrollToBottom("auto");
+      snap();
+      const r1 = requestAnimationFrame(snap);
+      const t1 = setTimeout(snap, 60);
+      const t2 = setTimeout(() => {
+        snap();
+        isSwitchingPartnerRef.current = false;
+      }, 200);
+      return () => {
+        cancelAnimationFrame(r1);
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
+    }
+  }, [selectedPartner?.partner_id, activeTab, messageSubtab]);
+
+  // When new messages arrive, scroll down smoothly ONLY if user is already near bottom or switching
+  useEffect(() => {
+    const el = chatContainerRef.current;
+    if (!el || !chatMessages?.length) return;
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
+    if (isNearBottom || isSwitchingPartnerRef.current) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [chatMessages?.length]);
 
   // Trigger on AI tab switch or aiMessages length change
   useEffect(() => {
     scrollAiToBottom("auto");
   }, [activeTab, messageSubtab, aiMessages?.length]);
-
-  // Instant snap to bottom on partner selection or messages update
-  useEffect(() => {
-    if (selectedPartner) {
-      const snap = () => {
-        scrollToBottom("auto");
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      };
-      snap();
-      const r1 = requestAnimationFrame(snap);
-      const t1 = setTimeout(snap, 30);
-      const t2 = setTimeout(snap, 100);
-      const t3 = setTimeout(snap, 250);
-      const t4 = setTimeout(snap, 600);
-      const t5 = setTimeout(() => {
-        snap();
-        isSwitchingPartnerRef.current = false;
-      }, 1000);
-      return () => {
-        cancelAnimationFrame(r1);
-        clearTimeout(t1);
-        clearTimeout(t2);
-        clearTimeout(t3);
-        clearTimeout(t4);
-        clearTimeout(t5);
-      };
-    }
-  }, [selectedPartner?.partner_id, chatMessages?.length]);
-
-  // DOM observer to keep chat pinned to recent messages
-  useEffect(() => {
-    const el = chatContainerRef.current;
-    if (!el) return;
-
-    const observer = new MutationObserver(() => {
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
-      if (isNearBottom || isSwitchingPartnerRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-
-    observer.observe(el, { childList: true, subtree: true, attributes: true });
-    return () => {
-      observer.disconnect();
-    };
-  }, [selectedPartner?.partner_id]);
 
   // Real-time WebSocket connection for instant chat delivery & floating banner alerts
   useEffect(() => {
@@ -907,70 +952,39 @@ export default function StudentDashboard() {
       setLoading(true);
     }
     try {
-      const [prodRes, svcRes, catRes, reelsRes, convRes, notRes, statRes, commRes, reqRes, friendsRes, studRes, notifRes, meRes, ordersRes, memsRes] = await Promise.all([
+      // Tier 1: Critical UI data needed for immediate first-paint
+      const [meRes, notifRes, prodRes, svcRes, catRes, reelsRes, convRes, notRes] = await Promise.all([
+        API.get('/me').catch(() => ({ data: null })),
+        API.get('/notifications').catch(() => ({ data: [] })),
         API.get('/products').catch(err => { console.warn('Products fetch error:', err); return { data: [] }; }),
         API.get('/services').catch(err => { console.warn('Services fetch error:', err); return { data: [] }; }),
         API.get('/categories').catch(err => { console.warn('Categories fetch error:', err); return { data: [] }; }),
         API.get('/reels').catch(err => { console.warn('Reels fetch error:', err); return { data: [] }; }),
         API.get('/conversations').catch(err => { console.warn('Conversations fetch error:', err); return { data: [] }; }),
-        API.get('/campus/notices').catch(err => { console.warn('Notices fetch error:', err); return { data: [] }; }),
-        API.get('/campus/statuses').catch(err => { console.warn('Statuses fetch error:', err); return { data: [] }; }),
-        API.get('/community/users').catch(err => { console.warn('Community fetch error:', err); return { data: [] }; }),
-        API.get('/friends/requests/pending').catch(err => { console.warn('Requests fetch error:', err); return { data: [] }; }),
-        API.get('/friends').catch(err => { console.warn('Friends fetch error:', err); return { data: [] }; }),
-        API.get('/students').catch(err => { console.warn('Students fetch error:', err); return { data: [] }; }),
-        API.get('/notifications').catch(() => ({ data: [] })),
-        API.get('/me').catch(() => ({ data: null })),
-        API.get('/orders/my').catch(() => ({ data: [] })),
-        API.get('/ai/memories').catch(() => ({ data: [] }))
+        API.get('/campus/notices').catch(err => { console.warn('Notices fetch error:', err); return { data: [] }; })
       ]);
+
       const fetchedProds = prodRes.data || [];
       const fetchedSvcs = svcRes.data || [];
       const fetchedCats = catRes.data || [];
       const fetchedReels = reelsRes.data || [];
+      const fetchedConvs = convRes.data || [];
+      const fetchedNotices = notRes.data || [];
 
       setProducts(fetchedProds);
       setServices(fetchedSvcs);
       setCategories(fetchedCats);
       setReels(fetchedReels);
+      setConversations(fetchedConvs);
+      setNotices(fetchedNotices);
 
       // Persist to local cache for instant reload
       setCachedData('products', fetchedProds);
       setCachedData('services', fetchedSvcs);
       setCachedData('categories', fetchedCats);
       setCachedData('reels', fetchedReels);
-      const fetchedConvs = convRes.data || [];
-      const fetchedNotices = notRes.data || [];
-      const fetchedStatuses = statRes.data || [];
-      const fetchedCommunity = commRes.data || [];
-      const fetchedRequests = reqRes.data || [];
-      const fetchedFriends = friendsRes.data || [];
-      const fetchedStudents = studRes.data || commRes.data || [];
-      const fetchedOrders = ordersRes.data || [];
-      const fetchedMemories = memsRes.data || [];
-
-      setConversations(fetchedConvs);
-      setNotices(fetchedNotices);
-      setStatusGroups(fetchedStatuses);
-      setCommunityUsers(fetchedCommunity);
-      setPendingRequests(fetchedRequests);
-      setMyFriends(fetchedFriends);
-      setCampusStudents(fetchedStudents);
-      setMyOrders(fetchedOrders);
-      setAiMemories(fetchedMemories);
-
-      // Instantly prefetch top conversations in the background for 0ms chat loading
-      prefetchRecentConversations(fetchedConvs);
-
       setCachedData('conversations', fetchedConvs);
       setCachedData('notices', fetchedNotices);
-      setCachedData('statusGroups', fetchedStatuses);
-      setCachedData('communityUsers', fetchedCommunity);
-      setCachedData('pendingRequests', fetchedRequests);
-      setCachedData('myFriends', fetchedFriends);
-      setCachedData('campusStudents', fetchedStudents);
-      setCachedData('myOrders', fetchedOrders);
-      setCachedData('aiMemories', fetchedMemories);
 
       const notifs = notifRes.data?.notifications || (Array.isArray(notifRes.data) ? notifRes.data : []);
       const unread = notifRes.data?.unread_count ?? notifs.filter(n => !n.is_read).length;
@@ -993,9 +1007,52 @@ export default function StudentDashboard() {
           current_password: ''
         });
       }
+
+      // Instantly prefetch top conversations in the background for 0ms chat loading
+      prefetchRecentConversations(fetchedConvs);
+
+      // Immediately unblock visible UI!
+      setLoading(false);
+
+      // Tier 2: Background secondary data (statuses, community, friends, students, orders, memories)
+      Promise.all([
+        API.get('/campus/statuses').catch(() => ({ data: [] })),
+        API.get('/community/users').catch(() => ({ data: [] })),
+        API.get('/friends/requests/pending').catch(() => ({ data: [] })),
+        API.get('/friends').catch(() => ({ data: [] })),
+        API.get('/students').catch(() => ({ data: [] })),
+        API.get('/orders/my').catch(() => ({ data: [] })),
+        API.get('/ai/memories').catch(() => ({ data: [] }))
+      ]).then(([statRes, commRes, reqRes, friendsRes, studRes, ordersRes, memsRes]) => {
+        const fetchedStatuses = statRes.data || [];
+        const fetchedCommunity = commRes.data || [];
+        const fetchedRequests = reqRes.data || [];
+        const fetchedFriends = friendsRes.data || [];
+        const fetchedStudents = studRes.data || commRes.data || [];
+        const fetchedOrders = ordersRes.data || [];
+        const fetchedMemories = memsRes.data || [];
+
+        setStatusGroups(fetchedStatuses);
+        setCommunityUsers(fetchedCommunity);
+        setPendingRequests(fetchedRequests);
+        setMyFriends(fetchedFriends);
+        setCampusStudents(fetchedStudents);
+        setMyOrders(fetchedOrders);
+        setAiMemories(fetchedMemories);
+
+        setCachedData('statusGroups', fetchedStatuses);
+        setCachedData('communityUsers', fetchedCommunity);
+        setCachedData('pendingRequests', fetchedRequests);
+        setCachedData('myFriends', fetchedFriends);
+        setCachedData('campusStudents', fetchedStudents);
+        setCachedData('myOrders', fetchedOrders);
+        setCachedData('aiMemories', fetchedMemories);
+      }).catch(err => {
+        console.warn('Background campus data warning:', err);
+      });
+
     } catch (err) {
       console.error('Error fetching campus data:', err);
-    } finally {
       setLoading(false);
     }
   };
@@ -1870,22 +1927,34 @@ export default function StudentDashboard() {
   };
 
   // --- NOTICE BOARD HANDLERS ---
+  // --- NOTICE BOARD HANDLERS ---
   const fetchCampusNotices = async () => {
     try {
-      const params = {};
-      if (noticeType !== 'all') params.notice_type = noticeType;
-      if (noticeCategory !== 'all') params.category = noticeCategory;
-      if (noticeSearch.trim()) params.search = noticeSearch.trim();
-      const res = await API.get('/campus/notices', { params });
-      setNotices(res.data || []);
+      const res = await API.get('/campus/notices');
+      const data = res.data || [];
+      setNotices(data);
+      setCachedData('notices', data);
     } catch (err) {
       console.error('Failed to fetch notices:', err);
     }
   };
 
-  useEffect(() => {
-    fetchCampusNotices();
-  }, [noticeType, noticeCategory, noticeSearch]);
+  const handleNoticeImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingNoticeImage(true);
+    try {
+      const res = await uploadFile(file);
+      const uploadedUrl = typeof res === 'string' ? res : (res?.file_url || res?.url);
+      if (uploadedUrl) {
+        setNewNoticeForm(prev => ({ ...prev, image_url: uploadedUrl }));
+      }
+    } catch (err) {
+      alert('Failed to upload image. Please try again.');
+    } finally {
+      setUploadingNoticeImage(false);
+    }
+  };
 
   const handleCreateNotice = async (e) => {
     if (e) e.preventDefault();
@@ -1895,7 +1964,10 @@ export default function StudentDashboard() {
     }
     setSubmittingNotice(true);
     try {
-      await API.post('/campus/notices', newNoticeForm);
+      const res = await API.post('/campus/notices', newNoticeForm);
+      if (res.data) {
+        setNotices(prev => [res.data, ...prev]);
+      }
       setToast({ text: 'Report / announcement posted to campus notice board!', type: 'success' });
       setReportModalOpen(false);
       setNewNoticeForm({
@@ -1918,10 +1990,11 @@ export default function StudentDashboard() {
 
   const handleResolveNotice = async (noticeId) => {
     try {
+      setNotices(prev => prev.map(n => n.id === noticeId ? { ...n, status: 'resolved' } : n));
       await API.patch(`/campus/notices/${noticeId}/resolve`);
       setToast({ text: 'Notice marked as claimed / resolved!', type: 'success' });
-      fetchCampusNotices();
     } catch (err) {
+      fetchCampusNotices();
       alert(err.response?.data?.detail || 'Failed to update notice status.');
     }
   };
@@ -1929,10 +2002,11 @@ export default function StudentDashboard() {
   const handleDeleteNotice = async (noticeId) => {
     if (!window.confirm('Delete this notice?')) return;
     try {
+      setNotices(prev => prev.filter(n => n.id !== noticeId));
       await API.delete(`/campus/notices/${noticeId}`);
       setToast({ text: 'Notice removed.', type: 'info' });
-      fetchCampusNotices();
     } catch (err) {
+      fetchCampusNotices();
       alert(err.response?.data?.detail || 'Failed to delete notice.');
     }
   };
@@ -2616,7 +2690,7 @@ export default function StudentDashboard() {
   });
 
   return (
-    <div className="h-screen max-h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
+    <div className="h-dvh-screen max-h-dvh-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
       {/* Floating In-App Chat Notification Alert */}
       <InAppChatBanner
         banner={inAppBanner}
@@ -3804,7 +3878,7 @@ export default function StudentDashboard() {
                               )}
                               <div className="overflow-hidden">
                                 <span className="text-xs font-bold text-slate-800 block truncate">{n.author_name}</span>
-                                <span className="text-[10px] text-slate-400 block truncate">{n.author_department || 'Student'}</span>
+                                <span className="text-[10px] text-slate-400 block truncate">{n.author_department || n.author_dept || 'Student'}</span>
                               </div>
                             </div>
                           </div>
@@ -4185,7 +4259,7 @@ export default function StudentDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 pb-28 md:pb-6">
                       {/* PINNED: CampusLink AI Assistant */}
                       <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/40 to-white">
                         <button
@@ -4521,6 +4595,7 @@ export default function StudentDashboard() {
                                 </div>
                               </div>
                             )}
+                            <div className="h-6 sm:h-8 shrink-0 w-full" aria-hidden="true" />
                             <div ref={aiMessagesEndRef} />
                           </div>
 
@@ -4683,7 +4758,7 @@ export default function StudentDashboard() {
                           )}
 
                           {/* Chat Messages */}
-                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container">
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 pb-8 sm:pb-10 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
@@ -4931,6 +5006,7 @@ export default function StudentDashboard() {
                               <p className="mt-1">Say hello to {selectedPartner.partner_name} to start your campus conversation!</p>
                             </div>
                           )}
+                          <div className="h-6 sm:h-8 shrink-0 w-full" aria-hidden="true" />
                           <div ref={messagesEndRef} />
                         </div>
 
@@ -6130,6 +6206,50 @@ export default function StudentDashboard() {
                     onChange={(e) => setNewNoticeForm(prev => ({ ...prev, contact_phone: e.target.value }))}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
                   />
+                </div>
+
+                {/* Photo Upload */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Item Photo (Optional)</label>
+                  <input
+                    type="file"
+                    ref={noticeFileInputRef}
+                    onChange={handleNoticeImageUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  {newNoticeForm.image_url ? (
+                    <div className="relative rounded-2xl overflow-hidden border border-slate-200 h-32 bg-slate-100">
+                      <img src={newNoticeForm.image_url} alt="Notice preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setNewNoticeForm(prev => ({ ...prev, image_url: '' }))}
+                        className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"
+                        title="Remove photo"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => noticeFileInputRef.current?.click()}
+                      disabled={uploadingNoticeImage}
+                      className="w-full py-2.5 border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-xl flex items-center justify-center space-x-2 text-slate-500 hover:text-indigo-600 transition-colors bg-slate-50/50 cursor-pointer"
+                    >
+                      {uploadingNoticeImage ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                          <span className="font-semibold">Uploading photo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Camera className="w-4 h-4" />
+                          <span className="font-semibold">Attach item photo</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {/* Description */}

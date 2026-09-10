@@ -3689,6 +3689,7 @@ def get_campus_notices(
             "author_name": u.full_name if u else "Campus Student",
             "author_avatar": u.profile_picture_url if u else None,
             "author_dept": u.department if u else "General Studies",
+            "author_department": u.department if u else "General Studies",
             "type": n.type,
             "title": n.title,
             "category": n.category,
@@ -3727,14 +3728,14 @@ def create_campus_notice(
     db.commit()
     db.refresh(new_notice)
 
-    # Notify campus peers about this notice / lost & found item
+    # Notify campus peers about this notice / lost & found item (capped to recent 100 peers)
     peers = db.query(models.User).filter(
         models.User.university_id == target_uni_id,
         models.User.user_id != current_user.user_id
-    ).all()
+    ).limit(100).all()
     for p in peers:
         if new_notice.type == "lost":
-            n_title = "ðŸ” Lost Item Alert"
+            n_title = "🔍 Lost Item Alert"
             n_msg = f"{current_user.full_name} reported a lost {new_notice.category or 'item'} at {new_notice.location}: '{new_notice.title}'"
         elif new_notice.type == "found":
             n_title = "📦 Found Item Notice"
@@ -3759,6 +3760,7 @@ def create_campus_notice(
         "author_name": current_user.full_name,
         "author_avatar": current_user.profile_picture_url,
         "author_dept": current_user.department,
+        "author_department": current_user.department,
         "type": new_notice.type,
         "title": new_notice.title,
         "category": new_notice.category,
