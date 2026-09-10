@@ -77,19 +77,26 @@ export function setCachedData(key, value) {
 // Clean Raw JSON Strings & Extract Status/Chat Content
 export function getDisplayContent(content) {
   if (!content) return "";
-  if (typeof content === "object") {
-    return content.reply_text || content.text || content.caption || content.message || JSON.stringify(content);
-  }
+  let data = content;
   if (typeof content === "string" && content.trim().startsWith("{")) {
     try {
-      const parsed = JSON.parse(content);
-      return parsed.reply_text || parsed.text || parsed.caption || parsed.message || content;
+      data = JSON.parse(content);
     } catch {
       return content;
     }
   }
+  if (typeof data === "object" && data !== null) {
+    if (data.reply_text && data.reaction) {
+      return `${data.reaction} ${data.reply_text}`;
+    }
+    if (data.reaction) {
+      return `Reacted ${data.reaction} to story`;
+    }
+    return data.reply_text || data.text || data.caption || data.message || "";
+  }
   return content;
 }
+
 
 export function formatTime(timestamp) {
   if (!timestamp) return "";
@@ -1014,21 +1021,20 @@ export default function StudentDashboard() {
       // Immediately unblock visible UI!
       setLoading(false);
 
-      // Tier 2: Background secondary data (statuses, community, friends, students, orders, memories)
+      // Tier 2: Background secondary data (statuses, community, friends, orders, memories)
       Promise.all([
         API.get('/campus/statuses').catch(() => ({ data: [] })),
         API.get('/community/users').catch(() => ({ data: [] })),
         API.get('/friends/requests/pending').catch(() => ({ data: [] })),
         API.get('/friends').catch(() => ({ data: [] })),
-        API.get('/students').catch(() => ({ data: [] })),
         API.get('/orders/my').catch(() => ({ data: [] })),
         API.get('/ai/memories').catch(() => ({ data: [] }))
-      ]).then(([statRes, commRes, reqRes, friendsRes, studRes, ordersRes, memsRes]) => {
+      ]).then(([statRes, commRes, reqRes, friendsRes, ordersRes, memsRes]) => {
         const fetchedStatuses = statRes.data || [];
         const fetchedCommunity = commRes.data || [];
         const fetchedRequests = reqRes.data || [];
         const fetchedFriends = friendsRes.data || [];
-        const fetchedStudents = studRes.data || commRes.data || [];
+        const fetchedStudents = fetchedCommunity;
         const fetchedOrders = ordersRes.data || [];
         const fetchedMemories = memsRes.data || [];
 
@@ -1265,11 +1271,11 @@ export default function StudentDashboard() {
           // Keep optimistic messages not yet confirmed by the server
           const freshIds = new Set(fresh.map(m => String(m.id)));
           const pendingOptimistic = prev.filter(m => m.is_optimistic && !freshIds.has(String(m.id)));
-          // Skip re-render entirely if nothing changed
+          // Skip re-render entirely if nothing changed (IDs, content, and flags)
           if (
             pendingOptimistic.length === 0 &&
             prev.length === fresh.length &&
-            (prev.length === 0 || prev[prev.length - 1]?.id === fresh[fresh.length - 1]?.id)
+            prev.every((m, idx) => m.id === fresh[idx]?.id && m.content === fresh[idx]?.content && !m.is_optimistic && !m.is_preview)
           ) {
             return prev;
           }
@@ -2095,15 +2101,38 @@ export default function StudentDashboard() {
     };
 
     try {
-      await API.post('/messages', {
+      const res = await API.post('/messages', {
         recipient_id: group.user_id,
         content: JSON.stringify(payload),
         message_type: 'status_reply',
         media_url: currentItem?.media_url || null
       });
+      if (res?.data) {
+        appendThreadMessage(group.user_id, res.data);
+        if (selectedPartner && String(selectedPartner.partner_id) === String(group.user_id)) {
+          setChatMessages(prev => [...prev, res.data]);
+        }
+      }
       setToast({ text: `Reply sent to ${group.user_name}`, type: 'success' });
       if (!customText) setStatusReplyText('');
-      API.get('/conversations').then(res => setConversations(res.data || [])).catch(() => {});
+      setConversations(prev => {
+        const preview = payload.reply_text || '💬 Story reply';
+        const idx = prev.findIndex(c => String(c.partner_id) === String(group.user_id));
+        if (idx !== -1) {
+          const updated = { ...prev[idx], last_message: preview, last_timestamp: new Date().toISOString() };
+          return [updated, ...prev.filter((_, i) => i !== idx)];
+        }
+        return [{
+          partner_id: group.user_id,
+          partner_name: group.user_name || 'Campus Peer',
+          partner_avatar: group.user_avatar || null,
+          partner_role: 'Student',
+          unread_count: 0,
+          last_message: preview,
+          last_timestamp: new Date().toISOString()
+        }, ...prev];
+      });
+      API.get('/conversations').then(r => setConversations(r.data || [])).catch(() => {});
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to send reply.');
     }
@@ -2140,14 +2169,37 @@ export default function StudentDashboard() {
     };
 
     try {
-      await API.post('/messages', {
+      const res = await API.post('/messages', {
         recipient_id: group.user_id,
         content: JSON.stringify(payload),
         message_type: 'status_reply',
         media_url: currentItem?.media_url || null
       });
+      if (res?.data) {
+        appendThreadMessage(group.user_id, res.data);
+        if (selectedPartner && String(selectedPartner.partner_id) === String(group.user_id)) {
+          setChatMessages(prev => [...prev, res.data]);
+        }
+      }
       setToast({ text: `Sent ${emoji} to ${group.user_name}`, type: 'success' });
-      API.get('/conversations').then(res => setConversations(res.data || [])).catch(() => {});
+      setConversations(prev => {
+        const preview = `Reacted ${emoji} to story`;
+        const idx = prev.findIndex(c => String(c.partner_id) === String(group.user_id));
+        if (idx !== -1) {
+          const updated = { ...prev[idx], last_message: preview, last_timestamp: new Date().toISOString() };
+          return [updated, ...prev.filter((_, i) => i !== idx)];
+        }
+        return [{
+          partner_id: group.user_id,
+          partner_name: group.user_name || 'Campus Peer',
+          partner_avatar: group.user_avatar || null,
+          partner_role: 'Student',
+          unread_count: 0,
+          last_message: preview,
+          last_timestamp: new Date().toISOString()
+        }, ...prev];
+      });
+      API.get('/conversations').then(r => setConversations(r.data || [])).catch(() => {});
     } catch (err) {
       console.error('Failed to send reaction:', err);
     }
@@ -2818,7 +2870,7 @@ export default function StudentDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         
         {/* Mobile Top Header (Facebook style top bar for small screens) */}
         <div className={`items-center justify-between pb-3 mb-4 border-b border-slate-200 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
@@ -3997,7 +4049,7 @@ export default function StudentDashboard() {
 
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
-          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
             {/* Instagram-Style Campus Stories Rail */}
             {!selectedPartner && (
               <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs shrink-0">
@@ -4229,15 +4281,15 @@ export default function StudentDashboard() {
             </div>
 
             {/* Subtab Views */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/40 min-h-0">
+            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/40 min-h-0 h-full">
               
               {/* 1. SUBTAB: ACTIVE CHATS (2-Column Split View) */}
               {messageSubtab === 'chats' && (
-                <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+                <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 h-full">
                   {/* Left Column: Conversations List */}
-                  <div className={`w-full md:w-84 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+                  <div className={`w-full md:w-84 h-full flex-1 md:flex-none border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                     {/* Universal Chat & Directory Search */}
-                    <div className="p-2.5 border-b border-slate-100 bg-white">
+                    <div className="p-2.5 border-b border-slate-100 bg-white shrink-0">
                       <div className="relative">
                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
@@ -4259,7 +4311,7 @@ export default function StudentDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 pb-28 md:pb-6">
+                    <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 overscroll-contain touch-pan-y pb-28 md:pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
                       {/* PINNED: CampusLink AI Assistant */}
                       <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/40 to-white">
                         <button
@@ -4381,7 +4433,7 @@ export default function StudentDashboard() {
                                       {c.partner_role}
                                     </span>
                                   </div>
-                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{c.last_message}</p>
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
                                 </div>
                               </button>
                             );
@@ -4900,15 +4952,6 @@ export default function StudentDashboard() {
                                         {/* Bubble Body Content */}
                                         {chatReply ? (
                                           <p className="whitespace-pre-wrap break-words">{getDisplayContent(chatReply.text)}</p>
-                                        ) : isStatusReplyContent(msg.content) ? (
-                                          <div className="space-y-1">
-                                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${
-                                              isMine ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                                            }`}>
-                                              <span>📷 Replying to status</span>
-                                            </div>
-                                            <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
-                                          </div>
                                         ) : parseStatusReply(msg) ? (
                                           <StoryReplyBubble
                                             msg={msg}
@@ -4921,6 +4964,15 @@ export default function StudentDashboard() {
                                               }
                                             }}
                                           />
+                                        ) : isStatusReplyContent(msg.content) ? (
+                                          <div className="space-y-1">
+                                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${
+                                              isMine ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                            }`}>
+                                              <span>📷 Replying to status</span>
+                                            </div>
+                                            <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                          </div>
                                         ) : msg.message_type === 'audio' ? (
                                           <div className="flex items-center space-x-3 py-1">
                                             <button

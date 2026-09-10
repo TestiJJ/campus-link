@@ -47,19 +47,26 @@ export const prefetchRecentConversations = primeConversationsCache;
 // Clean Raw JSON Strings & Extract Status/Chat Content
 export function getDisplayContent(content) {
   if (!content) return "";
-  if (typeof content === "object") {
-    return content.reply_text || content.text || content.caption || content.message || JSON.stringify(content);
-  }
+  let data = content;
   if (typeof content === "string" && content.trim().startsWith("{")) {
     try {
-      const parsed = JSON.parse(content);
-      return parsed.reply_text || parsed.text || parsed.caption || parsed.message || content;
+      data = JSON.parse(content);
     } catch {
       return content;
     }
   }
+  if (typeof data === "object" && data !== null) {
+    if (data.reply_text && data.reaction) {
+      return `${data.reaction} ${data.reply_text}`;
+    }
+    if (data.reaction) {
+      return `Reacted ${data.reaction} to story`;
+    }
+    return data.reply_text || data.text || data.caption || data.message || "";
+  }
   return content;
 }
+
 
 export function formatTime(timestamp) {
   if (!timestamp) return "";
@@ -3455,6 +3462,8 @@ export default function VendorDashboard() {
                                         {/* Bubble Body Content */}
                                         {chatReply ? (
                                           <p className="whitespace-pre-wrap break-words">{getDisplayContent(chatReply.text)}</p>
+                                        ) : (isStatusReply && statusData) || parseStatusReply(msg) ? (
+                                          <StoryReplyBubble statusData={statusData || parseStatusReply(msg)} msg={msg} isMine={isMine} />
                                         ) : isStatusReplyContent(msg.content) ? (
                                           <div className="space-y-1">
                                             <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${
@@ -3464,8 +3473,6 @@ export default function VendorDashboard() {
                                             </div>
                                             <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
                                           </div>
-                                        ) : isStatusReply && statusData ? (
-                                          <StoryReplyBubble statusData={statusData} msg={msg} isMine={isMine} />
                                         ) : (msg.message_type === 'image' || msg.message_type === 'images' || msg.message_type === 'video' || (msg.media_url && !msg.message_type)) ? (
                                           <div className="space-y-1.5">
                                             <ChatMediaGallery

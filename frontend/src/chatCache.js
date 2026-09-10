@@ -124,8 +124,12 @@ export const updateThreadMessage = (partnerId, tempId, updatedMsg) => {
   if (!key) return [];
   const current = getCachedThreadMessages(key);
   const updated = current.map(m => {
-    if (m.id === tempId || m.client_id === tempId || (m.id && String(m.id).startsWith('temp-') && m.content === updatedMsg.content)) {
-      return { ...m, ...updatedMsg };
+    if (
+      m.id === tempId ||
+      m.client_id === tempId ||
+      (m.id && (String(m.id).startsWith('temp-') || String(m.id).startsWith('temp_')) && m.content === updatedMsg.content)
+    ) {
+      return { ...m, ...updatedMsg, is_optimistic: false };
     }
     return m;
   });
@@ -184,13 +188,16 @@ export const revalidateThreadMessages = async (partnerId, API, onMessagesUpdated
       const serverMsgs = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
       const current = getCachedThreadMessages(key);
 
-      // Check if anything actually changed to avoid unnecessary re-renders
+      // Verify if current cache matches server accurately (content, IDs, and no transient preview/optimistic flags)
       const isIdentical =
         current.length === serverMsgs.length &&
         current.length > 0 &&
-        current[current.length - 1]?.id === serverMsgs[serverMsgs.length - 1]?.id;
+        current.every((m, idx) => {
+          const s = serverMsgs[idx];
+          return s && String(m.id) === String(s.id) && m.content === s.content && !m.is_preview && !m.is_optimistic;
+        });
 
-      if (!isIdentical || current.some(m => m.is_preview)) {
+      if (!isIdentical || current.some(m => m.is_preview || m.is_optimistic)) {
         const merged = normalizeAndSortMessages(serverMsgs);
         setCachedThreadMessages(key, merged);
         if (typeof onMessagesUpdated === 'function') {
@@ -210,6 +217,7 @@ export const revalidateThreadMessages = async (partnerId, API, onMessagesUpdated
   activeFetches.set(key, fetchPromise);
   return fetchPromise;
 };
+
 
 /**
  * Smart bottom auto-scroll that preserves smooth UX without layout thrashing
