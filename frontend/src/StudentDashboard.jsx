@@ -511,6 +511,14 @@ export default function StudentDashboard() {
   // Feedback Toast
   const [toast, setToast] = useState({ text: '', type: '' });
 
+  const showToast = (text, type = 'success') => {
+    if (!text) return;
+    setToast({ text, type });
+    setTimeout(() => {
+      setToast(prev => (prev.text === text ? { text: '', type: '' } : prev));
+    }, 4000);
+  };
+
   // Synchronize activeTab, marketType, and selectedPartner with browser URL and localStorage
   useEffect(() => {
     try {
@@ -2300,65 +2308,216 @@ export default function StudentDashboard() {
     }
   }, [activeStatusViewer, statusGroups]);
 
-  // --- FRIEND REQUEST ACTIONS ---
+  // --- FRIEND REQUEST ACTIONS (INSTANT 0ms OPTIMISTIC UPDATES) ---
 
   // 1. Send Friend Request
   const handleSendFriendRequest = async (targetUserId) => {
+    if (!targetUserId) return;
+
+    // Snapshot current state for rollback on error
+    const prevStudents = campusStudents;
+    const prevSelectedProfile = selectedProfile;
+    const prevSelectedPartner = selectedPartner;
+
+    // 0ms INSTANT OPTIMISTIC UPDATE: Update button state immediately
+    setCampusStudents(prev => prev.map(s => 
+      (s.user_id === targetUserId || s.id === targetUserId)
+        ? { ...s, friendship_status: 'request_sent' }
+        : s
+    ));
+
+    if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+      setSelectedProfile(prev => ({
+        ...prev,
+        friendship_status: 'request_sent'
+      }));
+    }
+
+    if (selectedPartner && (selectedPartner.partner_id === targetUserId || selectedPartner.user_id === targetUserId || selectedPartner.id === targetUserId)) {
+      setSelectedPartner(prev => ({
+        ...prev,
+        friendship_status: 'request_sent'
+      }));
+    }
+
+    showToast('Friend request sent!', 'success');
+
     try {
       const res = await API.post(`/friends/request/${targetUserId}`);
-      setToast({ text: res.data.message, type: 'success' });
-      await reloadSocialData();
-      if (selectedProfile && selectedProfile.user_id === targetUserId) {
-        setSelectedProfile(prev => ({
-          ...prev,
-          friendship_status: res.data.status,
-          request_id: res.data.request_id
-        }));
+      if (res.data?.message) {
+        showToast(res.data.message, 'success');
       }
+
+      // If backend returned actual request_id or resolved status, update state
+      if (res.data?.request_id || res.data?.status) {
+        const finalStatus = res.data.status || 'request_sent';
+        const finalReqId = res.data.request_id || null;
+        setCampusStudents(prev => prev.map(s => 
+          (s.user_id === targetUserId || s.id === targetUserId)
+            ? { ...s, friendship_status: finalStatus, request_id: finalReqId }
+            : s
+        ));
+        if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+          setSelectedProfile(prev => ({
+            ...prev,
+            friendship_status: finalStatus,
+            request_id: finalReqId
+          }));
+        }
+      }
+
+      // Revalidate in background without blocking UI
+      API.get('/friends/requests/pending').then(r => setPendingRequests(r.data || [])).catch(() => {});
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to send friend request.');
+      // Rollback to previous state on error
+      setCampusStudents(prevStudents);
+      if (prevSelectedProfile) setSelectedProfile(prevSelectedProfile);
+      if (prevSelectedPartner) setSelectedPartner(prevSelectedPartner);
+      showToast(err.response?.data?.detail || 'Failed to send friend request.', 'error');
     }
   };
 
   // 2. Accept Friend Request
   const handleAcceptFriendRequest = async (requestId) => {
+    if (!requestId) return;
+
+    // Snapshot for rollback
+    const prevPending = pendingRequests;
+    const prevFriends = myFriends;
+    const prevStudents = campusStudents;
+    const prevSelectedProfile = selectedProfile;
+
+    const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
+    const senderId = targetReq?.sender_id;
+
+    // 0ms INSTANT OPTIMISTIC UPDATE: Remove card from pending list immediately
+    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+
+    setCampusStudents(prev => prev.map(s => 
+      (s.request_id === requestId || (senderId && (s.user_id === senderId || s.id === senderId)))
+        ? { ...s, friendship_status: 'friends' }
+        : s
+    ));
+
+    if (targetReq) {
+      setMyFriends(prev => [
+        {
+          friend_id: targetReq.sender_id,
+          friend_name: targetReq.sender_name,
+          friend_avatar: targetReq.sender_avatar,
+          department: targetReq.sender_department,
+          level: targetReq.sender_level,
+          university_name: targetReq.sender_university || universityName
+        },
+        ...prev
+      ]);
+    }
+
+    if (selectedProfile && (selectedProfile.request_id === requestId || (senderId && (selectedProfile.user_id === senderId || selectedProfile.id === senderId)))) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'friends' }));
+    }
+
+    showToast('Friend request accepted! You are now connected.', 'success');
+
     try {
       const res = await API.post(`/friends/requests/${requestId}/accept`);
-      setToast({ text: res.data.message, type: 'success' });
-      await reloadSocialData();
-      if (selectedProfile) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'friends' }));
+      if (res.data?.message) {
+        showToast(res.data.message, 'success');
       }
+
+      // Non-blocking background revalidation
+      Promise.all([
+        API.get('/friends'),
+        API.get('/friends/requests/pending'),
+        API.get('/conversations')
+      ]).then(([frRes, pendRes, convRes]) => {
+        setMyFriends(frRes.data || []);
+        setPendingRequests(pendRes.data || []);
+        const convs = convRes.data || [];
+        setConversations(convs);
+        primeConversationsCache(convs);
+      }).catch(() => {});
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to accept friend request.');
+      // Rollback on error
+      setPendingRequests(prevPending);
+      setMyFriends(prevFriends);
+      setCampusStudents(prevStudents);
+      if (prevSelectedProfile) setSelectedProfile(prevSelectedProfile);
+      showToast(err.response?.data?.detail || 'Failed to accept friend request.', 'error');
     }
   };
 
   // 3. Decline Friend Request
   const handleDeclineFriendRequest = async (requestId) => {
+    if (!requestId) return;
+
+    const prevPending = pendingRequests;
+    const prevStudents = campusStudents;
+    const prevSelectedProfile = selectedProfile;
+
+    const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
+    const senderId = targetReq?.sender_id;
+
+    // 0ms INSTANT OPTIMISTIC UPDATE
+    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+    setCampusStudents(prev => prev.map(s => 
+      (s.request_id === requestId || (senderId && (s.user_id === senderId || s.id === senderId)))
+        ? { ...s, friendship_status: 'none', request_id: null }
+        : s
+    ));
+    if (selectedProfile && (selectedProfile.request_id === requestId || (senderId && (selectedProfile.user_id === senderId || selectedProfile.id === senderId)))) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+    }
+
+    showToast('Friend request declined.', 'info');
+
     try {
-      const res = await API.post(`/friends/requests/${requestId}/decline`);
-      setToast({ text: `Friend request declined.`, type: 'info' });
-      await reloadSocialData();
-      if (selectedProfile) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'none' }));
-      }
+      await API.post(`/friends/requests/${requestId}/decline`);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to decline friend request.');
+      setPendingRequests(prevPending);
+      setCampusStudents(prevStudents);
+      if (prevSelectedProfile) setSelectedProfile(prevSelectedProfile);
+      showToast(err.response?.data?.detail || 'Failed to decline friend request.', 'error');
     }
   };
 
   // 4. Cancel Friend Request or Unfriend
   const handleCancelOrRemoveFriend = async (targetUserId) => {
+    if (!targetUserId) return;
+
+    const prevStudents = campusStudents;
+    const prevFriends = myFriends;
+    const prevSelectedProfile = selectedProfile;
+    const prevSelectedPartner = selectedPartner;
+
+    // 0ms INSTANT OPTIMISTIC UPDATE
+    setCampusStudents(prev => prev.map(s => 
+      (s.user_id === targetUserId || s.id === targetUserId)
+        ? { ...s, friendship_status: 'none', request_id: null }
+        : s
+    ));
+    setMyFriends(prev => prev.filter(f => f.friend_id !== targetUserId && f.user_id !== targetUserId && f.id !== targetUserId));
+    if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+    }
+    if (selectedPartner && (selectedPartner.partner_id === targetUserId || selectedPartner.user_id === targetUserId || selectedPartner.id === targetUserId)) {
+      setSelectedPartner(prev => ({ ...prev, friendship_status: 'none', is_friend: false }));
+    }
+
+    showToast('Connection removed.', 'info');
+
     try {
       const res = await API.delete(`/friends/cancel/${targetUserId}`);
-      setToast({ text: res.data.message, type: 'info' });
-      await reloadSocialData();
-      if (selectedProfile && selectedProfile.user_id === targetUserId) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+      if (res.data?.message) {
+        showToast(res.data.message, 'info');
       }
+      API.get('/friends').then(r => setMyFriends(r.data || [])).catch(() => {});
     } catch (err) {
-      alert('Failed to remove connection.');
+      setCampusStudents(prevStudents);
+      setMyFriends(prevFriends);
+      if (prevSelectedProfile) setSelectedProfile(prevSelectedProfile);
+      if (prevSelectedPartner) setSelectedPartner(prevSelectedPartner);
+      showToast('Failed to remove connection.', 'error');
     }
   };
 
@@ -7728,6 +7887,42 @@ export default function StudentDashboard() {
           )}
         </button>
       </nav>
+
+      {/* --- FLOATING NOTIFICATION / FEEDBACK TOAST --- */}
+      <AnimatePresence>
+        {toast.text && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90%] pointer-events-auto"
+          >
+            <div className={`p-3.5 sm:p-4 rounded-2xl shadow-xl border backdrop-blur-md flex items-center justify-between space-x-3 ${
+              toast.type === 'error'
+                ? 'bg-rose-600/95 border-rose-500 text-white'
+                : toast.type === 'info'
+                ? 'bg-slate-900/95 border-slate-700 text-white'
+                : 'bg-emerald-600/95 border-emerald-500 text-white'
+            }`}>
+              <div className="flex items-center space-x-2.5 min-w-0">
+                {toast.type === 'error' ? (
+                  <AlertCircle className="w-5 h-5 shrink-0 text-white" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />
+                )}
+                <span className="text-xs font-bold leading-snug break-words">{toast.text}</span>
+              </div>
+              <button
+                onClick={() => setToast({ text: '', type: '' })}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

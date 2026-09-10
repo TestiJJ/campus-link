@@ -1696,82 +1696,165 @@ export default function VendorDashboard() {
     }
   };
 
-  // --- FRIEND REQUEST ACTIONS ---
+  // --- FRIEND REQUEST ACTIONS (0ms OPTIMISTIC) ---
   const handleSendFriendRequest = async (targetUserId) => {
+    if (!targetUserId) return;
+    const prevUsers = communityUsers;
+    const prevProfile = selectedProfile;
+
+    // 0ms instant optimistic UI update
+    setCommunityUsers(prev => prev.map(u => 
+      (u.user_id === targetUserId || u.id === targetUserId)
+        ? { ...u, friendship_status: 'request_sent' }
+        : u
+    ));
+    if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'request_sent' }));
+    }
+    showToast('Friend request sent!', 'success');
+
     try {
       const res = await API.post(`/friends/request/${targetUserId}`);
-      showToast(res.data.message || 'Friend request sent!', 'success');
-      
-      setCommunityUsers(prev => prev.map(u => 
-        (u.user_id === targetUserId || u.id === targetUserId)
-          ? { ...u, friendship_status: 'request_sent' }
-          : u
-      ));
-      if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'request_sent' }));
+      if (res.data?.message) {
+        showToast(res.data.message, 'success');
       }
-      
-      const [pendRes, commRes] = await Promise.all([
-        API.get('/friends/requests/pending'),
-        API.get('/students')
-      ]);
-      setPendingRequests(pendRes.data);
-      setCommunityUsers(commRes.data);
+      if (res.data?.request_id || res.data?.status) {
+        const finalStatus = res.data.status || 'request_sent';
+        const finalReqId = res.data.request_id || null;
+        setCommunityUsers(prev => prev.map(u => 
+          (u.user_id === targetUserId || u.id === targetUserId)
+            ? { ...u, friendship_status: finalStatus, request_id: finalReqId }
+            : u
+        ));
+        if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+          setSelectedProfile(prev => ({ ...prev, friendship_status: finalStatus, request_id: finalReqId }));
+        }
+      }
+      API.get('/friends/requests/pending').then(r => setPendingRequests(r.data || [])).catch(() => {});
     } catch (err) {
+      setCommunityUsers(prevUsers);
+      if (prevProfile) setSelectedProfile(prevProfile);
       showToast(err.response?.data?.detail || 'Failed to send friend request.', 'error');
     }
   };
 
   const handleAcceptFriendRequest = async (requestId) => {
+    if (!requestId) return;
+    const prevPending = pendingRequests;
+    const prevFriends = friendsList;
+    const prevUsers = communityUsers;
+    const prevProfile = selectedProfile;
+
+    const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
+    const senderId = targetReq?.sender_id;
+
+    // 0ms instant optimistic UI update
+    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+    setCommunityUsers(prev => prev.map(u => 
+      (u.request_id === requestId || (senderId && (u.user_id === senderId || u.id === senderId)))
+        ? { ...u, friendship_status: 'friends' }
+        : u
+    ));
+    if (targetReq) {
+      setFriendsList(prev => [
+        {
+          friend_id: targetReq.sender_id,
+          friend_name: targetReq.sender_name,
+          friend_avatar: targetReq.sender_avatar,
+          department: targetReq.sender_department,
+          level: targetReq.sender_level,
+          university_name: targetReq.sender_university || 'On Campus'
+        },
+        ...prev
+      ]);
+    }
+    if (selectedProfile && (selectedProfile.request_id === requestId || (senderId && (selectedProfile.user_id === senderId || selectedProfile.id === senderId)))) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'friends' }));
+    }
+    showToast('Friend request accepted! You are now connected.', 'success');
+
     try {
       const res = await API.post(`/friends/requests/${requestId}/accept`);
-      showToast(res.data.message || 'Friend request accepted!', 'success');
-      if (selectedProfile) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'friends' }));
+      if (res.data?.message) {
+        showToast(res.data.message, 'success');
       }
-      
-      const [friendsRes, pendRes, commRes] = await Promise.all([
+      Promise.all([
         API.get('/friends'),
         API.get('/friends/requests/pending'),
         API.get('/students')
-      ]);
-      setFriendsList(friendsRes.data);
-      setPendingRequests(pendRes.data);
-      setCommunityUsers(commRes.data);
+      ]).then(([frRes, pendRes, commRes]) => {
+        setFriendsList(frRes.data || []);
+        setPendingRequests(pendRes.data || []);
+        setCommunityUsers(commRes.data || []);
+      }).catch(() => {});
     } catch (err) {
+      setPendingRequests(prevPending);
+      setFriendsList(prevFriends);
+      setCommunityUsers(prevUsers);
+      if (prevProfile) setSelectedProfile(prevProfile);
       showToast(err.response?.data?.detail || 'Failed to accept friend request.', 'error');
     }
   };
 
   const handleDeclineFriendRequest = async (requestId) => {
+    if (!requestId) return;
+    const prevPending = pendingRequests;
+    const prevUsers = communityUsers;
+    const prevProfile = selectedProfile;
+
+    const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
+    const senderId = targetReq?.sender_id;
+
+    // 0ms instant UI update
+    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+    setCommunityUsers(prev => prev.map(u => 
+      (u.request_id === requestId || (senderId && (u.user_id === senderId || u.id === senderId)))
+        ? { ...u, friendship_status: 'none', request_id: null }
+        : u
+    ));
+    if (selectedProfile && (selectedProfile.request_id === requestId || (senderId && (selectedProfile.user_id === senderId || selectedProfile.id === senderId)))) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+    }
+    showToast('Friend request declined.', 'info');
+
     try {
       await API.post(`/friends/requests/${requestId}/decline`);
-      showToast('Friend request declined.', 'info');
-      if (selectedProfile) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'none' }));
-      }
-      const pendRes = await API.get('/friends/requests/pending');
-      setPendingRequests(pendRes.data);
     } catch (err) {
+      setPendingRequests(prevPending);
+      setCommunityUsers(prevUsers);
+      if (prevProfile) setSelectedProfile(prevProfile);
       showToast(err.response?.data?.detail || 'Failed to decline request.', 'error');
     }
   };
 
   const handleRemoveFriend = async (targetUserId) => {
     if (!window.confirm('Remove friend from your campus network?')) return;
+    const prevUsers = communityUsers;
+    const prevFriends = friendsList;
+    const prevProfile = selectedProfile;
+
+    // 0ms instant UI update
+    setCommunityUsers(prev => prev.map(u => 
+      (u.user_id === targetUserId || u.id === targetUserId)
+        ? { ...u, friendship_status: 'none', request_id: null }
+        : u
+    ));
+    setFriendsList(prev => prev.filter(f => f.friend_id !== targetUserId && f.user_id !== targetUserId && f.id !== targetUserId));
+    if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
+      setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+    }
+    showToast('Removed connection.', 'info');
+
     try {
-      await API.delete(`/friends/cancel/${targetUserId}`);
-      showToast('Removed connection.', 'info');
-      if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
-        setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
+      const res = await API.delete(`/friends/cancel/${targetUserId}`);
+      if (res.data?.message) {
+        showToast(res.data.message, 'info');
       }
-      const [friendsRes, commRes] = await Promise.all([
-        API.get('/friends'),
-        API.get('/students')
-      ]);
-      setFriendsList(friendsRes.data);
-      setCommunityUsers(commRes.data);
+      API.get('/friends').then(r => setFriendsList(r.data || [])).catch(() => {});
     } catch (err) {
+      setCommunityUsers(prevUsers);
+      setFriendsList(prevFriends);
+      if (prevProfile) setSelectedProfile(prevProfile);
       showToast(err.response?.data?.detail || 'Failed to remove connection.', 'error');
     }
   };
