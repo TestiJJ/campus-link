@@ -283,7 +283,9 @@ export default function VendorDashboard() {
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
-  const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
+  const [friendsList, setFriendsList] = useState(() => getCachedData('friendsList', []));
+  const myFriends = friendsList;
+  const setMyFriends = setFriendsList;
   const [communitySearch, setCommunitySearch] = useState('');
   const [communityRoleFilter, setCommunityRoleFilter] = useState('all'); // 'all' | 'student' | 'vendor'
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
