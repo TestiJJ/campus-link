@@ -16,8 +16,7 @@ import {
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
-import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
-import { playMessageNotificationSound } from './utils/notificationSound';
+import InAppChatBanner from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
@@ -25,8 +24,7 @@ import ChatMediaGallery from './components/ChatMediaGallery';
 import {
   isPushSupported,
   getNotificationPermissionState,
-  subscribeUserToPush,
-  sendTestPushNotification
+  subscribeUserToPush
 } from './utils/pushNotifications';
 import {
   getCachedThreadMessages,
@@ -455,17 +453,6 @@ export default function VendorDashboard() {
     }
   }, []);
 
-  // Listen for Service Worker background push broadcast to play sound
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-    const handleSwMessage = (event) => {
-      if (event.data && event.data.type === 'CAMPUSLINK_PUSH_RECEIVED') {
-        playMessageNotificationSound();
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handleSwMessage);
-    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
-  }, []);
 
   // Synchronize activeTab with URL query params and localStorage
   useEffect(() => {
@@ -698,9 +685,6 @@ export default function VendorDashboard() {
                     return [...prev, newM];
                   });
                   setTimeout(() => scrollToChatBottom(false), 50);
-                  if (document.hidden) {
-                    playMessageNotificationSound();
-                  }
                 } else {
                   // Pop up in-app notification banner across Reels, Store, etc.
                   setInAppBanner({
@@ -712,9 +696,8 @@ export default function VendorDashboard() {
                     text: newM.message_type === 'audio' ? '🎤 Voice note' : (newM.content || 'Sent a message'),
                     timestamp: Date.now()
                   });
-                  playMessageNotificationSound();
 
-                  // Pop real system / mobile notification banner with message details and sound
+                  // Pop real system / mobile notification banner with message details
                   if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
                     navigator.serviceWorker.ready.then(reg => {
                       reg.showNotification(data.sender_name || 'Customer Message (CampusLink)', {
@@ -723,9 +706,6 @@ export default function VendorDashboard() {
                         badge: '/pwa-icon.svg',
                         tag: `campuslink-vendor-msg-${newM.sender_id}`,
                         renotify: true,
-                        silent: false,
-                        sound: '/sounds/notification.mp3',
-                        vibrate: [250, 100, 250, 100, 250],
                         data: {
                           url: `/vendor-dashboard?tab=messages&chat=${newM.sender_id}`
                         }
@@ -2317,58 +2297,6 @@ export default function VendorDashboard() {
 
       {/* --- MAIN CONTENT AREA --- */}
       <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 pb-28 md:pb-8'}`}>
-        
-        {/* Universal WhatsApp-Style Push Notification Opt-In Banner (Vendor) */}
-        {isPushSupported() && pushPermission === 'default' && !pushBannerDismissed && (
-          <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 text-white shadow-lg shadow-sky-500/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 shadow-inner">
-                <Bell className="w-5 h-5 text-white animate-bounce" />
-              </div>
-              <div>
-                <h4 className="text-sm font-black text-white leading-snug">
-                  Never miss an order or customer message! 🔔
-                </h4>
-                <p className="text-xs text-sky-100 font-medium leading-tight">
-                  Turn on WhatsApp-style phone alerts with custom sound even when CampusLink is closed.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2 w-full sm:w-auto shrink-0 pt-1 sm:pt-0">
-              <button
-                type="button"
-                disabled={pushLoading}
-                onClick={async () => {
-                  setPushLoading(true);
-                  try {
-                    const res = await subscribeUserToPush();
-                    if (res?.success) {
-                      setPushEnabled(true);
-                      setPushPermission('granted');
-                      sendTestPushNotification().catch(() => {});
-                    }
-                  } catch (_) {}
-                  setPushLoading(false);
-                }}
-                className="flex-1 sm:flex-initial px-4 py-2 bg-white text-sky-700 hover:bg-sky-50 active:scale-95 text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
-              >
-                <Bell className="w-3.5 h-3.5 text-sky-600" />
-                <span>{pushLoading ? 'Enabling...' : 'Turn On Alerts'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPushBannerDismissed(true);
-                  try { localStorage.setItem('campuslink_vendor_push_dismissed', 'true'); } catch (_) {}
-                }}
-                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-                title="Dismiss"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
         
         {/* Live Store Announcement Banner (Always visible if configured) */}
         {storeBroadcast && (
@@ -4897,7 +4825,7 @@ export default function VendorDashboard() {
                   <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
                   <div>
                     <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly with sound.</p>
+                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
                   </div>
                 </div>
               ) : (

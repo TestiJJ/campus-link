@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.4';
+const CACHE_NAME = 'campuslink-v1.0.5';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -8,8 +8,7 @@ const PRECACHE_ASSETS = [
   '/pwa-icon.svg',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
-  '/apple-touch-icon.png',
-  '/sounds/notification.mp3'
+  '/apple-touch-icon.png'
 ];
 
 // Install: Pre-cache app shell & skip waiting immediately
@@ -151,8 +150,7 @@ self.addEventListener('push', (event) => {
     icon: '/pwa-192x192.png',
     badge: '/pwa-icon.svg',
     url: '/',
-    tag: 'campuslink-alert',
-    sound: '/sounds/notification.mp3'
+    tag: 'campuslink-alert'
   };
 
   if (event.data) {
@@ -167,24 +165,20 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'CampusLink';
-  const soundUrl = data.sound || '/sounds/notification.mp3';
 
   const options = {
     body: data.body,
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/pwa-icon.svg',
     image: data.image || undefined,
-    silent: false,
-    sound: soundUrl,
     data: {
       url: data.url || '/',
-      sound: soundUrl,
       timestamp: Date.now(),
       ...(data.data || {})
     },
     tag: data.tag || `campuslink-${Date.now()}`,
     renotify: true,
-    vibrate: [250, 100, 250, 100, 250],
+    vibrate: [150, 50, 150],
     requireInteraction: false,
     actions: data.actions || [
       { action: 'open', title: 'Open' }
@@ -192,18 +186,7 @@ self.addEventListener('push', (event) => {
   };
 
   event.waitUntil(
-    Promise.all([
-      self.registration.showNotification(title, options),
-      // Broadcast to any open windows/tabs so they can play in-app chime or update unread counts
-      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-        windowClients.forEach((client) => {
-          client.postMessage({
-            type: 'CAMPUSLINK_PUSH_RECEIVED',
-            payload: data
-          });
-        });
-      })
-    ])
+    self.registration.showNotification(title, options)
   );
 });
 

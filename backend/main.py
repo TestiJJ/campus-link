@@ -1082,10 +1082,8 @@ def dispatch_push_notification_to_user(
                 "icon": icon,
                 "badge": badge,
                 "tag": tag,
-                "sound": "/sounds/notification.mp3",
                 "data": {
                     "url": url,
-                    "sound": "/sounds/notification.mp3",
                     **(data or {})
                 }
             }

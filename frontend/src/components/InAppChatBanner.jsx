@@ -2,12 +2,8 @@ import React, { useEffect } from 'react';
 import { MessageSquare, X, ArrowRight } from 'lucide-react';
 import SafeImage from './SafeImage';
 
-import { playMessageNotificationSound } from '../utils/notificationSound';
-
-// Unified high-definition WhatsApp-style notification chime
-export const playChatNotificationSound = () => {
-  playMessageNotificationSound();
-};
+// Silent and user-friendly in-app chat banner notification
+export const playChatNotificationSound = () => {};
 
 export default function InAppChatBanner({ banner, onReply, onDismiss }) {
   useEffect(() => {

@@ -17,8 +17,7 @@ import {
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
-import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
-import { playMessageNotificationSound, playAlertNotificationSound } from './utils/notificationSound';
+import InAppChatBanner from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
@@ -26,8 +25,7 @@ import ChatMediaGallery from './components/ChatMediaGallery';
 import {
   isPushSupported,
   getNotificationPermissionState,
-  subscribeUserToPush,
-  sendTestPushNotification
+  subscribeUserToPush
 } from './utils/pushNotifications';
 import {
   getCachedThreadMessages,
@@ -471,17 +469,6 @@ export default function StudentDashboard() {
     }
   }, []);
 
-  // Listen for Service Worker background push broadcast to play sound & sync
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-    const handleSwMessage = (event) => {
-      if (event.data && event.data.type === 'CAMPUSLINK_PUSH_RECEIVED') {
-        playMessageNotificationSound();
-      }
-    };
-    navigator.serviceWorker.addEventListener('message', handleSwMessage);
-    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
-  }, []);
 
   const handleEnablePush = async () => {
     setPushLoading(true);
@@ -800,10 +787,6 @@ export default function StudentDashboard() {
                   if (isUserNearBottom(chatContainerRef.current)) {
                     smartScrollToBottom(chatContainerRef.current, true);
                   }
-                  // If user has the tab minimized or hidden, still alert them with the WhatsApp chime!
-                  if (document.hidden) {
-                    playMessageNotificationSound();
-                  }
                 } else {
                   setInAppBanner({
                     id: newM.id || Date.now(),
@@ -814,9 +797,8 @@ export default function StudentDashboard() {
                     text: newM.message_type === 'audio' ? '🎤 Voice note' : (newM.content || 'Sent a photo/video'),
                     timestamp: Date.now()
                   });
-                  playMessageNotificationSound();
 
-                  // Pop real system / mobile notification banner with message details and sound
+                  // Pop real system / mobile notification banner with message details
                   if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
                     navigator.serviceWorker.ready.then(reg => {
                       reg.showNotification(data.sender_name || 'CampusLink Message', {
@@ -825,9 +807,6 @@ export default function StudentDashboard() {
                         badge: '/pwa-icon.svg',
                         tag: `campuslink-msg-${newM.sender_id}`,
                         renotify: true,
-                        silent: false,
-                        sound: '/sounds/notification.mp3',
-                        vibrate: [250, 100, 250, 100, 250],
                         data: {
                           url: `/student-dashboard?tab=messages&chat=${newM.sender_id}`
                         }
@@ -3098,46 +3077,6 @@ export default function StudentDashboard() {
           </div>
         </header>
 
-        {/* Universal WhatsApp-Style Push Notification Opt-In Banner */}
-        {isPushSupported() && pushState === 'default' && !pushBannerDismissed && (
-          <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 text-white shadow-lg shadow-sky-500/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 shadow-inner">
-                <Bell className="w-5 h-5 text-white animate-bounce" />
-              </div>
-              <div>
-                <h4 className="text-sm font-black text-white leading-snug">
-                  Never miss a message or order update! 🔔
-                </h4>
-                <p className="text-xs text-sky-100 font-medium leading-tight">
-                  Turn on notifications to get WhatsApp-style lockscreen alerts with sound even when CampusLink is closed.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2 w-full sm:w-auto shrink-0 pt-1 sm:pt-0">
-              <button
-                type="button"
-                disabled={pushLoading}
-                onClick={handleEnablePush}
-                className="flex-1 sm:flex-initial px-4 py-2 bg-white text-sky-700 hover:bg-sky-50 active:scale-95 text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
-              >
-                <Bell className="w-3.5 h-3.5 text-sky-600" />
-                <span>{pushLoading ? 'Enabling...' : 'Turn On Alerts'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPushBannerDismissed(true);
-                  try { localStorage.setItem('campuslink_push_dismissed', 'true'); } catch (_) {}
-                }}
-                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-                title="Dismiss"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Toast Alert */}
         {toast.text && (
@@ -7407,7 +7346,7 @@ export default function StudentDashboard() {
                         </div>
                         <div>
                           <div className="flex items-center space-x-1.5">
-                            <span className="text-xs font-black text-slate-900">Phone Push Alerts</span>
+                            <span className="text-xs font-black text-slate-900">Push Notifications</span>
                             {pushState === 'granted' ? (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-700">
                                 Active
@@ -7420,8 +7359,8 @@ export default function StudentDashboard() {
                           </div>
                           <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
                             {pushState === 'granted'
-                              ? 'Your phone receives lock-screen alerts for chats & orders.'
-                              : 'Get instant phone alerts even when CampusLink is closed.'}
+                              ? 'Notifications are enabled for new messages and order updates.'
+                              : 'Get notified for new messages and order updates.'}
                           </p>
                         </div>
                       </div>
@@ -7436,7 +7375,7 @@ export default function StudentDashboard() {
                           className="flex-1 py-2 px-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
                         >
                           <Bell className="w-3.5 h-3.5" />
-                          <span>{pushLoading ? 'Enabling...' : 'Enable Phone Alerts'}</span>
+                          <span>{pushLoading ? 'Enabling...' : 'Enable Notifications'}</span>
                         </button>
                       </div>
                     )}
