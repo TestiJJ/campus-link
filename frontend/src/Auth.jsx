@@ -9,6 +9,7 @@ import {
   GraduationCap, Car, Video, ShoppingBag,
   Activity, RefreshCw, Wifi, WifiOff
 } from 'lucide-react';
+import InstallAppButton from './components/InstallAppButton';
 
 const DEFAULT_BACKEND_URL = 'https://campus-link-backend-vhxr.onrender.com';
 
@@ -461,9 +462,12 @@ export default function Auth() {
             CAMPUS<span className="text-sky-600">LINK</span>
           </span>
         </Link>
-        <Link to="/" className="text-xs font-semibold text-slate-500 hover:text-sky-600 transition-colors">
-          ← Back to Homepage
-        </Link>
+        <div className="flex items-center space-x-2.5">
+          <InstallAppButton variant="header" />
+          <Link to="/" className="text-xs font-semibold text-slate-500 hover:text-sky-600 transition-colors">
+            ← Back to Homepage
+          </Link>
+        </div>
       </div>
 
       {/* Main Form Container Card */}

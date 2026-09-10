@@ -22,6 +22,7 @@ import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
+import InstallAppButton from './components/InstallAppButton';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -3202,6 +3203,7 @@ export default function StudentDashboard() {
           </Link>
 
           <div className="flex items-center space-x-2">
+            <InstallAppButton variant="header" />
             <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg truncate max-w-[120px]">
               {universityName ? universityName.split(' ')[0] : 'Campus'}
             </span>
@@ -3257,6 +3259,7 @@ export default function StudentDashboard() {
           </div>
 
           <div className="flex items-center space-x-3">
+            <InstallAppButton variant="header" />
             {/* In-App Manual Refresh Button (Desktop) */}
             <button
               onClick={() => handleManualRefresh(true)}
@@ -6425,6 +6428,9 @@ export default function StudentDashboard() {
             {/* 4. SUBTAB: ABOUT & APP */}
             {profileSubtab === 'about' && (
               <div className="space-y-6">
+                {/* Dedicated App Installation & Update Card */}
+                <InstallAppButton variant="settings" showInstalled={true} />
+
                 {/* Guidelines Card */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
                   <h3 className="text-base font-bold text-slate-900">CampusLink Student Network</h3>

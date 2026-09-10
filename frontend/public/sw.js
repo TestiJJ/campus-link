@@ -212,3 +212,14 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+// ==========================================
+// Instant App Update Message Handler
+// ==========================================
+self.addEventListener('message', (event) => {
+  if (event.data && (event.data.type === 'SKIP_WAITING' || event.data === 'skipWaiting')) {
+    console.log('CampusLink SW: Received SKIP_WAITING signal, skipping wait.');
+    self.skipWaiting();
+  }
+});
+

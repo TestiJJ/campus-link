@@ -21,6 +21,7 @@ import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
+import InstallAppButton from './components/InstallAppButton';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -2715,7 +2716,8 @@ export default function VendorDashboard() {
           </nav>
         </div>
 
-        <div className="pt-4 border-t border-slate-200">
+        <div className="pt-4 border-t border-slate-200 space-y-2">
+          <InstallAppButton variant="header" className="w-full justify-center" />
           <button
             onClick={handleLogout}
             className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
@@ -2748,7 +2750,8 @@ export default function VendorDashboard() {
           <span className="truncate">{vendorStore?.university_abbr || vendorStore?.university_name || 'Campus'}</span>
         </div>
 
-        <div className="flex items-center space-x-1 shrink-0">
+        <div className="flex items-center space-x-1.5 shrink-0">
+          <InstallAppButton variant="header" />
           <button
             onClick={() => setActiveTab('settings')}
             className={`p-1.5 rounded-xl cursor-pointer transition-colors ${activeTab === 'settings' ? 'bg-sky-50 text-sky-600 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}
@@ -6016,6 +6019,9 @@ export default function VendorDashboard() {
                     </button>
                   </div>
                 </div>
+
+                {/* Dedicated App Installation & Update Card */}
+                <InstallAppButton variant="settings" showInstalled={true} />
 
                 {/* App Information Card */}
                 <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-3 shadow-xs">

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu, X, ShieldCheck, ArrowRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import InstallAppButton from './InstallAppButton';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -34,6 +35,7 @@ export default function Navbar() {
 
         {/* Desktop CTA */}
         <div className="hidden lg:flex items-center space-x-3 text-xs font-bold">
+          <InstallAppButton variant="header" />
           <Link
             to="/login"
             className="text-slate-700 hover:text-sky-600 px-4 py-2 transition-colors"
@@ -49,16 +51,20 @@ export default function Navbar() {
           </Link>
         </div>
 
-        {/* Mobile Menu Toggle (Enforced 44px min tap target) */}
-        <button
-          type="button"
-          aria-label="Toggle menu"
-          onClick={() => setIsOpen(!isOpen)}
-          className="lg:hidden min-tap-target text-slate-600 hover:text-slate-900 rounded-xl active:bg-slate-100 transition-colors cursor-pointer"
-        >
-          {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        {/* Mobile Actions & Menu Toggle (Enforced 44px min tap target) */}
+        <div className="lg:hidden flex items-center space-x-2">
+          <InstallAppButton variant="header" />
+          <button
+            type="button"
+            aria-label="Toggle menu"
+            onClick={() => setIsOpen(!isOpen)}
+            className="min-tap-target text-slate-600 hover:text-slate-900 rounded-xl active:bg-slate-100 transition-colors cursor-pointer"
+          >
+            {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
+
 
       {/* Mobile Drawer */}
       <AnimatePresence>
@@ -80,6 +86,7 @@ export default function Navbar() {
             </Link>
             
             <div className="pt-4 border-t border-slate-100 flex flex-col space-y-3">
+              <InstallAppButton variant="settings" className="w-full text-center" />
               <Link
                 to="/login"
                 onClick={() => setIsOpen(false)}

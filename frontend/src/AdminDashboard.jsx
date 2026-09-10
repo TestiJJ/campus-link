@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import API, { getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
+import InstallAppButton from './components/InstallAppButton';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -331,6 +332,7 @@ export default function AdminDashboard() {
         </Link>
 
         <div className="flex items-center space-x-1.5 shrink-0">
+          <InstallAppButton variant="header" />
           <button
             onClick={loadAdminData}
             title="Refresh Data"
@@ -475,7 +477,8 @@ export default function AdminDashboard() {
           </nav>
         </div>
 
-        <div className="pt-4 border-t border-slate-200">
+        <div className="pt-4 border-t border-slate-200 space-y-2">
+          <InstallAppButton variant="header" className="w-full justify-center" />
           <button
             onClick={handleLogout}
             className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"

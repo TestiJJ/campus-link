@@ -531,6 +531,17 @@ def presence_offline(
     return {"status": "offline", "last_seen": now_utc.isoformat()}
 
 
+@app.get("/api/version")
+def get_app_version():
+    """Returns the current CampusLink platform and PWA build version."""
+    return {
+        "version": "2.4.1",
+        "buildTime": 1741652000000,
+        "environment": os.getenv("ENVIRONMENT", "production"),
+        "releaseNotes": "Performance improvements, message editing and unified feeds."
+    }
+
+
 # --- AUTH & USER ENDPOINTS ---
 
 @app.post("/api/register", response_model=schemas.UserRegistrationOut, status_code=status.HTTP_201_CREATED)

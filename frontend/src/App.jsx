@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import PrivateRoute from './PrivateRoute';
 import PublicRoute from './PublicRoute';
 import InstallPwaPrompt from './InstallPwaPrompt';
+import { PwaProvider } from './context/PwaContext';
 
 // Code-split route components for instant initial page load
 const LandingPage = lazy(() => import('./LandingPage'));
@@ -171,98 +172,100 @@ function TabRedirect({ tab, subtab }) {
 export default function App() {
   return (
     <ErrorBoundary>
-      <Router>
-        <ScrollToTop />
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
-          <InstallPwaPrompt />
-          <Suspense fallback={<PageLoading />}>
-            <Routes>
-              {/* Public Routes (Auto-bypassed if user is already authenticated) */}
-              <Route
-                path="/"
-                element={
-                  <PublicRoute>
-                    <LandingPage />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/login"
-                element={
-                  <PublicRoute>
-                    <Auth />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/signup"
-                element={
-                  <PublicRoute>
-                    <Auth />
-                  </PublicRoute>
-                }
-              />
-              <Route
-                path="/auth"
-                element={
-                  <PublicRoute>
-                    <Auth />
-                  </PublicRoute>
-                }
-              />
+      <PwaProvider>
+        <Router>
+          <ScrollToTop />
+          <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
+            <InstallPwaPrompt />
+            <Suspense fallback={<PageLoading />}>
+              <Routes>
+                {/* Public Routes (Auto-bypassed if user is already authenticated) */}
+                <Route
+                  path="/"
+                  element={
+                    <PublicRoute>
+                      <LandingPage />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/login"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/signup"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
+                <Route
+                  path="/auth"
+                  element={
+                    <PublicRoute>
+                      <Auth />
+                    </PublicRoute>
+                  }
+                />
 
-              {/* Primary Protected Dashboards */}
-              <Route 
-                path="/student-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['student']}>
-                    <StudentDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/vendor-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['vendor']}>
-                    <VendorDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/admin" 
-                element={
-                  <PrivateRoute allowedRoles={['admin']}>
-                    <AdminDashboard />
-                  </PrivateRoute>
-                } 
-              />
-              <Route 
-                path="/admin-dashboard" 
-                element={
-                  <PrivateRoute allowedRoles={['admin']}>
-                    <AdminDashboard />
-                  </PrivateRoute>
-                } 
-              />
+                {/* Primary Protected Dashboards */}
+                <Route 
+                  path="/student-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['student']}>
+                      <StudentDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/vendor-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['vendor']}>
+                      <VendorDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin" 
+                  element={
+                    <PrivateRoute allowedRoles={['admin']}>
+                      <AdminDashboard />
+                    </PrivateRoute>
+                  } 
+                />
+                <Route 
+                  path="/admin-dashboard" 
+                  element={
+                    <PrivateRoute allowedRoles={['admin']}>
+                      <AdminDashboard />
+                    </PrivateRoute>
+                  } 
+                />
 
-              {/* Fast-Navigation Direct URLs & Aliases */}
-              <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
-              <Route path="/vendor" element={<PrivateRoute><VendorRedirect /></PrivateRoute>} />
-              <Route path="/feed" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
-              <Route path="/reels" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
-              <Route path="/market" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
-              <Route path="/marketplace" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
-              <Route path="/campus" element={<PrivateRoute><TabRedirect tab="campus" /></PrivateRoute>} />
-              <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
-              <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
-              <Route path="/messages" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
+                {/* Fast-Navigation Direct URLs & Aliases */}
+                <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
+                <Route path="/vendor" element={<PrivateRoute><VendorRedirect /></PrivateRoute>} />
+                <Route path="/feed" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
+                <Route path="/reels" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
+                <Route path="/market" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
+                <Route path="/marketplace" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
+                <Route path="/campus" element={<PrivateRoute><TabRedirect tab="campus" /></PrivateRoute>} />
+                <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
+                <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
+                <Route path="/messages" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
 
-              {/* Fallback Route */}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </Router>
+                {/* Fallback Route */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </div>
+        </Router>
+      </PwaProvider>
     </ErrorBoundary>
   );
 }
