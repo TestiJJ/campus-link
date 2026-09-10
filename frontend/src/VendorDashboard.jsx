@@ -714,13 +714,30 @@ export default function VendorDashboard() {
                   });
                   playMessageNotificationSound();
 
-                  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-                    try {
-                      new Notification(data.sender_name || 'New Customer Message (CampusLink)', {
+                  // Pop real system / mobile notification banner with message details and sound
+                  if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+                    navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(data.sender_name || 'Customer Message (CampusLink)', {
                         body: newM.content || (newM.message_type === 'audio' ? '🎤 Voice note' : 'New attachment'),
                         icon: data.sender_avatar || '/pwa-192x192.png',
                         badge: '/pwa-icon.svg',
-                        tag: `campuslink-vendor-msg-${newM.id}`
+                        tag: `campuslink-vendor-msg-${newM.sender_id}`,
+                        renotify: true,
+                        silent: false,
+                        sound: '/sounds/notification.mp3',
+                        vibrate: [250, 100, 250, 100, 250],
+                        data: {
+                          url: `/vendor-dashboard?tab=messages&chat=${newM.sender_id}`
+                        }
+                      });
+                    }).catch(() => {});
+                  } else if ('Notification' in window && Notification.permission === 'granted') {
+                    try {
+                      new Notification(data.sender_name || 'Customer Message (CampusLink)', {
+                        body: newM.content || (newM.message_type === 'audio' ? '🎤 Voice note' : 'New attachment'),
+                        icon: data.sender_avatar || '/pwa-192x192.png',
+                        badge: '/pwa-icon.svg',
+                        tag: `campuslink-vendor-msg-${newM.sender_id}`
                       });
                     } catch (_) {}
                   }
@@ -4876,41 +4893,12 @@ export default function VendorDashboard() {
                   <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
                 </div>
               ) : pushEnabled ? (
-                <div className="space-y-3">
-                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                    <div>
-                      <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                      <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly with sound.</p>
-                    </div>
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
+                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly with sound.</p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={pushLoading}
-                    onClick={async () => {
-                      setPushLoading(true);
-                      setPushTestMsg('');
-                      try {
-                        const res = await sendTestPushNotification();
-                        if (res?.success) {
-                          setPushTestMsg('🔔 Test notification & sound sent! Check your device.');
-                        } else {
-                          setPushTestMsg(res?.error || 'Failed to send test push.');
-                        }
-                      } catch (e) {
-                        setPushTestMsg(e?.message || 'Failed to send test push.');
-                      } finally {
-                        setPushLoading(false);
-                      }
-                    }}
-                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-sm"
-                  >
-                    <Bell className="w-4 h-4" />
-                    <span>{pushLoading ? 'Testing...' : '🔔 Test Alert & Sound'}</span>
-                  </button>
-                  {pushTestMsg && (
-                    <p className="text-xs text-emerald-700 font-semibold text-center">{pushTestMsg}</p>
-                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -4936,8 +4924,6 @@ export default function VendorDashboard() {
                         if (res?.success) {
                           setPushEnabled(true);
                           setPushPermission('granted');
-                          // Auto-fire a confirmation push
-                          sendTestPushNotification().catch(() => {});
                         } else {
                           setPushTestMsg(res?.error || 'Could not enable notifications.');
                         }

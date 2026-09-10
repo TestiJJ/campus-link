@@ -490,26 +490,10 @@ export default function StudentDashboard() {
     setPushLoading(false);
     if (res.success) {
       setPushState('granted');
-      setPushMessage('🔔 Phone alerts enabled! A confirmation ping & sound are on their way.');
-      setTimeout(() => setPushMessage(''), 5000);
-      // Auto-fire a test push right away to confirm delivery works
-      sendTestPushNotification(API).catch(() => {});
+      setPushMessage('🔔 Notifications enabled successfully!');
+      setTimeout(() => setPushMessage(''), 4000);
     } else {
-      setPushMessage(res.error || 'Could not enable push.');
-      setTimeout(() => setPushMessage(''), 6000);
-    }
-  };
-
-  const handleTestPush = async () => {
-    setPushLoading(true);
-    setPushMessage('');
-    const res = await sendTestPushNotification(API);
-    setPushLoading(false);
-    if (res.success) {
-      setPushMessage('🔔 Lockscreen alert & sound sent! Check your phone notification tray.');
-      setTimeout(() => setPushMessage(''), 5000);
-    } else {
-      setPushMessage(res.error || 'Failed to send test push.');
+      setPushMessage(res.error || 'Could not enable notifications.');
       setTimeout(() => setPushMessage(''), 5000);
     }
   };
@@ -832,14 +816,30 @@ export default function StudentDashboard() {
                   });
                   playMessageNotificationSound();
 
-                  // If user is in another tab or minimized, trigger browser notification popup
-                  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-                    try {
-                      new Notification(data.sender_name || 'New Message (CampusLink)', {
+                  // Pop real system / mobile notification banner with message details and sound
+                  if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+                    navigator.serviceWorker.ready.then(reg => {
+                      reg.showNotification(data.sender_name || 'CampusLink Message', {
                         body: newM.content || (newM.message_type === 'audio' ? '🎤 Voice note' : 'New attachment'),
                         icon: data.sender_avatar || '/pwa-192x192.png',
                         badge: '/pwa-icon.svg',
-                        tag: `campuslink-msg-${newM.id}`
+                        tag: `campuslink-msg-${newM.sender_id}`,
+                        renotify: true,
+                        silent: false,
+                        sound: '/sounds/notification.mp3',
+                        vibrate: [250, 100, 250, 100, 250],
+                        data: {
+                          url: `/student-dashboard?tab=messages&chat=${newM.sender_id}`
+                        }
+                      });
+                    }).catch(() => {});
+                  } else if ('Notification' in window && Notification.permission === 'granted') {
+                    try {
+                      new Notification(data.sender_name || 'CampusLink Message', {
+                        body: newM.content || (newM.message_type === 'audio' ? '🎤 Voice note' : 'New attachment'),
+                        icon: data.sender_avatar || '/pwa-192x192.png',
+                        badge: '/pwa-icon.svg',
+                        tag: `campuslink-msg-${newM.sender_id}`
                       });
                     } catch (_) {}
                   }
@@ -7427,19 +7427,7 @@ export default function StudentDashboard() {
                       </div>
                     </div>
 
-                    {pushState === 'granted' ? (
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <button
-                          type="button"
-                          disabled={pushLoading}
-                          onClick={handleTestPush}
-                          className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                        >
-                          <Bell className="w-3.5 h-3.5" />
-                          <span>{pushLoading ? 'Testing...' : '🔔 Test Alert & Sound'}</span>
-                        </button>
-                      </div>
-                    ) : (
+                    {pushState !== 'granted' && (
                       <div className="flex items-center gap-2 pt-0.5">
                         <button
                           type="button"
