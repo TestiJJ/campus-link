@@ -17,6 +17,7 @@ import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated }
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner, { playChatNotificationSound } from './components/InAppChatBanner';
+import { playMessageNotificationSound } from './utils/notificationSound';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
@@ -356,17 +357,6 @@ export default function VendorDashboard() {
   const avatarInputRef = useRef(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
-  // Push Notification States
-  const [pushPermission, setPushPermission] = useState('default'); // 'default'|'granted'|'denied'
-  const [pushLoading, setPushLoading] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushTestMsg, setPushTestMsg] = useState('');
-
-  // Verification Form State
-  const [idFrontFile, setIdFrontFile] = useState(null);
-  const [idFrontPreview, setIdFrontPreview] = useState(null);
-  const [idBackFile, setIdBackFile] = useState(null);
-  const [idBackPreview, setIdBackPreview] = useState(null);
   const [verificationForm, setVerificationForm] = useState({
     id_card_type: 'national_id',
     id_card_number: '',
@@ -419,33 +409,62 @@ export default function VendorDashboard() {
     });
   }, [conversations, communityUsers, myFriends, chatSearchQuery, user?.user_id, user?.id]);
 
-  // Close floating action popovers on click outside
+  // Push Notification States
+  const [pushPermission, setPushPermission] = useState('default'); // 'default'|'granted'|'denied'
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushTestMsg, setPushTestMsg] = useState('');
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('campuslink_vendor_push_dismissed') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  // Verification Form State
+  const [idFrontFile, setIdFrontFile] = useState(null);
+  const [idFrontPreview, setIdFrontPreview] = useState(null);
+  const [idBackFile, setIdBackFile] = useState(null);
+  const [idBackPreview, setIdBackPreview] = useState(null);
+  const [verificationSubmitted, setVerificationSubmitted] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
+
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (!e.target.closest('.chat-popover-toolbar') && !e.target.closest('.chat-bubble-tactile')) {
-        setActivePopoverMsgId(null);
+      if (!e.target.closest('[data-dropdown]')) {
+        // close open dropdowns if needed
       }
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Initialize push notification permission state on mount
+  // Initialize push notification permission state and auto-subscribe on mount
   useEffect(() => {
     if (!isPushSupported()) return;
-    // getNotificationPermissionState is synchronous
     const state = getNotificationPermissionState();
     setPushPermission(state);
     if (state === 'granted') {
-      // Silently check if already subscribed (no permission prompt)
-      navigator.serviceWorker.getRegistration('/').then(reg => {
-        if (reg) {
-          reg.pushManager.getSubscription().then(sub => {
-            if (sub) setPushEnabled(true);
-          }).catch(() => {});
-        }
+      setPushEnabled(true);
+      // Auto-sync subscription to backend
+      subscribeUserToPush(API).then(res => {
+        if (res?.success) setPushEnabled(true);
       }).catch(() => {});
     }
+  }, []);
+
+  // Listen for Service Worker background push broadcast to play sound
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event) => {
+      if (event.data && event.data.type === 'CAMPUSLINK_PUSH_RECEIVED') {
+        playMessageNotificationSound();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
   }, []);
 
   // Synchronize activeTab with URL query params and localStorage
@@ -679,6 +698,9 @@ export default function VendorDashboard() {
                     return [...prev, newM];
                   });
                   setTimeout(() => scrollToChatBottom(false), 50);
+                  if (document.hidden) {
+                    playMessageNotificationSound();
+                  }
                 } else {
                   // Pop up in-app notification banner across Reels, Store, etc.
                   setInAppBanner({
@@ -690,7 +712,19 @@ export default function VendorDashboard() {
                     text: newM.message_type === 'audio' ? '🎤 Voice note' : (newM.content || 'Sent a message'),
                     timestamp: Date.now()
                   });
-                  playChatNotificationSound();
+                  playMessageNotificationSound();
+
+                  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+                    try {
+                      new Notification(data.sender_name || 'New Customer Message (CampusLink)', {
+                        body: newM.content || (newM.message_type === 'audio' ? '🎤 Voice note' : 'New attachment'),
+                        icon: data.sender_avatar || '/pwa-192x192.png',
+                        badge: '/pwa-icon.svg',
+                        tag: `campuslink-vendor-msg-${newM.id}`
+                      });
+                    } catch (_) {}
+                  }
+                }
 
                   // Immediately increment unread count in conversations state
                   setConversations(prev => {
@@ -717,7 +751,6 @@ export default function VendorDashboard() {
                   });
                 }
               }
-            }
           } catch (err) {
             // Suppress noisy error logs
           }
@@ -2267,6 +2300,58 @@ export default function VendorDashboard() {
 
       {/* --- MAIN CONTENT AREA --- */}
       <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 pb-28 md:pb-8'}`}>
+        
+        {/* Universal WhatsApp-Style Push Notification Opt-In Banner (Vendor) */}
+        {isPushSupported() && pushPermission === 'default' && !pushBannerDismissed && (
+          <div className="mb-5 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 text-white shadow-lg shadow-sky-500/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 shadow-inner">
+                <Bell className="w-5 h-5 text-white animate-bounce" />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white leading-snug">
+                  Never miss an order or customer message! 🔔
+                </h4>
+                <p className="text-xs text-sky-100 font-medium leading-tight">
+                  Turn on WhatsApp-style phone alerts with custom sound even when CampusLink is closed.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 w-full sm:w-auto shrink-0 pt-1 sm:pt-0">
+              <button
+                type="button"
+                disabled={pushLoading}
+                onClick={async () => {
+                  setPushLoading(true);
+                  try {
+                    const res = await subscribeUserToPush();
+                    if (res?.success) {
+                      setPushEnabled(true);
+                      setPushPermission('granted');
+                      sendTestPushNotification().catch(() => {});
+                    }
+                  } catch (_) {}
+                  setPushLoading(false);
+                }}
+                className="flex-1 sm:flex-initial px-4 py-2 bg-white text-sky-700 hover:bg-sky-50 active:scale-95 text-xs font-black rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center space-x-1.5 disabled:opacity-50"
+              >
+                <Bell className="w-3.5 h-3.5 text-sky-600" />
+                <span>{pushLoading ? 'Enabling...' : 'Turn On Alerts'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPushBannerDismissed(true);
+                  try { localStorage.setItem('campuslink_vendor_push_dismissed', 'true'); } catch (_) {}
+                }}
+                className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         
         {/* Live Store Announcement Banner (Always visible if configured) */}
         {storeBroadcast && (
@@ -4791,12 +4876,41 @@ export default function VendorDashboard() {
                   <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
                 </div>
               ) : pushEnabled ? (
-                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                  <div>
-                    <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
+                <div className="space-y-3">
+                  <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
+                      <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly with sound.</p>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    disabled={pushLoading}
+                    onClick={async () => {
+                      setPushLoading(true);
+                      setPushTestMsg('');
+                      try {
+                        const res = await sendTestPushNotification();
+                        if (res?.success) {
+                          setPushTestMsg('🔔 Test notification & sound sent! Check your device.');
+                        } else {
+                          setPushTestMsg(res?.error || 'Failed to send test push.');
+                        }
+                      } catch (e) {
+                        setPushTestMsg(e?.message || 'Failed to send test push.');
+                      } finally {
+                        setPushLoading(false);
+                      }
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-sm"
+                  >
+                    <Bell className="w-4 h-4" />
+                    <span>{pushLoading ? 'Testing...' : '🔔 Test Alert & Sound'}</span>
+                  </button>
+                  {pushTestMsg && (
+                    <p className="text-xs text-emerald-700 font-semibold text-center">{pushTestMsg}</p>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">

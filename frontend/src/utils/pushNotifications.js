@@ -1,5 +1,5 @@
-// src/utils/pushNotifications.js
 import API from '../api';
+import { playMessageNotificationSound } from './notificationSound';
 
 /**
  * Checks if the user's browser/platform supports Service Worker Push Notifications.
@@ -107,7 +107,21 @@ export const subscribeUserToPush = async (customApi = API) => {
         });
       }
     } catch (subErr) {
-      return { success: false, error: 'Browser blocked the subscription. Check site notification permissions in your browser settings.' };
+      // If subscription failed due to key change or stale state, unsubscribe and retry once
+      try {
+        const oldSub = await registration.pushManager.getSubscription();
+        if (oldSub) await oldSub.unsubscribe();
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedVapidKey,
+        });
+      } catch (retryErr) {
+        return { success: false, error: 'Browser blocked the subscription. Check site notification permissions in your browser settings.' };
+      }
+    }
+
+    if (!subscription) {
+      return { success: false, error: 'Could not create push subscription.' };
     }
 
     // 5. Send subscription to CampusLink backend
@@ -136,7 +150,6 @@ export const subscribeUserToPush = async (customApi = API) => {
   }
 };
 
-
 /**
  * Unsubscribes the current device from Push Notifications
  */
@@ -163,13 +176,16 @@ export const unsubscribeUserFromPush = async (customApi = API) => {
 };
 
 /**
- * Sends an instant test push notification to this device to verify lock screen delivery.
+ * Sends an instant test push notification to this device to verify lock screen delivery & sound.
  */
 export const sendTestPushNotification = async (customApi = API) => {
   try {
+    // Play the in-app WhatsApp chime immediately so the user hears what alerts sound like
+    playMessageNotificationSound();
+
     const res = await customApi.post('/notifications/test-push', {
       title: '🔔 CampusLink Alert Verified!',
-      body: 'Your phone will now receive real-time alerts for messages, orders & campus notices!',
+      body: 'Your phone is now connected for real-time messages & order alerts even when closed!',
       url: '/',
     });
     return { success: true, data: res.data };

@@ -29,7 +29,7 @@ try:
     from sqlalchemy import text as _sql_text
     for col_stmt in [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
@@ -1015,9 +1015,9 @@ VAPID_PRIVATE_KEY = os.getenv(
 )
 VAPID_CLAIM_EMAIL = os.getenv("VAPID_CLAIM_EMAIL", "mailto:notifications@campuslink.ng")
 
-def send_web_push(subscription_info: dict, payload_data: dict):
+def send_web_push(subscription_info: dict, payload_data: dict, tag: Optional[str] = None):
     """
-    Sends a Web Push message to a browser/device push subscription.
+    Sends a Web Push message to a browser/device push subscription with high delivery urgency.
     """
     try:
         from pywebpush import webpush
@@ -1026,12 +1026,23 @@ def send_web_push(subscription_info: dict, payload_data: dict):
         return False
 
     try:
+        # RFC 8030 Urgency: high ensures immediate phone wake & lockscreen delivery
+        push_headers = {
+            "Urgency": "high"
+        }
+        if tag:
+            # Topic header allows replacing outdated notification tags on Google FCM / APNs
+            safe_topic = "".join(c for c in tag if c.isalnum() or c in "-_")[:32]
+            if safe_topic:
+                push_headers["Topic"] = safe_topic
+
         webpush(
             subscription_info=subscription_info,
             data=json.dumps(payload_data),
             vapid_private_key=VAPID_PRIVATE_KEY,
             vapid_claims={"sub": VAPID_CLAIM_EMAIL},
-            ttl=86400
+            ttl=86400,
+            headers=push_headers
         )
         return True
     except Exception as e:
@@ -1071,7 +1082,12 @@ def dispatch_push_notification_to_user(
                 "icon": icon,
                 "badge": badge,
                 "tag": tag,
-                "data": data or {}
+                "sound": "/sounds/notification.mp3",
+                "data": {
+                    "url": url,
+                    "sound": "/sounds/notification.mp3",
+                    **(data or {})
+                }
             }
 
             expired_ids = []
@@ -1083,7 +1099,7 @@ def dispatch_push_notification_to_user(
                         "auth": s.auth
                     }
                 }
-                res = send_web_push(sub_info, payload)
+                res = send_web_push(sub_info, payload, tag=tag)
                 if res == "expired":
                     expired_ids.append(s.id)
 
@@ -1118,18 +1134,21 @@ def create_notification(
         db.add(notif)
         db.commit()
 
-        # Target URL resolution for push click handler
+        # Check recipient role to route push click directly to the correct chat or dashboard
+        target_user = db.query(models.User).filter(models.User.user_id == user_id).first()
+        is_vendor = target_user and target_user.role == "vendor"
+
         target_url = "/"
         if notification_type in ("friend_request", "friend_accept"):
             target_url = "/student-dashboard?tab=community"
         elif notification_type in ("like", "comment", "reel"):
             target_url = "/student-dashboard?tab=reels"
         elif notification_type == "order":
-            target_url = "/vendor-dashboard?tab=orders"
+            target_url = "/vendor-dashboard?tab=orders" if is_vendor else "/student-dashboard?tab=marketplace"
         elif notification_type == "notice":
             target_url = "/student-dashboard?tab=notices"
         elif notification_type == "message":
-            target_url = f"/chat?partner={reference_id}" if reference_id else "/chat"
+            target_url = f"/vendor-dashboard?tab=messages&chat={reference_id}" if is_vendor else f"/student-dashboard?tab=messages&chat={reference_id}"
 
         # Dispatch real-time lockscreen phone push notification in background thread
         threading.Thread(

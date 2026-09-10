@@ -2,33 +2,11 @@ import React, { useEffect } from 'react';
 import { MessageSquare, X, ArrowRight } from 'lucide-react';
 import SafeImage from './SafeImage';
 
-// Synthetic pleasant chime using standard Web Audio API (zero external asset requests)
+import { playMessageNotificationSound } from '../utils/notificationSound';
+
+// Unified high-definition WhatsApp-style notification chime
 export const playChatNotificationSound = () => {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    
-    // Warm chime chord sequence (D5 -> A5)
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-    osc.frequency.exponentialRampToValueAtTime(880.00, ctx.currentTime + 0.12); // A5
-    
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.28);
-  } catch (err) {
-    // Audio contexts might be blocked until first user interaction; fail silently
-  }
+  playMessageNotificationSound();
 };
 
 export default function InAppChatBanner({ banner, onReply, onDismiss }) {

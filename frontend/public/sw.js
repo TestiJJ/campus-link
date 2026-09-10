@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.3';
+const CACHE_NAME = 'campuslink-v1.0.4';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -8,7 +8,8 @@ const PRECACHE_ASSETS = [
   '/pwa-icon.svg',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
-  '/apple-touch-icon.png'
+  '/apple-touch-icon.png',
+  '/sounds/notification.mp3'
 ];
 
 // Install: Pre-cache app shell & skip waiting immediately
@@ -150,7 +151,8 @@ self.addEventListener('push', (event) => {
     icon: '/pwa-192x192.png',
     badge: '/pwa-icon.svg',
     url: '/',
-    tag: 'campuslink-alert'
+    tag: 'campuslink-alert',
+    sound: '/sounds/notification.mp3'
   };
 
   if (event.data) {
@@ -165,27 +167,43 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'CampusLink';
+  const soundUrl = data.sound || '/sounds/notification.mp3';
+
   const options = {
     body: data.body,
     icon: data.icon || '/pwa-192x192.png',
     badge: data.badge || '/pwa-icon.svg',
     image: data.image || undefined,
+    silent: false,
+    sound: soundUrl,
     data: {
       url: data.url || '/',
+      sound: soundUrl,
       timestamp: Date.now(),
       ...(data.data || {})
     },
     tag: data.tag || `campuslink-${Date.now()}`,
     renotify: true,
-    vibrate: [200, 100, 200, 100, 200],
+    vibrate: [250, 100, 250, 100, 250],
     requireInteraction: false,
     actions: data.actions || [
-      { action: 'open', title: 'Open CampusLink' }
+      { action: 'open', title: 'Open' }
     ]
   };
 
   event.waitUntil(
-    self.registration.showNotification(title, options)
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Broadcast to any open windows/tabs so they can play in-app chime or update unread counts
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        windowClients.forEach((client) => {
+          client.postMessage({
+            type: 'CAMPUSLINK_PUSH_RECEIVED',
+            payload: data
+          });
+        });
+      })
+    ])
   );
 });
 
@@ -195,7 +213,7 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // If there's an existing open tab for CampusLink, focus and navigate it
+      // If there's an existing open tab for CampusLink on the same origin, focus and navigate it
       for (const client of windowClients) {
         if (client.url && 'focus' in client) {
           if (targetUrl && targetUrl !== '/') {
@@ -204,7 +222,7 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // Otherwise open a new window
+      // Otherwise open a new window directly to the target URL
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }
