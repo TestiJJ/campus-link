@@ -19,7 +19,7 @@ class UniversityOut(UniversityBase):
 class UserBase(BaseModel):
     full_name: str
     email: EmailStr
-    phone_number: str
+    phone_number: Optional[str] = None
     role: str = "student"  # student | vendor | admin
     status: Optional[str] = "active"  # active | suspended
     university_id: Optional[int] = None
@@ -32,6 +32,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    phone_number: str
     matric_number: Optional[str] = None
     
     # Extended Registration Payload Fields

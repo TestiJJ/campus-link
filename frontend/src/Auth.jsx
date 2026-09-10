@@ -340,6 +340,9 @@ export default function Auth() {
       } else {
         localStorage.setItem('campuslink_new_signup_pending', 'true');
         setPendingEmail(formData.email.trim());
+        if (data.message) {
+          setOtpSuccessMessage(data.message);
+        }
         setShowOtpModal(true);
         setResendCooldown(60);
       }

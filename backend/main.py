@@ -543,11 +543,61 @@ def register_user(
         if user_data.admin_secret_key != ADMIN_SECURITY_KEY:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Admin Security Key.")
 
-    if db.query(models.User).filter(models.User.email == user_data.email).first():
-        raise HTTPException(status_code=400, detail="Email is already registered")
+    clean_email = (user_data.email or "").strip().lower()
+    clean_phone = (user_data.phone_number or "").strip()
 
-    if db.query(models.User).filter(models.User.phone_number == user_data.phone_number).first():
-        raise HTTPException(status_code=400, detail="Phone number is already registered")
+    # Check for existing user by email
+    existing_user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    if existing_user:
+        if not existing_user.is_email_verified:
+            # Re-generate OTP for unverified user so they can complete registration seamlessly
+            otp = str(random.randint(100000, 999999))
+            expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
+            existing_user.verification_code = otp
+            existing_user.code_expires_at = expiry
+            existing_user.password_hash = auth.hash_password(user_data.password)
+            if user_data.full_name:
+                existing_user.full_name = user_data.full_name.strip()
+            if clean_phone:
+                existing_user.phone_number = clean_phone
+            if user_data.role:
+                existing_user.role = user_data.role
+            db.commit()
+            db.refresh(existing_user)
+
+            email_dispatched = send_otp_email(existing_user.email, otp)
+            return {
+                "user_id": str(existing_user.user_id),
+                "full_name": existing_user.full_name,
+                "email": existing_user.email,
+                "phone_number": existing_user.phone_number or clean_phone,
+                "role": existing_user.role,
+                "status": existing_user.status or "active",
+                "university_id": existing_user.university_id,
+                "state": existing_user.state,
+                "department": existing_user.department,
+                "level": existing_user.level,
+                "hostel": existing_user.hostel,
+                "bio": existing_user.bio,
+                "profile_picture_url": existing_user.profile_picture_url,
+                "is_email_verified": existing_user.is_email_verified,
+                "matric_number": existing_user.matric_number,
+                "created_at": existing_user.created_at,
+                "email_dispatched": email_dispatched,
+                "dev_code": otp if not email_dispatched else None,
+                "message": "Account pending verification! A fresh 6-digit verification code has been dispatched to your email."
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Email is already registered")
+
+    # Check phone collision against other verified/registered users
+    if clean_phone:
+        existing_phone_user = db.query(models.User).filter(
+            models.User.phone_number == clean_phone,
+            func.lower(models.User.email) != clean_email
+        ).first()
+        if existing_phone_user:
+            raise HTTPException(status_code=400, detail="Phone number is already registered")
 
     parsed_uni_id = None
     if user_data.university_id:
@@ -566,9 +616,9 @@ def register_user(
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
 
     new_user = models.User(
-        full_name=user_data.full_name,
-        email=user_data.email,
-        phone_number=user_data.phone_number,
+        full_name=user_data.full_name.strip() if user_data.full_name else "",
+        email=clean_email,
+        phone_number=clean_phone,
         password_hash=hashed_pw,
         role=user_data.role,
         university_id=parsed_uni_id,
@@ -596,8 +646,8 @@ def register_user(
             category_id=user_data.category_id or 1,
             university_id=parsed_uni_id,
             location=user_data.hostel,
-            phone=user_data.phone_number,
-            email=user_data.email,
+            phone=clean_phone,
+            email=clean_email,
             verification_status="pending"
         )
         db.add(vendor_entry)
@@ -605,10 +655,19 @@ def register_user(
 
     email_dispatched = send_otp_email(new_user.email, otp)
     return {
-        "user_id": new_user.user_id,
+        "user_id": str(new_user.user_id),
         "full_name": new_user.full_name,
         "email": new_user.email,
+        "phone_number": new_user.phone_number or clean_phone,
         "role": new_user.role,
+        "status": new_user.status or "active",
+        "university_id": new_user.university_id,
+        "state": new_user.state,
+        "department": new_user.department,
+        "level": new_user.level,
+        "hostel": new_user.hostel,
+        "bio": new_user.bio,
+        "profile_picture_url": new_user.profile_picture_url,
         "is_email_verified": new_user.is_email_verified,
         "matric_number": new_user.matric_number,
         "created_at": new_user.created_at,
@@ -694,9 +753,14 @@ def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.ge
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     if not user.is_email_verified:
+        otp = str(random.randint(100000, 999999))
+        user.verification_code = otp
+        user.code_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
+        db.commit()
+        send_otp_email(user.email, otp)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Email not verified. Please complete email verification first."
+            detail="Email not verified. A fresh 6-digit verification code has been dispatched to your email."
         )
 
     if getattr(user, "status", "active") == "suspended":
