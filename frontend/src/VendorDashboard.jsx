@@ -1121,13 +1121,20 @@ export default function VendorDashboard() {
 
   const handleDeleteStatus = async (statusId) => {
     if (!window.confirm('Delete this status story?')) return;
+    const prevGroups = statusGroups;
+    // 0ms instant optimistic UI update
+    setStatusGroups(prev => prev.map(g => ({
+      ...g,
+      items: (g.items || []).filter(item => item.id !== statusId)
+    })).filter(g => (g.items || []).length > 0));
+    setActiveStatusViewer(null);
+    showToast('Story deleted.', 'info');
+
     try {
       await API.delete(`/campus/statuses/${statusId}`);
-      setActiveStatusViewer(null);
-      showToast('Story deleted.', 'info');
-      const statRes = await API.get('/campus/statuses');
-      setStatusGroups(statRes.data || []);
+      API.get('/campus/statuses').then(res => setStatusGroups(res.data || [])).catch(() => {});
     } catch (err) {
+      setStatusGroups(prevGroups);
       showToast('Failed to delete status story.', 'error');
     }
   };
@@ -2051,7 +2058,11 @@ export default function VendorDashboard() {
       setProductForm({ name: '', description: '', price: '', category_id: 1, quantity: 1, university_id: '' });
       setProdFile(null);
       setProdPreview(null);
-      loadStoreData();
+      API.get('/products').then(res => {
+        const fresh = res.data || [];
+        setProducts(fresh);
+        setCachedData('products', fresh);
+      }).catch(() => {});
     } catch (err) {
       showToast(err.response?.data?.detail || (editingProduct ? 'Failed to update product.' : 'Failed to add product.'), 'error');
     } finally {
@@ -2083,7 +2094,11 @@ export default function VendorDashboard() {
       setSvcFile(null);
       setSvcPreview(null);
       showToast('Service published to Campus Marketplace!', 'success');
-      loadStoreData();
+      API.get('/services').then(res => {
+        const fresh = res.data || [];
+        setServices(fresh);
+        setCachedData('services', fresh);
+      }).catch(() => {});
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to add service.', 'error');
     } finally {
@@ -2117,7 +2132,11 @@ export default function VendorDashboard() {
       setReelMediaFile(null);
       setReelMediaPreview(null);
       showToast('Promotional Drop published to Campus Reels feed!', 'success');
-      loadStoreData();
+      API.get('/reels').then(res => {
+        const fresh = res.data || [];
+        setAllReels(fresh);
+        setCachedData('allReels', fresh);
+      }).catch(() => {});
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to post reel.', 'error');
     } finally {
@@ -2125,45 +2144,90 @@ export default function VendorDashboard() {
     }
   };
 
+  // 0ms Optimistic Delete Product
   const handleDeleteProduct = async (id) => {
     if (!window.confirm('Delete this product?')) return;
+    const prevProducts = products;
+    setProducts(prev => prev.filter(p => p.id !== id));
+    setCachedData('products', products.filter(p => p.id !== id));
+    showToast('Product removed successfully.', 'success');
+
     try {
       await API.delete(`/products/${id}`);
-      showToast('Product removed successfully.', 'success');
-      loadStoreData();
+      API.get('/products').then(res => {
+        const fresh = res.data || [];
+        setProducts(fresh);
+        setCachedData('products', fresh);
+      }).catch(() => {});
     } catch (err) {
+      setProducts(prevProducts);
+      setCachedData('products', prevProducts);
       showToast(err.response?.data?.detail || 'Delete failed.', 'error');
     }
   };
 
+  // 0ms Optimistic Delete Service
   const handleDeleteService = async (id) => {
     if (!window.confirm('Delete this service listing?')) return;
+    const prevServices = services;
+    setServices(prev => prev.filter(s => s.id !== id));
+    setCachedData('services', services.filter(s => s.id !== id));
+    showToast('Service listing deleted successfully.', 'success');
+
     try {
       await API.delete(`/services/${id}`);
-      showToast('Service listing deleted successfully.', 'success');
-      loadStoreData();
+      API.get('/services').then(res => {
+        const fresh = res.data || [];
+        setServices(fresh);
+        setCachedData('services', fresh);
+      }).catch(() => {});
     } catch (err) {
+      setServices(prevServices);
+      setCachedData('services', prevServices);
       showToast(err.response?.data?.detail || 'Delete failed.', 'error');
     }
   };
 
+  // 0ms Optimistic Delete Reel
   const handleDeleteReel = async (id) => {
     if (!window.confirm('Delete this promotional drop?')) return;
+    const prevReels = allReels;
+    setAllReels(prev => prev.filter(r => r.id !== id));
+    setCachedData('allReels', allReels.filter(r => r.id !== id));
+    showToast('Promotional drop deleted successfully.', 'success');
+
     try {
       await API.delete(`/reels/${id}`);
-      showToast('Promotional drop deleted successfully.', 'success');
-      loadStoreData();
+      API.get('/reels').then(res => {
+        const fresh = res.data || [];
+        setAllReels(fresh);
+        setCachedData('allReels', fresh);
+      }).catch(() => {});
     } catch (err) {
+      setAllReels(prevReels);
+      setCachedData('allReels', prevReels);
       showToast(err.response?.data?.detail || 'Delete failed.', 'error');
     }
   };
 
+  // 0ms Optimistic Order Status Update
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    const prevOrders = vendorOrders;
+    const updated = vendorOrders.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
+    setVendorOrders(updated);
+    setCachedData('orders', updated);
+    showToast(`Order status updated to ${newStatus}.`, 'success');
+
     try {
       await API.post(`/orders/${orderId}/status?status_update=${newStatus}`);
-      showToast(`Order status updated to ${newStatus}.`, 'success');
-      loadStoreData();
+      API.get('/orders').then(res => {
+        const fresh = res.data || [];
+        setVendorOrders(fresh);
+        setCachedData('orders', fresh);
+      }).catch(() => {});
     } catch (err) {
+      setVendorOrders(prevOrders);
+      setCachedData('orders', prevOrders);
       showToast(err.response?.data?.detail || 'Status update failed.', 'error');
     }
   };
