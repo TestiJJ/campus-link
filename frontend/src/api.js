@@ -166,19 +166,24 @@ export const getMediaUrl = (url, options = {}) => {
 
 /**
  * Lightweight background ping to wake up a sleeping Render instance early.
- * Fired as a fire-and-forget request when the user lands on the website.
+ * Fires two parallel requests: root ping (no-cors) + health check.
  */
 export const warmUpBackend = () => {
   if (typeof window === 'undefined') return;
-  try {
-    const backendRoot = resolvedApiBase.replace(/\/api$/, '');
-    fetch(`${backendRoot}/`, { method: 'GET', mode: 'no-cors' }).catch(() => {});
-  } catch {}
+  const backendRoot = resolvedApiBase.replace(/\/api$/, '');
+  // Fire-and-forget: both pings in parallel for maximum wakeup speed
+  try { fetch(`${backendRoot}/`, { method: 'GET', mode: 'no-cors' }).catch(() => {}); } catch {}
+  try { fetch(`${backendRoot}/api/health`, { method: 'GET', mode: 'no-cors' }).catch(() => {}); } catch {}
 };
 
-// Automatically fire early wakeup ping upon frontend load
+/**
+ * Re-usable explicit ping for components that need to check/force backend alive.
+ */
+export const pingBackend = warmUpBackend;
+
+// Fire immediately on module load — wakes the backend while user reads the page
 if (typeof window !== 'undefined') {
-  setTimeout(warmUpBackend, 50);
+  warmUpBackend();
 }
 
 export const getWsUrl = (path = '') => {

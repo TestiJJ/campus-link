@@ -41,20 +41,31 @@ export default defineConfig({
     spaFallbackPlugin(),
   ],
   build: {
+    // Target modern browsers — smaller bundles, no legacy polyfills
+    target: 'esnext',
+    // Minify CSS for smaller payload
+    cssMinify: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Animation & icon libs — loaded only by dashboards, not landing page
             if (id.includes('framer-motion') || id.includes('lucide-react') || id.includes('lenis')) {
               return 'vendor-ui';
             }
+            // Core React runtime — needed immediately on all pages
             if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom') || id.includes('axios')) {
               return 'vendor-core';
             }
           }
+          // Split chatCache into its own chunk — 28KB, loaded early on dashboard mount
+          if (id.includes('chatCache')) {
+            return 'chatCache';
+          }
         },
       },
     },
-    chunkSizeWarningLimit: 1000,
+    // Raise limit — large dashboard files are expected and already lazy-loaded
+    chunkSizeWarningLimit: 2000,
   },
 });

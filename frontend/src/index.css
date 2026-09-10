@@ -25,6 +25,9 @@ html {
   text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  /* Ensure subpixel font rendering for sharper text */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -46,6 +49,34 @@ body {
   width: 100%;
   display: flex;
   flex-direction: column;
+}
+
+/* Global: All buttons get pointer cursor immediately — no flash */
+button, [role="button"], a {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fast interaction utility — use on nav tabs, buttons, cards for snappy feel */
+/* Applied via className="transition-fast" alongside existing transition-colors */
+.transition-fast {
+  transition-property: color, background-color, border-color, opacity, transform, box-shadow;
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* GPU layer promotion for interactive elements — eliminates layout paint on hover/active */
+.min-tap-target, .min-tap-target-sm {
+  will-change: transform;
+}
+
+/* Reduced motion: respect user OS preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Native Mobile Safe Area Insets Helpers */

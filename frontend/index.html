@@ -19,6 +19,14 @@
     <link rel="icon" type="image/svg+xml" href="/pwa-icon.svg" />
     <link rel="alternate icon" type="image/png" href="/pwa-192x192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Performance: Pre-resolve DNS & pre-open TCP/TLS to backend before JS loads -->
+    <!-- Eliminates 100-400ms connection overhead on first API call -->
+    <link rel="preconnect" href="https://campus-link-backend-vhxr.onrender.com" crossorigin />
+    <link rel="dns-prefetch" href="https://campus-link-backend-vhxr.onrender.com" />
+    <!-- Cloudinary CDN for fast image loading -->
+    <link rel="preconnect" href="https://res.cloudinary.com" crossorigin />
+    <link rel="dns-prefetch" href="https://res.cloudinary.com" />
   </head>
   <body class="bg-slate-50 text-slate-900 selection:bg-blue-500 selection:text-white antialiased">
     <div id="root"></div>

@@ -32,6 +32,8 @@ export default function Auth() {
   const [role, setRole] = useState(initialRoleParam === 'vendor' ? 'vendor' : 'student');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Set true when backend says email is already registered — shows "Sign In Instead" CTA
+  const [emailAlreadyExists, setEmailAlreadyExists] = useState(false);
 
   // Server Live Health Status Indicator
   const [serverStatus, setServerStatus] = useState('checking'); // 'checking' | 'online' | 'waking' | 'offline'
@@ -159,6 +161,7 @@ export default function Auth() {
       [name]: type === 'checkbox' ? checked : value,
     }));
     setErrorMessage('');
+    setEmailAlreadyExists(false);
   };
 
   const handleSelectInstitution = (inst) => {
@@ -208,6 +211,7 @@ export default function Auth() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
+    setEmailAlreadyExists(false);
 
     if (!formData.email.trim()) {
       setErrorMessage('Please enter your email address.');
@@ -285,21 +289,26 @@ export default function Auth() {
           data
         });
 
-        const detailText = String(data?.detail || '');
-        const isPendingVerificationForSignup = !isLogin && (
-          (response.status === 400 && detailText.toLowerCase().includes('email is already registered')) ||
-          response.status === 403
-        );
+        const detailText = String(data?.detail || '').toLowerCase();
 
-        if (isPendingVerificationForSignup) {
-          setPendingEmail(formData.email.trim());
-          setShowOtpModal(true);
-          setResendCooldown(30);
-          setErrorMessage('This email is pending verification. Enter your 6-digit code to continue.');
+        // Case 1: Email already fully registered — switch to login, do NOT open OTP modal
+        if (!isLogin && response.status === 400 && detailText.includes('email is already registered')) {
+          setEmailAlreadyExists(true);
+          setErrorMessage('An account with this email already exists. Sign in instead.');
           return;
         }
 
-        if (response.status === 403 && data?.detail && String(data.detail).includes('not verified')) {
+        // Case 2: Email registered but not yet verified — open OTP modal so user can verify
+        if (!isLogin && (response.status === 403 || (response.status === 400 && detailText.includes('not verified')))) {
+          setPendingEmail(formData.email.trim());
+          setShowOtpModal(true);
+          setResendCooldown(30);
+          setErrorMessage('This email is pending verification. Enter the 6-digit code sent to your inbox.');
+          return;
+        }
+
+        // Case 3: Login with unverified email
+        if (isLogin && response.status === 403 && detailText.includes('not verified')) {
           setPendingEmail(formData.email.trim());
           setShowOtpModal(true);
           setResendCooldown(30);
@@ -577,9 +586,26 @@ export default function Auth() {
 
           {/* Alerts */}
           {errorMessage && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="flex-1">{errorMessage}</span>
+              </div>
+              {/* Show "Sign In Instead" CTA when email is already registered */}
+              {emailAlreadyExists && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLogin(true);
+                    setEmailAlreadyExists(false);
+                    setErrorMessage('');
+                  }}
+                  className="mt-2.5 w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                >
+                  <span>Sign In Instead</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
 
