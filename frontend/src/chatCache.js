@@ -138,6 +138,18 @@ export const updateThreadMessage = (partnerId, tempId, updatedMsg) => {
 };
 
 /**
+ * Remove a message from thread cache by ID
+ */
+export const removeThreadMessage = (partnerId, messageId) => {
+  const key = toKey(partnerId);
+  if (!key) return [];
+  const current = getCachedThreadMessages(key);
+  const updated = current.filter(m => m.id !== messageId && m.client_id !== messageId);
+  setCachedThreadMessages(key, updated);
+  return updated;
+};
+
+/**
  * Prime entire conversations cache synchronously from /api/conversations payload
  */
 export const primeConversationsCache = (conversationsList) => {

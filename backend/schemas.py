@@ -59,6 +59,8 @@ class UserOut(UserBase):
     is_email_verified: bool
     is_online: Optional[bool] = False
     last_seen: Optional[datetime] = None
+    is_verified: Optional[bool] = False
+    verification_status: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -333,6 +335,9 @@ class MessageCreate(BaseModel):
     reply_to_id: Optional[Union[int, str]] = None
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
+
+class MessageUpdate(BaseModel):
+    content: str
 
 class MessageOut(BaseModel):
     id: int

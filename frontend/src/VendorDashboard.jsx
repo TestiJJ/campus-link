@@ -11,7 +11,7 @@ import {
   Share2, DollarSign, Bell, Sparkles, AlertTriangle, ExternalLink,
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
-  Film, Mic
+  Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -32,6 +32,7 @@ import {
   mergeThreadMessages,
   appendThreadMessage,
   updateThreadMessage,
+  removeThreadMessage,
   primeConversationsCache,
   revalidateThreadMessages,
   smartScrollToBottom,
@@ -219,6 +220,7 @@ export default function VendorDashboard() {
     }
   });
   const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
+  const [isStoreLoading, setIsStoreLoading] = useState(() => !getCachedData('store', null));
   const [activeTab, setActiveTab] = useState(getInitialVendorTab);
   
   // New Vendor Profile Completion Prompt State
@@ -275,6 +277,15 @@ export default function VendorDashboard() {
   const [chatMessages, setChatMessages] = useState([]);
   const [newMsgText, setNewMsgText] = useState('');
   const [replyingToMessage, setReplyingToMessage] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [playingAudioId, setPlayingAudioId] = useState(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const chatAudioElementRef = useRef(null);
+  const chatInputRef = useRef(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
   const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
@@ -328,7 +339,19 @@ export default function VendorDashboard() {
   const [newCommentText, setNewCommentText] = useState('');
   const [replyingToComment, setReplyingToComment] = useState(null);
   const [isPostingComment, setIsPostingComment] = useState(false);
+  const [activePostMenuId, setActivePostMenuId] = useState(null);
+  const [hiddenPostIds, setHiddenPostIds] = useState([]);
   const commentInputRef = useRef(null);
+
+  // Settings Subtabs State
+  const [settingsSubtab, setSettingsSubtab] = useState('profile'); // 'profile' | 'payouts' | 'security' | 'notifications' | 'about'
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    try {
+      return localStorage.getItem('cl_sound_enabled') !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   // Modals State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -517,12 +540,50 @@ export default function VendorDashboard() {
   // Reel Form State (with real file)
   const [reelMediaFile, setReelMediaFile] = useState(null);
   const [reelMediaPreview, setReelMediaPreview] = useState(null);
+  const [detectingGps, setDetectingGps] = useState(false);
+  const reelFileInputRef = useRef(null);
   const [reelForm, setReelForm] = useState({
     title: '',
     description: '',
     media_type: 'image',
     location: ''
   });
+
+  const handleDetectGpsLocation = () => {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported by your browser.', 'info');
+      return;
+    }
+    setDetectingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(3);
+        const lon = pos.coords.longitude.toFixed(3);
+        setReelForm(prev => ({ ...prev, location: `📍 Live GPS (${lat}, ${lon}) • ${vendorStore?.location || 'Campus'}` }));
+        setDetectingGps(false);
+        showToast('Device GPS location detected!', 'info');
+      },
+      (err) => {
+        console.warn(err);
+        setReelForm(prev => ({ ...prev, location: `📍 ${vendorStore?.location || 'Campus SUB'}` }));
+        setDetectingGps(false);
+        showToast(`Using ${vendorStore?.location || 'Campus'} location.`, 'info');
+      },
+      { timeout: 8000 }
+    );
+  };
+
+  const handleReelFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReelMediaFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setReelMediaPreview(previewUrl);
+    setReelForm(prev => ({
+      ...prev,
+      media_type: file.type.startsWith('video') ? 'video' : 'image'
+    }));
+  };
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -674,6 +735,20 @@ export default function VendorDashboard() {
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'pong') return; // Heartbeat response
+
+            if (data.type === 'message_edited' && data.message) {
+              const ed = data.message;
+              setChatMessages(prev => prev.map(m => m.id === ed.id ? { ...m, content: ed.content, is_edited: true } : m));
+              updateThreadMessage(ed.sender_id, ed.id, { content: ed.content, is_edited: true });
+              updateThreadMessage(ed.recipient_id, ed.id, { content: ed.content, is_edited: true });
+            }
+
+            if (data.type === 'message_deleted' && data.message_id) {
+              const delId = data.message_id;
+              setChatMessages(prev => prev.filter(m => m.id !== delId));
+              if (data.sender_id) removeThreadMessage(data.sender_id, delId);
+              if (data.recipient_id) removeThreadMessage(data.recipient_id, delId);
+            }
 
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
@@ -1066,6 +1141,8 @@ export default function VendorDashboard() {
       }
     } catch (err) {
       console.error('Error fetching store info:', err);
+    } finally {
+      setIsStoreLoading(false);
     }
   };
 
@@ -1474,6 +1551,155 @@ export default function VendorDashboard() {
     });
   };
 
+  const handleStartEditMessage = (msg) => {
+    setReplyingToMessage(null);
+    setEditingMessage(msg);
+    setNewMsgText(typeof msg.content === 'string' ? msg.content : (msg.text || ''));
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 50);
+  };
+
+  const handleCancelEditMessage = () => {
+    setEditingMessage(null);
+    setNewMsgText('');
+  };
+
+  const handleDeleteMessage = async (msgId) => {
+    const partnerId = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
+    // 0ms instant optimistic removal
+    setChatMessages(prev => prev.filter(m => m.id !== msgId));
+    if (partnerId) {
+      removeThreadMessage(partnerId, msgId);
+    }
+    try {
+      await API.delete(`/messages/${msgId}`);
+    } catch (err) {
+      console.error('Failed to delete message:', err);
+    }
+  };
+
+  const handleStartRecordingAudio = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(s => s + 1);
+      }, 1000);
+    } catch (err) {
+      alert('Microphone access is required to record a Voice Note. Please allow microphone permissions in your browser.');
+    }
+  };
+
+  const handleStopAndSendAudio = async () => {
+    if (!mediaRecorderRef.current) return;
+    clearInterval(recordingTimerRef.current);
+    const duration = recordingSeconds || 1;
+    const partnerId = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
+
+    mediaRecorderRef.current.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+      }
+      setIsRecordingAudio(false);
+      setRecordingSeconds(0);
+
+      // 1. Optimistic 0ms Render
+      const localAudioUrl = URL.createObjectURL(audioBlob);
+      const tempId = `temp_audio_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const optimisticMsg = {
+        id: tempId,
+        sender_id: user?.user_id || user?.id,
+        recipient_id: partnerId,
+        content: 'Voice note',
+        message_type: 'audio',
+        media_url: localAudioUrl,
+        duration: duration,
+        created_at: new Date().toISOString(),
+        is_read: false,
+        is_optimistic: true
+      };
+
+      appendThreadMessage(partnerId, optimisticMsg);
+      setChatMessages(prev => [...prev, optimisticMsg]);
+      setConversations(prev => {
+        const idx = prev.findIndex(c => String(c.partner_id || c.user_id) === String(partnerId));
+        if (idx !== -1) {
+          const updated = { ...prev[idx], last_message: '🎤 Voice note', last_timestamp: new Date().toISOString() };
+          const next = [updated, ...prev.filter((_, i) => i !== idx)];
+          setCachedData('conversations', next);
+          return next;
+        }
+        return prev;
+      });
+      smartScrollToBottom(chatContainerRef.current, false);
+
+      // 2. Upload & Send in background
+      try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'voice_note.webm');
+        const uploadRes = await API.post('/upload', formData);
+        const audioUrl = uploadRes.data.url;
+
+        const res = await API.post('/messages', {
+          recipient_id: partnerId,
+          content: 'Voice note',
+          message_type: 'audio',
+          media_url: audioUrl,
+          duration: duration
+        });
+
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+      } catch (err) {
+        setChatMessages(prev => prev.filter(m => m.id !== tempId));
+        showToast('Failed to send voice note.', 'error');
+      }
+    };
+    mediaRecorderRef.current.stop();
+  };
+
+  const handleCancelRecordingAudio = () => {
+    if (mediaRecorderRef.current) {
+      clearInterval(recordingTimerRef.current);
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+      }
+      setIsRecordingAudio(false);
+      setRecordingSeconds(0);
+    }
+  };
+
+  const handlePlayAudio = (msgId, audioUrl) => {
+    if (playingAudioId === msgId) {
+      if (chatAudioElementRef.current) {
+        chatAudioElementRef.current.pause();
+      }
+      setPlayingAudioId(null);
+      return;
+    }
+    if (chatAudioElementRef.current) {
+      chatAudioElementRef.current.pause();
+    }
+    const audio = new Audio(audioUrl);
+    chatAudioElementRef.current = audio;
+    setPlayingAudioId(msgId);
+    audio.play().catch(e => console.error('Audio play error:', e));
+    audio.onended = () => {
+      setPlayingAudioId(null);
+    };
+  };
+
   const handleSendChatMessage = async (customContent = null, customReply = null) => {
     if (selectedPartner?.is_ai) {
       return handleSendAiMessage(customContent);
@@ -1484,6 +1710,29 @@ export default function VendorDashboard() {
     if ((!text.trim() && !hasMedia) || !selectedPartner) return;
 
     const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+
+    // Handle Edit Mode
+    if (editingMessage) {
+      const updatedText = text.trim();
+      const editId = editingMessage.id;
+      setEditingMessage(null);
+      if (!customContent) setNewMsgText('');
+      if (!updatedText) return;
+
+      // 0ms Optimistic Update
+      setChatMessages(prev => prev.map(m => (m.id === editId ? { ...m, content: updatedText, is_edited: true } : m)));
+      if (partnerId) {
+        updateThreadMessage(partnerId, editId, { content: updatedText, is_edited: true });
+      }
+
+      try {
+        await API.put(`/messages/${editId}`, { content: updatedText });
+      } catch (err) {
+        console.error('Failed to edit message:', err);
+      }
+      return;
+    }
+
     const currentReply = customReply || replyingToMessage;
     const messageText = text.trim();
 
@@ -1959,6 +2208,43 @@ export default function VendorDashboard() {
     }
   };
 
+  const handleDeleteReelComment = async (reelId, commentId) => {
+    setAllReels(prev => prev.map(r => {
+      if (r.id === reelId) {
+        const nextComments = (r.comments || []).filter(c => c.id !== commentId);
+        return { ...r, comments: nextComments, comments_count: Math.max(0, (r.comments_count || 1) - 1) };
+      }
+      return r;
+    }));
+    try {
+      await API.delete(`/reels/${reelId}/comments/${commentId}`);
+      showToast('Comment deleted.', 'info');
+    } catch (err) {
+      console.error('Failed to delete comment:', err);
+    }
+  };
+
+  const handleHidePost = (id) => {
+    setHiddenPostIds(prev => [...prev, id]);
+    showToast('Post hidden from your feed.', 'info');
+    setActivePostMenuId(null);
+  };
+
+  const handleReportPost = (id) => {
+    showToast('Post reported for moderator review.', 'info');
+    setActivePostMenuId(null);
+  };
+
+  const handleCopyPostLink = (reel) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(`${window.location.origin}/reels?id=${reel.id}`);
+        showToast('Link copied to clipboard!', 'success');
+      }
+    } catch (_) {}
+    setActivePostMenuId(null);
+  };
+
   // Submit ID Verification (with flexible document types for graduates & campus restaurants)
   const handleVerificationSubmit = async (e) => {
     e.preventDefault();
@@ -2247,7 +2533,11 @@ export default function VendorDashboard() {
     navigate('/login');
   };
 
-  const isVerified = vendorStore?.verification_status === 'verified';
+  const isVerified = Boolean(
+    vendorStore?.verification_status === 'verified' ||
+    user?.is_verified === true ||
+    user?.verification_status === 'verified'
+  );
   const pendingOrdersCount = vendorOrders.filter(o => o.status === 'pending').length;
   const totalRevenue = vendorOrders
     .filter(o => o.status === 'completed' || o.status === 'confirmed')
@@ -2500,7 +2790,7 @@ export default function VendorDashboard() {
         )}
 
         {/* Verification Alert Banner */}
-        {!isVerified && (
+        {!isVerified && !isStoreLoading && vendorStore && (
           <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
             <div className="flex items-start space-x-3">
               <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -3685,6 +3975,34 @@ export default function VendorDashboard() {
                                         >
                                           <Copy className="w-3.5 h-3.5" />
                                         </button>
+                                        {/* Edit Button (My text/reply messages only) */}
+                                        {isMine && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'reply') && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setActivePopoverMsgId(null);
+                                              handleStartEditMessage(msg);
+                                            }}
+                                            className="p-1 rounded-full text-slate-600 hover:text-amber-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                            title="Edit message"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5 text-amber-500" />
+                                          </button>
+                                        )}
+                                        {/* Delete Button (My messages only) */}
+                                        {isMine && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setActivePopoverMsgId(null);
+                                              handleDeleteMessage(msg.id);
+                                            }}
+                                            className="p-1 rounded-full text-slate-600 hover:text-rose-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                                            title="Delete message"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                          </button>
+                                        )}
                                       </div>
 
                                       {/* Main Message Bubble */}
@@ -3745,9 +4063,39 @@ export default function VendorDashboard() {
                                             )}
                                           </div>
                                         ) : msg.message_type === 'audio' ? (
-                                          <div className="flex items-center space-x-2 py-1" onClick={(e) => e.stopPropagation()}>
-                                            <span className="text-xs">🎤 Voice Note</span>
-                                            <audio src={msg.media_url} controls className="h-8 max-w-[200px]" />
+                                          <div className="flex items-center space-x-3 py-1" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePlayAudio(msg.id, msg.media_url);
+                                              }}
+                                              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                                isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                              }`}
+                                            >
+                                              {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                            </button>
+                                            <div>
+                                              <div className="flex items-center space-x-1 mb-1">
+                                                {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
+                                                  <span
+                                                    key={i}
+                                                    className={`w-1 rounded-full transition-all ${
+                                                      playingAudioId === msg.id
+                                                        ? 'animate-pulse bg-emerald-400'
+                                                        : isMine
+                                                          ? 'bg-blue-200'
+                                                          : 'bg-slate-300'
+                                                    }`}
+                                                    style={{ height: `${h}px` }}
+                                                  />
+                                                ))}
+                                              </div>
+                                              <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
+                                              </span>
+                                            </div>
                                           </div>
                                         ) : (
                                           <p className="leading-relaxed whitespace-pre-wrap">{getDisplayContent(rawMsgText)}</p>
@@ -3758,6 +4106,7 @@ export default function VendorDashboard() {
                                           isMine ? 'text-blue-100' : 'text-slate-400'
                                         }`}>
                                           <span>{safeTime(msg.created_at, 'Now')}</span>
+                                          {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
                                           {isMine && (
                                             <span className="inline-flex items-center">
                                               {msg.is_optimistic ? (
@@ -3835,6 +4184,32 @@ export default function VendorDashboard() {
                             </div>
                           )}
 
+                          {/* Quoted Edit-Message Banner */}
+                          {editingMessage && (
+                            <div className="flex items-center justify-between px-3.5 py-2 bg-amber-50 border border-amber-200 rounded-2xl mb-2 text-xs shadow-2xs">
+                              <div className="flex items-center space-x-2.5 min-w-0">
+                                <div className="w-1 h-7 rounded-full bg-amber-500 shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="flex items-center space-x-1 text-amber-800 font-bold text-[11px]">
+                                    <Edit3 className="w-3 h-3" />
+                                    <span>Editing Sent Message</span>
+                                  </div>
+                                  <p className="text-slate-600 truncate text-[11px]">
+                                    {editingMessage.content}
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleCancelEditMessage}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Cancel editing"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+
                           {/* Multi-Image Selected Thumbnail Carousel */}
                           {pendingMediaFiles.length > 0 && (
                             <div className="mb-2.5 p-2 bg-slate-100/90 rounded-2xl border border-slate-200">
@@ -3899,59 +4274,98 @@ export default function VendorDashboard() {
                             </div>
                           )}
 
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              handleSendChatMessage();
-                            }}
-                            className="flex items-end space-x-2"
-                          >
-                            <input
-                              ref={chatMediaInputRef}
-                              type="file"
-                              accept="image/*,video/*"
-                              multiple
-                              onChange={handleChatMediaSelect}
-                              className="hidden"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => chatMediaInputRef.current?.click()}
-                              className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
-                              title="Attach photos or video"
-                            >
-                              <Camera className="w-5 h-5" />
-                            </button>
-                            <textarea
-                              rows={1}
-                              placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
-                              value={newMsgText}
-                              onChange={(e) => {
-                                setNewMsgText(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+                          {isRecordingAudio ? (
+                            <div className="flex items-center justify-between p-2.5 bg-rose-50 border border-rose-200 rounded-2xl animate-pulse">
+                              <div className="flex items-center space-x-2.5">
+                                <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+                                <Mic className="w-4 h-4 text-rose-600" />
+                                <span className="text-xs font-bold text-rose-700">
+                                  Recording VN: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={handleCancelRecordingAudio}
+                                  className="p-2 text-rose-600 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer"
+                                  title="Cancel recording"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleStopAndSendAudio}
+                                  className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                  <span>Send VN</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                handleSendChatMessage();
                               }}
-                              onKeyDown={(e) => {
-                                const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
-                                if (e.key === 'Enter') {
-                                  if (isMobileDevice) return;
-                                  if (e.shiftKey || e.altKey) return;
-                                  e.preventDefault();
-                                  if (newMsgText.trim() || pendingMediaFiles.length > 0) {
-                                    handleSendChatMessage();
+                              className="flex items-end space-x-2"
+                            >
+                              <input
+                                ref={chatMediaInputRef}
+                                type="file"
+                                accept="image/*,video/*"
+                                multiple
+                                onChange={handleChatMediaSelect}
+                                className="hidden"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => chatMediaInputRef.current?.click()}
+                                className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                                title="Attach photos or video"
+                              >
+                                <Camera className="w-5 h-5" />
+                              </button>
+                              <textarea
+                                ref={chatInputRef}
+                                rows={1}
+                                placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
+                                value={newMsgText}
+                                onChange={(e) => {
+                                  setNewMsgText(e.target.value);
+                                  e.target.style.height = 'auto';
+                                  e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+                                }}
+                                onKeyDown={(e) => {
+                                  const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+                                  if (e.key === 'Enter') {
+                                    if (isMobileDevice) return;
+                                    if (e.shiftKey || e.altKey) return;
+                                    e.preventDefault();
+                                    if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                      handleSendChatMessage();
+                                    }
                                   }
-                                }
-                              }}
-                              className="flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
-                            />
-                            <button
-                              type="submit"
-                              disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
-                              className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5"
-                            >
-                              <Send className="w-5 h-5" />
-                            </button>
-                          </form>
+                                }}
+                                className="flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleStartRecordingAudio}
+                                className="w-11 h-11 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                                title="Record Voice Note"
+                              >
+                                <Mic className="w-5 h-5" />
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
+                                className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5"
+                              >
+                                <Send className="w-5 h-5" />
+                              </button>
+                            </form>
+                          )}
                         </div>
                       </>
                     )
@@ -4253,23 +4667,26 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 5: CAMPUS REELS & PROMO DROPS --- */}
+        {/* --- TAB 5: CAMPUS REELS & PROMO DROPS (MATCHING STUDENT FEED) --- */}
         {/* ========================================================================= */}
         {activeTab === 'reels' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
                   Campus Reels & Drops
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Discover trending student clips, food drops, sneakers unboxing & share promotional drops.
+                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
+                  Discover trending student clips, food drops, new stock & share promotional drops.
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <div className="bg-white p-1 rounded-2xl border border-slate-200 flex items-center space-x-1 text-xs font-bold">
+              <div className="flex items-center space-x-2 shrink-0">
+                {/* Filter Pills */}
+                <div className="bg-white p-1 rounded-2xl border border-slate-200 flex items-center space-x-1 text-xs font-bold shadow-2xs">
                   <button
+                    type="button"
                     onClick={() => setReelFeedFilter('all')}
                     className={`px-3 py-1.5 rounded-xl cursor-pointer transition-all ${
                       reelFeedFilter === 'all' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -4278,6 +4695,7 @@ export default function VendorDashboard() {
                     All Campus ({allReels.length})
                   </button>
                   <button
+                    type="button"
                     onClick={() => setReelFeedFilter('my_drops')}
                     className={`px-3 py-1.5 rounded-xl cursor-pointer transition-all ${
                       reelFeedFilter === 'my_drops' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -4288,206 +4706,443 @@ export default function VendorDashboard() {
                 </div>
 
                 <button
-                  onClick={() => setShowReelModal(true)}
-                  className="px-4 py-2 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-md shadow-sky-500/20 flex items-center space-x-1.5 cursor-pointer shrink-0"
+                  type="button"
+                  onClick={() => {
+                    API.get('/reels').then(res => {
+                      const fresh = res.data || [];
+                      setAllReels(fresh);
+                      setCachedData('allReels', fresh);
+                      showToast('Feed refreshed!', 'info');
+                    }).catch(() => {});
+                  }}
+                  className="p-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl transition-all shadow-xs cursor-pointer"
+                  title="Refresh Feed"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Post Promo Drop</span>
+                  <RefreshCw className="w-4 h-4 text-sky-500" />
                 </button>
               </div>
             </div>
 
+            {/* Post Creator Card */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-4 shadow-xs">
+              <div className="flex items-center space-x-3 mb-3">
+                {user?.profile_picture_url || vendorStore?.logo ? (
+                  <SafeImage
+                    src={user?.profile_picture_url || vendorStore?.logo}
+                    alt="Store"
+                    fallbackType="avatar"
+                    className="w-9 h-9 rounded-full object-cover border border-sky-200 shrink-0"
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
+                    {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <span className="font-bold text-xs text-slate-900 block truncate">
+                    {vendorStore?.business_name || user?.full_name}
+                  </span>
+                  <span className="text-[10px] text-slate-400 truncate block">
+                    Share promo drops, new stock & food specials with students across campus
+                  </span>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateReel} className="space-y-3">
+                <input
+                  type="text"
+                  value={reelForm.title}
+                  onChange={(e) => setReelForm(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Drop Title (e.g. Fresh Shawarma Ready / 20% Off Sneakers)..."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
+                />
+
+                <textarea
+                  rows={2}
+                  value={reelForm.description}
+                  onChange={(e) => setReelForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Describe your promo, pricing, menu, opening hours or delivery details..."
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed"
+                />
+
+                {reelMediaPreview && (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
+                    {reelMediaFile?.type?.startsWith('video') ? (
+                      <video src={reelMediaPreview} controls className="max-h-56 w-full object-contain" />
+                    ) : (
+                      <SafeImage src={reelMediaPreview} alt="Preview" fallbackType="product" className="max-h-56 w-full object-contain" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setReelMediaFile(null); setReelMediaPreview(null); }}
+                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Location Tags - quick selection */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Tag:</span>
+                  <button
+                    type="button"
+                    onClick={handleDetectGpsLocation}
+                    disabled={detectingGps}
+                    className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0"
+                  >
+                    <Navigation className={`w-3 h-3 text-sky-600 ${detectingGps ? 'animate-spin' : ''}`} />
+                    <span>{detectingGps ? 'Locating...' : 'GPS'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReelForm(prev => ({ ...prev, location: `📍 ${vendorStore?.location || 'Store Stall'}` }))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
+                  >
+                    🏪 Stall
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReelForm(prev => ({ ...prev, location: '📍 SUB Food Court' }))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
+                  >
+                    🍔 Food Court
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReelForm(prev => ({ ...prev, location: '📍 Hostels Delivery' }))}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
+                  >
+                    🛏️ Hostels
+                  </button>
+                </div>
+
+                {/* Toolbar + Submit */}
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <input
+                      ref={reelFileInputRef}
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={handleReelFileSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => reelFileInputRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-600 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0"
+                    >
+                      <Camera className="w-4 h-4 text-sky-500" />
+                      <span className="hidden xs:inline sm:inline">{reelMediaFile ? 'Change Media' : 'Photo / Video'}</span>
+                    </button>
+                    <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
+                      <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                      <input
+                        type="text"
+                        value={reelForm.location}
+                        onChange={(e) => setReelForm(prev => ({ ...prev, location: e.target.value }))}
+                        placeholder="Location tag (e.g. SUB Food Court)"
+                        className="bg-transparent border-none text-xs text-slate-800 focus:outline-none min-w-0 w-full"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || (!reelMediaFile && !reelForm.description.trim() && !reelForm.title.trim())}
+                    className="px-4 py-2 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isSubmitting ? 'Posting...' : 'Post Drop'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
             {/* Reels Feed Stream */}
-            {filteredReels.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredReels.map((reel) => {
+            <div className="space-y-4">
+              {filteredReels.filter(r => !hiddenPostIds.includes(r.id)).length > 0 ? (
+                filteredReels.filter(r => !hiddenPostIds.includes(r.id)).map((reel) => {
                   const isVideo = reel.media_type === 'video' || (reel.media_url && reel.media_url.match(/\.(mp4|webm|mov|ogg)$/i));
                   const isMine = (reel.author_id === user?.user_id || reel.user_id === user?.user_id || reel.author_id === user?.id);
 
                   return (
-                    <div key={reel.id} className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs flex flex-col justify-between">
-                      {/* Author Bar */}
-                      <div className="p-3.5 flex items-center justify-between border-b border-slate-100">
-                        <div
-                          onClick={() => handleOpenProfile(reel.author_id || reel.user_id)}
-                          className="flex items-center space-x-2.5 overflow-hidden cursor-pointer group"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs shrink-0">
+                    <div key={reel.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+                      {/* Post Header */}
+                      <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
+                        <div className="flex items-start space-x-2.5 min-w-0">
+                          <div
+                            onClick={() => handleOpenProfile(reel.author_id || reel.user_id)}
+                            className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shadow-xs shrink-0 cursor-pointer hover:opacity-90 transition-opacity"
+                          >
                             {reel.author_name?.charAt(0) || 'C'}
                           </div>
-                          <div className="overflow-hidden">
-                            <span className="text-xs font-bold text-slate-900 block truncate group-hover:text-sky-600 transition-colors">{reel.author_name || 'Campus Creator'}</span>
-                            <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mt-0.5">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenProfile(reel.author_id || reel.user_id)}
+                                className="font-bold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate"
+                              >
+                                {reel.author_name || 'Campus Creator'}
+                              </button>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                isMine || reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
+                              }`}>
+                                {isMine ? 'My Store Drop' : reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
+                              </span>
                               {(reel.author_university_abbr || reel.author_university) && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   📍 {reel.author_university_abbr || reel.author_university}
                                 </span>
                               )}
-                              <span className="truncate">{reel.location || 'Campus Quad'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 flex-wrap">
+                              <span className="flex items-center space-x-0.5 text-sky-600 font-semibold">
+                                <MapPin className="w-2.5 h-2.5 text-sky-500" />
+                                <span>{reel.location || 'Campus'}</span>
+                              </span>
+                              <span>•</span>
+                              <span>{safeDate(reel.created_at, 'Recent')}</span>
                             </div>
                           </div>
                         </div>
 
-                        {isMine && (
-                          <div className="flex items-center space-x-1.5 shrink-0">
-                            <span className="text-[9px] font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">
-                              My Drop
-                            </span>
-                            <button
-                              onClick={() => handleDeleteReel(reel.id)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                              title="Delete Drop"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                        {/* Post Settings Menu */}
+                        <div className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setActivePostMenuId(activePostMenuId === reel.id ? null : reel.id)}
+                            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
+                            title="Drop settings"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+
+                          {activePostMenuId === reel.id && (
+                            <>
+                              <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
+                              <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                                {isMine && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActivePostMenuId(null);
+                                      handleDeleteReel(reel.id);
+                                    }}
+                                    className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-rose-500" />
+                                    <span>Delete Drop</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyPostLink(reel)}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                >
+                                  <Copy className="w-4 h-4 text-slate-400" />
+                                  <span>Copy Link</span>
+                                </button>
+                                {(reel.author_id || reel.user_id) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActivePostMenuId(null);
+                                      handleOpenProfile(reel.author_id || reel.user_id);
+                                    }}
+                                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                  >
+                                    <Eye className="w-4 h-4 text-slate-400" />
+                                    <span>View Creator</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleHidePost(reel.id)}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                >
+                                  <EyeOff className="w-4 h-4 text-slate-400" />
+                                  <span>Hide Drop</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReportPost(reel.id)}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                >
+                                  <Flag className="w-4 h-4 text-slate-400" />
+                                  <span>Report Drop</span>
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Content: Title & Description */}
+                      <div className="px-4 pb-3">
+                        {reel.title && (
+                          <h4 className="font-extrabold text-sm text-slate-900 mb-1">{reel.title}</h4>
+                        )}
+                        {reel.description && (
+                          <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line font-medium">
+                            {reel.description}
+                          </p>
                         )}
                       </div>
 
                       {/* Media Display */}
-                      <div className="w-full h-64 bg-slate-900 flex items-center justify-center relative overflow-hidden">
-                        {isVideo ? (
-                          <video
-                            src={reel.media_url}
-                            controls
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <SafeImage
-                            src={reel.media_url}
-                            alt={reel.title}
-                            fallbackType="product"
-                            className="w-full h-full object-cover"
-                          />
-                        )}
-                      </div>
-
-                      {/* Content & Action Bar */}
-                      <div className="p-4 flex-1 flex flex-col justify-between">
-                        <div>
-                          <h4 className="font-bold text-sm text-slate-900">{reel.title}</h4>
-                          <p className="text-xs text-slate-600 mt-1 line-clamp-2 leading-relaxed">
-                            {reel.description}
-                          </p>
+                      {reel.media_url && (
+                        <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '70vw', minHeight: '200px' }}>
+                          {isVideo ? (
+                            <video
+                              src={getMediaUrl(reel.media_url)}
+                              controls
+                              playsInline
+                              className="w-full h-full object-contain"
+                              style={{ maxHeight: '70vw', minHeight: '200px' }}
+                            />
+                          ) : (
+                            <SafeImage
+                              src={reel.media_url}
+                              alt={reel.title || 'Reel media'}
+                              fallbackType="product"
+                              className="w-full h-full object-contain"
+                              style={{ maxHeight: '70vw', minHeight: '200px' }}
+                            />
+                          )}
                         </div>
+                      )}
 
-                        {/* Interactive Like & Comments Count */}
-                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <button
-                              onClick={() => handleLikeReel(reel.id)}
-                              className={`flex items-center space-x-1 text-xs font-bold transition-colors cursor-pointer ${
-                                reel.has_liked ? 'text-rose-500' : 'text-slate-500 hover:text-rose-500'
-                              }`}
-                            >
-                              <Heart className={`w-4 h-4 ${reel.has_liked ? 'fill-rose-500 text-rose-500' : 'text-slate-400'}`} />
-                              <span>{reel.likes_count || 0}</span>
-                            </button>
+                      {/* Action Bar */}
+                      <div className="px-4 py-2.5 flex items-center justify-between border-t border-slate-100 bg-white">
+                        <div className="flex items-center space-x-4">
+                          <button
+                            onClick={() => handleLikeReel(reel.id)}
+                            className={`flex items-center space-x-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                              reel.has_liked ? 'text-rose-500' : 'text-slate-600 hover:text-rose-500'
+                            }`}
+                          >
+                            <Heart className={`w-4 h-4 ${reel.has_liked ? 'fill-rose-500 text-rose-500' : 'text-slate-500'}`} />
+                            <span>{reel.likes_count || 0}</span>
+                          </button>
 
-                            <button
-                              onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
-                              className="flex items-center space-x-1 text-xs font-bold text-slate-500 hover:text-sky-600 transition-colors cursor-pointer"
-                            >
-                              <MessageCircle className="w-4 h-4 text-slate-400" />
-                              <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)}</span>
-                            </button>
-                          </div>
-
-                          <span className="text-[10px] text-slate-400">
-                            {safeDate(reel.created_at, 'Recent')}
-                          </span>
+                          <button
+                            onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
+                            className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
+                          >
+                            <MessageCircle className="w-4 h-4 text-sky-500" />
+                            <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)}</span>
+                          </button>
                         </div>
+                        <span className="text-[10px] font-semibold text-slate-300 hidden sm:block">Campus Drops</span>
                       </div>
 
                       {/* Interactive Comments Drawer */}
                       {activeCommentsReelId === reel.id && (
-                        <div className="p-3.5 bg-slate-50 border-t border-slate-100 space-y-2.5">
-                          <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                        <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 space-y-3">
+                          {/* Comments List */}
+                          <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
                             {reel.comments && reel.comments.length > 0 ? (
-                              reel.comments.map((comment, idx) => (
-                                <div key={comment.id || idx} className="p-2.5 bg-white rounded-xl border border-slate-100 text-xs">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <div className="flex items-center space-x-1.5 flex-wrap">
-                                      <span className="font-bold text-slate-900 text-[11px]">{comment.author_name}</span>
-                                      {comment.reply_to_author && (
-                                        <span className="text-[9px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded-md flex items-center space-x-1">
-                                          <Reply className="w-2.5 h-2.5" />
-                                          <span>@{comment.reply_to_author}</span>
+                              reel.comments.map((comment, idx) => {
+                                const canDeleteComment = (user?.user_id && comment.user_id === user.user_id) ||
+                                                         (user?.id && comment.user_id === user.id) ||
+                                                         isMine;
+
+                                return (
+                                  <div key={comment.id || idx} className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs text-xs">
+                                    <div className="flex items-center justify-between mb-1 gap-2">
+                                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                        <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
+                                        {comment.reply_to_author && (
+                                          <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
+                                            <Reply className="w-2.5 h-2.5" />
+                                            <span>@{comment.reply_to_author}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center space-x-2 shrink-0">
+                                        <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                                          {safeTime(comment.created_at, 'Just now')}
                                         </span>
-                                      )}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setReplyingToComment({
+                                              reelId: reel.id,
+                                              commentId: comment.id,
+                                              authorName: comment.author_name,
+                                              text: comment.content
+                                            });
+                                            setTimeout(() => commentInputRef.current?.focus(), 60);
+                                          }}
+                                          className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold"
+                                          title="Reply"
+                                        >
+                                          <Reply className="w-3 h-3" />
+                                        </button>
+                                        {canDeleteComment && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteReelComment(reel.id, comment.id)}
+                                            className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
+                                            title="Delete comment"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="flex items-center space-x-2">
-                                      <span className="text-[9px] text-slate-400">
-                                        {safeTime(comment.created_at, 'Just now')}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setReplyingToComment({
-                                            reelId: reel.id,
-                                            commentId: comment.id,
-                                            authorName: comment.author_name,
-                                            text: comment.content
-                                          });
-                                          setTimeout(() => commentInputRef.current?.focus(), 60);
-                                        }}
-                                        className="text-slate-400 hover:text-sky-600 transition-colors cursor-pointer flex items-center space-x-0.5 text-[10px] font-semibold"
-                                        title="Reply to comment"
-                                      >
-                                        <Reply className="w-3 h-3" />
-                                        <span>Reply</span>
-                                      </button>
-                                    </div>
+                                    <p className="text-slate-700 leading-relaxed">{comment.content}</p>
                                   </div>
-                                  <p className="text-slate-700 leading-snug pl-0.5">{comment.content}</p>
-                                </div>
-                              ))
+                                );
+                              })
                             ) : (
-                              <div className="py-2 text-center text-[11px] text-slate-400">
+                              <div className="py-4 text-center text-xs text-slate-400">
                                 No comments on this drop yet.
                               </div>
                             )}
                           </div>
 
-                          {/* Replying Banner */}
+                          {/* Replying Indicator Banner */}
                           {replyingToComment && replyingToComment.reelId === reel.id && (
-                            <div className="flex items-center justify-between px-2.5 py-1 bg-sky-50 border border-sky-200/80 rounded-lg text-xs text-sky-800">
-                              <div className="flex items-center space-x-1 overflow-hidden">
-                                <Reply className="w-3 h-3 text-sky-600 shrink-0" />
-                                <span className="truncate text-[11px]">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-200/80 rounded-xl text-xs text-sky-800">
+                              <div className="flex items-center space-x-1.5 overflow-hidden min-w-0">
+                                <Reply className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                                <span className="truncate">
                                   Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
                                 </span>
                               </div>
                               <button
                                 type="button"
                                 onClick={() => setReplyingToComment(null)}
-                                className="p-0.5 text-sky-500 hover:text-sky-800 cursor-pointer"
-                                title="Cancel reply"
+                                className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer shrink-0"
                               >
-                                <X className="w-3 h-3" />
+                                <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           )}
 
+                          {/* Comment Input */}
                           <form
                             onSubmit={(e) => {
                               e.preventDefault();
                               handlePostReelComment(reel.id);
                             }}
-                            className="flex items-center space-x-2 pt-2 border-t border-slate-200/80"
+                            className="flex items-center space-x-2 pt-2 border-t border-slate-200/60"
                           >
                             <input
                               ref={commentInputRef}
                               type="text"
-                              placeholder={replyingToComment && replyingToComment.reelId === reel.id ? `Reply to @${replyingToComment.authorName}...` : "Write a comment..."}
+                              placeholder={replyingToComment && replyingToComment.reelId === reel.id
+                                ? `Reply to @${replyingToComment.authorName}...`
+                                : "Write a comment..."}
                               value={newCommentText}
                               onChange={(e) => setNewCommentText(e.target.value)}
-                              className="flex-1 p-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                              className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
                             />
                             <button
                               type="submit"
                               disabled={!newCommentText.trim() || isPostingComment}
-                              className="p-2 px-3 bg-sky-500 hover:bg-sky-600 text-white rounded-xl cursor-pointer disabled:opacity-50 flex items-center space-x-1 text-xs font-bold"
+                              className="px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center space-x-1 shrink-0"
                             >
                               <Send className="w-3.5 h-3.5" />
                               <span>{replyingToComment && replyingToComment.reelId === reel.id ? 'Reply' : 'Post'}</span>
@@ -4497,23 +5152,19 @@ export default function VendorDashboard() {
                       )}
                     </div>
                   );
-                })}
-              </div>
-            ) : (
-              <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
-                <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <h4 className="text-base font-bold text-slate-800">No campus reels to show</h4>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Be the first to post a new promo drop, unboxing clip, or hostel flash sale video!
-                </p>
-                <button
-                  onClick={() => setShowReelModal(true)}
-                  className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
-                >
-                  Post Your First Promo Drop
-                </button>
-              </div>
-            )}
+                })
+              ) : (
+                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
+                  <Video className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h4 className="text-base font-bold text-slate-800">No campus reels to show</h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {reelFeedFilter === 'my_drops'
+                      ? 'You have not posted any promotional drops yet. Share a promo drop above!'
+                      : 'Be the first to post a new promo drop, unboxing clip, or hostel flash sale video!'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -4772,358 +5423,634 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 7: VENDOR PROFILE & SETTINGS (JUST LIKE STUDENT DASHBOARD) --- */}
+        {/* --- TAB 7: VENDOR PROFILE & SETTINGS (MODERN SOCIAL MEDIA LAYOUT) --- */}
         {/* ========================================================================= */}
         {activeTab === 'settings' && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Vendor Profile & Settings</h1>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Store Settings & Preferences</h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Manage your store profile, contact numbers, campus stall location, and account credentials.
+                Manage your campus store identity, payout bank accounts, notifications, and security.
               </p>
             </div>
 
-            {/* Profile Photo & Store Summary Card */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
-                <div className="relative self-start group">
-                  {user?.profile_picture_url || vendorStore?.logo ? (
-                    <SafeImage
-                      src={user?.profile_picture_url || vendorStore?.logo}
-                      alt={vendorStore?.business_name}
-                      fallbackType="avatar"
-                      className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
-                    />
-                  ) : (
-                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
-                      {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
-                    </div>
-                  )}
-
-                  <input
-                    ref={avatarInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarSelect}
-                    className="hidden"
-                  />
+            {/* Social Media Segmented Subtab Navigation */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none border-b border-slate-200">
+              {[
+                { id: 'profile', label: 'Store Profile', icon: Store },
+                { id: 'payouts', label: 'Payouts & Banking', icon: CreditCard },
+                { id: 'security', label: 'Account & Security', icon: Lock },
+                { id: 'notifications', label: 'Notifications', icon: Bell },
+                { id: 'about', label: 'About & App', icon: Sliders }
+              ].map(tab => {
+                const Icon = tab.icon;
+                const isActive = settingsSubtab === tab.id;
+                return (
                   <button
+                    key={tab.id}
                     type="button"
-                    onClick={() => avatarInputRef.current?.click()}
-                    disabled={uploadingAvatar}
-                    className="absolute -bottom-2 -right-2 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
-                    title="Change Logo / Picture"
+                    onClick={() => setSettingsSubtab(tab.id)}
+                    className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
                   >
-                    <Camera className="w-4 h-4" />
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-sky-400' : 'text-slate-400'}`} />
+                    <span>{tab.label}</span>
                   </button>
+                );
+              })}
+            </div>
+
+            {/* 1. SUBTAB: STORE PROFILE */}
+            {settingsSubtab === 'profile' && (
+              <div className="space-y-6">
+                {/* Profile Photo & Store Summary Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
+                    <div className="relative self-start group">
+                      {user?.profile_picture_url || vendorStore?.logo ? (
+                        <SafeImage
+                          src={user?.profile_picture_url || vendorStore?.logo}
+                          alt={vendorStore?.business_name}
+                          fallbackType="avatar"
+                          className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
+                          {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                        </div>
+                      )}
+
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarSelect}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => avatarInputRef.current?.click()}
+                        disabled={uploadingAvatar}
+                        className="absolute -bottom-2 -right-2 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
+                        title="Change Logo / Picture"
+                      >
+                        <Camera className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <h3 className="text-xl font-bold text-slate-900">{vendorStore?.business_name || user?.full_name}</h3>
+                        {isVerified ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>Verified Merchant</span>
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center space-x-1">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span>Pending Verification</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">{user?.email} • {vendorStore?.phone || user?.phone_number || 'No phone set'}</p>
+                      <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
+                        "{vendorStore?.business_description || 'Official campus store offering meals, goods or services to students.'}"
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Vendor Badges */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
+                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.university_name || 'Campus'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Stall / Spot</span>
+                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.location || 'SUB Food Court'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Category</span>
+                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.category_name || 'General'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Standing</span>
+                      <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>{isVerified ? 'Verified Active' : 'Under Review'}</span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex-1">
+                {/* Edit Profile Form */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
                   <div className="flex items-center space-x-2">
-                    <h3 className="text-xl font-bold text-slate-900">{vendorStore?.business_name || user?.full_name}</h3>
-                    {isVerified ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                        <span>Verified Merchant</span>
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center space-x-1">
-                        <Clock className="w-3 h-3 text-amber-600" />
-                        <span>Pending Verification</span>
-                      </span>
+                    <Edit3 className="w-5 h-5 text-sky-600" />
+                    <h3 className="text-base font-bold text-slate-900">Edit Store & Personal Information</h3>
+                  </div>
+                  <p className="text-xs text-slate-500">Keep your store name, stall address and WhatsApp contact up-to-date for campus buyers.</p>
+
+                  <form onSubmit={handleUpdateVendorProfile} className="space-y-4 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Your Full Name (Owner)</label>
+                        <input
+                          type="text"
+                          required
+                          value={profileForm.full_name}
+                          onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business / Store Name</label>
+                        <input
+                          type="text"
+                          required
+                          value={profileForm.business_name}
+                          onChange={(e) => setProfileForm({ ...profileForm, business_name: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Phone / WhatsApp Number</label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="+234 801 234 5678"
+                          value={profileForm.phone_number}
+                          onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Stall / Pickup Spot</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. SUB Food Court Stall 4"
+                          value={profileForm.location}
+                          onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business Category</label>
+                      <select
+                        value={profileForm.category_id}
+                        onChange={(e) => setProfileForm({ ...profileForm, category_id: e.target.value })}
+                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                      >
+                        <option value={1}>Food & Meals (Cafeteria / Restaurant)</option>
+                        <option value={2}>Fashion, Shoes & Wears</option>
+                        <option value={3}>Laptops, Phones & Accessories</option>
+                        <option value={4}>Academic Materials & Books</option>
+                        <option value={5}>Laundry, Styling & Campus Services</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Description / Bio</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Describe what your store specializes in, opening hours, or special hostel delivery terms..."
+                        value={profileForm.business_description}
+                        onChange={(e) => setProfileForm({ ...profileForm, business_description: e.target.value })}
+                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={savingProfile}
+                        className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* 2. SUBTAB: PAYOUTS & BANKING */}
+            {settingsSubtab === 'payouts' && (
+              <div className="space-y-6">
+                {/* Direct Bank Settlement Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                        <CreditCard className="w-5 h-5 text-emerald-600" />
+                        <span>Direct Bank Transfer Settlement</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Your bank account details displayed to campus buyers during checkout for instant transfers.
+                      </p>
+                    </div>
+                    {!isEditingBank && (
+                      <button
+                        type="button"
+                        onClick={() => { setBankForm({ ...bankInfo }); setIsEditingBank(true); }}
+                        className="text-xs font-bold text-sky-600 hover:underline cursor-pointer"
+                      >
+                        Edit Details
+                      </button>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">{user?.email} • {vendorStore?.phone || user?.phone_number || 'No phone set'}</p>
-                  <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
-                    "{vendorStore?.business_description || 'Official campus store offering meals, goods or services to students.'}"
+
+                  {isEditingBank ? (
+                    <form onSubmit={handleSaveBankInfo} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Bank Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. OPay / Palmpay / GTBank"
+                          value={bankForm.bank_name}
+                          onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="8012345678"
+                          value={bankForm.account_number}
+                          onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Store Owner Name"
+                          value={bankForm.account_name}
+                          onChange={(e) => setBankForm({ ...bankForm, account_name: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-3 flex items-center space-x-2 pt-2">
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                        >
+                          Save Bank Details
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingBank(false)}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="p-5 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-700">
+                      <div>
+                        <div className="flex items-center space-x-2 mb-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800">
+                            {bankInfo.bank_name || 'OPay / Digital Bank'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">Direct Campus Settlement</span>
+                        </div>
+                        <p className="text-xl sm:text-2xl font-mono tracking-wider font-black text-white">
+                          {bankInfo.account_number || '8012345678'}
+                        </p>
+                        <p className="text-xs text-slate-300 font-medium mt-1">
+                          {bankInfo.account_name || vendorStore?.business_name || 'Campus Merchant'}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-800">
+                          Active for Checkout
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Broadcast Announcement Banner */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                        <Sparkles className="w-5 h-5 text-amber-500" />
+                        <span>Live Marketplace Store Broadcast Banner</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Displayed at the top of the campus marketplace when students view your catalog or products.
+                      </p>
+                    </div>
+                  </div>
+
+                  {isEditingBroadcast ? (
+                    <form onSubmit={handleSaveBroadcast} className="space-y-3">
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 50% discount on all sneakers before 6 PM today!"
+                        value={broadcastInput}
+                        onChange={(e) => setBroadcastInput(e.target.value)}
+                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                      />
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                        >
+                          Save Announcement
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingBroadcast(false)}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-800">{storeBroadcast}</p>
+                      <button
+                        type="button"
+                        onClick={() => { setBroadcastInput(storeBroadcast); setIsEditingBroadcast(true); }}
+                        className="px-3 py-1.5 bg-white border border-slate-200 text-sky-600 font-bold text-xs rounded-xl hover:bg-sky-50 cursor-pointer shrink-0 ml-3"
+                      >
+                        Edit Banner
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3. SUBTAB: ACCOUNT & SECURITY */}
+            {settingsSubtab === 'security' && (
+              <div className="space-y-6">
+                {/* Account Credentials Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                  <h3 className="text-base font-bold text-slate-900">Merchant Account Credentials</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Sign-in Email</span>
+                      <p className="font-bold text-slate-900 mt-1 truncate">{user?.email || 'vendor@campuslink.ng'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Account Role</span>
+                      <p className="font-bold text-sky-700 mt-1">Campus Merchant (Vendor)</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Change Password Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                  <div className="flex items-center space-x-2">
+                    <Lock className="w-5 h-5 text-sky-600" />
+                    <h3 className="text-base font-bold text-slate-900">Security & Password</h3>
+                  </div>
+                  <p className="text-xs text-slate-500">Ensure your vendor account is protected with a strong password (minimum 6 characters).</p>
+
+                  <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Enter current password"
+                        value={passwordForm.current_password}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="Minimum 6 characters"
+                          value={passwordForm.new_password}
+                          onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="Repeat new password"
+                          value={passwordForm.confirm_password}
+                          onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                      <button
+                        type="submit"
+                        disabled={changingPassword}
+                        className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {changingPassword ? 'Updating Password...' : 'Update Password'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* 4. SUBTAB: NOTIFICATIONS & PREFERENCES */}
+            {settingsSubtab === 'notifications' && (
+              <div className="space-y-6">
+                {/* Push Notification Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
+                      <Smartphone className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">Phone Push Notifications</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">Get instant order, chat & payment alerts on your phone — even when the browser is closed.</p>
+                    </div>
+                  </div>
+
+                  {!isPushSupported() ? (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-xs text-amber-800">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <p>Push notifications are not supported on this browser. Try opening CampusLink in Chrome or Edge on your phone.</p>
+                    </div>
+                  ) : pushPermission === 'denied' ? (
+                    <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1">
+                      <p className="font-bold flex items-center space-x-1.5"><AlertCircle className="w-4 h-4" /><span>Notifications blocked by browser</span></p>
+                      <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
+                    </div>
+                  ) : pushEnabled ? (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
+                        <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, customer chats, and payments instantly.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="p-4 rounded-2xl bg-violet-50 border border-violet-200 text-xs text-violet-800 space-y-1.5">
+                        <p className="font-bold">🔔 What you'll get notified about:</p>
+                        <ul className="space-y-1 list-disc list-inside text-violet-700">
+                          <li>New student orders placed at your store</li>
+                          <li>New customer chat messages</li>
+                          <li>Payment confirmations</li>
+                          <li>Campus notices &amp; broadcasts</li>
+                        </ul>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={pushLoading}
+                        onClick={async () => {
+                          setPushLoading(true);
+                          setPushTestMsg('');
+                          try {
+                            const state = getNotificationPermissionState();
+                            if (state === 'denied') { setPushPermission('denied'); return; }
+                            const res = await subscribeUserToPush();
+                            if (res?.success) {
+                              setPushEnabled(true);
+                              setPushPermission('granted');
+                            } else {
+                              setPushTestMsg(res?.error || 'Could not enable notifications.');
+                            }
+                          } catch (e) {
+                            setPushTestMsg(e?.message || 'Could not enable notifications.');
+                          } finally {
+                            setPushLoading(false);
+                          }
+                        }}
+                        className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-md shadow-violet-200"
+                      >
+                        <Bell className="w-4 h-4" />
+                        <span>{pushLoading ? 'Enabling...' : 'Enable Phone Notifications'}</span>
+                      </button>
+                      {pushTestMsg && (
+                        <p className="text-xs text-red-600 font-semibold text-center">{pushTestMsg}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Sound & In-App Alerts Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
+                        <Volume2 className="w-5 h-5 text-sky-600" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">In-App Notification Sounds</h4>
+                        <p className="text-xs text-slate-500">Play a gentle chime when new orders or messages arrive while using the app.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !soundEnabled;
+                        setSoundEnabled(next);
+                        try { localStorage.setItem('cl_sound_enabled', String(next)); } catch (_) {}
+                        showToast(next ? 'Sound alerts enabled' : 'Sound alerts muted', 'info');
+                      }}
+                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        soundEnabled ? 'bg-sky-500' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-xs ${
+                          soundEnabled ? 'left-6.5' : 'left-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 5. SUBTAB: ABOUT & APP */}
+            {settingsSubtab === 'about' && (
+              <div className="space-y-6">
+                {/* Guidelines & Verification link */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                  <h3 className="text-base font-bold text-slate-900">CampusLink Merchant Program</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    CampusLink connects verified local businesses, campus restaurants, and student entrepreneurs directly with university students across Nigeria.
                   </p>
-                </div>
-              </div>
-
-              {/* Vendor Badges */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
-                  <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.university_name || 'Campus'}</p>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Stall / Location</span>
-                  <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.location || 'SUB Food Court'}</p>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Category</span>
-                  <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.category_name || 'General'}</p>
-                </div>
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Merchant Standing</span>
-                  <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>{isVerified ? 'Verified Active' : 'Verification In Review'}</span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Quick Network Navigation */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('messages'); setMessageSubtab('my_friends'); }}
-                  className="p-3.5 rounded-2xl bg-sky-50/70 hover:bg-sky-100/70 border border-sky-100 text-left transition-colors cursor-pointer"
-                >
-                  <span className="text-[10px] uppercase font-bold text-sky-600 block">Connected Friends</span>
-                  <p className="font-black text-sky-900 text-sm mt-0.5">{friendsList.length} Connected</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('messages'); setMessageSubtab('requests'); }}
-                  className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-colors cursor-pointer"
-                >
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Friend Requests</span>
-                  <p className="font-black text-slate-800 text-sm mt-0.5">{pendingRequests.length} Incoming</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('orders')}
-                  className="p-3.5 rounded-2xl bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-100 text-left transition-colors cursor-pointer"
-                >
-                  <span className="text-[10px] uppercase font-bold text-emerald-600 block">Fulfilled Orders</span>
-                  <p className="font-black text-emerald-900 text-sm mt-0.5">{vendorOrders.length} Orders</p>
-                </button>
-              </div>
-            </div>
-
-            {/* Edit Profile Form */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
-              <div className="flex items-center space-x-2">
-                <Edit3 className="w-5 h-5 text-sky-600" />
-                <h3 className="text-base font-bold text-slate-900">Edit Store & Personal Information</h3>
-              </div>
-              <p className="text-xs text-slate-500">Keep your store name, stall address and WhatsApp contact up-to-date for campus buyers.</p>
-
-              <form onSubmit={handleUpdateVendorProfile} className="space-y-4 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Your Full Name (Owner)</label>
-                    <input
-                      type="text"
-                      required
-                      value={profileForm.full_name}
-                      onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business / Store Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={profileForm.business_name}
-                      onChange={(e) => setProfileForm({ ...profileForm, business_name: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('verification')}
+                      className="px-4 py-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs flex items-center space-x-2 cursor-pointer transition-colors"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-sky-600" />
+                      <span>View Merchant Verification Status</span>
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Phone / WhatsApp Number</label>
-                    <input
-                      type="tel"
-                      required
-                      placeholder="+234 801 234 5678"
-                      value={profileForm.phone_number}
-                      onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
+                {/* App Information Card */}
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-3 shadow-xs">
+                  <h4 className="text-sm font-bold text-slate-900">Application Details</h4>
+                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
+                    <span className="text-slate-500">Version</span>
+                    <span className="font-mono font-bold text-slate-800">2.4.0 (Campus Release)</span>
                   </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Stall / Pickup Spot</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. SUB Food Court Stall 4"
-                      value={profileForm.location}
-                      onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
+                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
+                    <span className="text-slate-500">Platform</span>
+                    <span className="font-bold text-slate-800">Progressive Web App (PWA)</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs py-2">
+                    <span className="text-slate-500">Connected Campus</span>
+                    <span className="font-bold text-sky-700">{vendorStore?.university_name || 'Main Campus'}</span>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business Category</label>
-                  <select
-                    value={profileForm.category_id}
-                    onChange={(e) => setProfileForm({ ...profileForm, category_id: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                  >
-                    <option value={1}>Food & Meals (Cafeteria / Restaurant)</option>
-                    <option value={2}>Fashion, Shoes & Wears</option>
-                    <option value={3}>Laptops, Phones & Accessories</option>
-                    <option value={4}>Academic Materials & Books</option>
-                    <option value={5}>Laundry, Styling & Campus Services</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Description / Bio</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Describe what your store specializes in, opening hours, or special hostel delivery terms..."
-                    value={profileForm.business_description}
-                    onChange={(e) => setProfileForm({ ...profileForm, business_description: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 resize-none"
-                  />
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    disabled={savingProfile}
-                    className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* Change Password Card */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
-              <div className="flex items-center space-x-2">
-                <Lock className="w-5 h-5 text-sky-600" />
-                <h3 className="text-base font-bold text-slate-900">Security & Password</h3>
-              </div>
-              <p className="text-xs text-slate-500">Ensure your vendor account is protected with a strong password (minimum 6 characters).</p>
-
-              <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Enter current password"
-                    value={passwordForm.current_password}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Logout Card */}
+                <div className="bg-white border border-rose-100 rounded-3xl p-6 flex items-center justify-between shadow-xs">
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Minimum 6 characters"
-                      value={passwordForm.new_password}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Repeat new password"
-                      value={passwordForm.confirm_password}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <button
-                    type="submit"
-                    disabled={changingPassword}
-                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {changingPassword ? 'Updating Password...' : 'Update Password'}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* ============================================================ */}
-            {/* Push Notification Card (Vendor)                               */}
-            {/* ============================================================ */}
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
-                  <Smartphone className="w-5 h-5 text-violet-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Phone Push Notifications</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Get instant order, chat & payment alerts on your phone — even when the app is closed.</p>
-                </div>
-              </div>
-
-              {!isPushSupported() ? (
-                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-xs text-amber-800">
-                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <p>Push notifications are not supported on this browser. Try opening CampusLink in Chrome or Edge on your phone.</p>
-                </div>
-              ) : pushPermission === 'denied' ? (
-                <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1">
-                  <p className="font-bold flex items-center space-x-1.5"><AlertCircle className="w-4 h-4" /><span>Notifications blocked by browser</span></p>
-                  <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
-                </div>
-              ) : pushEnabled ? (
-                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                  <div>
-                    <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                    <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, messages, and payments instantly.</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-4 rounded-2xl bg-violet-50 border border-violet-200 text-xs text-violet-800 space-y-1.5">
-                    <p className="font-bold">🔔 What you'll get notified about:</p>
-                    <ul className="space-y-1 list-disc list-inside text-violet-700">
-                      <li>New student orders placed at your store</li>
-                      <li>New chat messages from customers</li>
-                      <li>Payment confirmations</li>
-                      <li>Campus notices &amp; broadcasts</li>
-                    </ul>
+                    <h4 className="text-sm font-bold text-slate-900">Sign Out of Merchant Store</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">End your merchant session on this device.</p>
                   </div>
                   <button
                     type="button"
-                    disabled={pushLoading}
-                    onClick={async () => {
-                      setPushLoading(true);
-                      setPushTestMsg('');
-                      try {
-                        const state = getNotificationPermissionState();
-                        if (state === 'denied') { setPushPermission('denied'); return; }
-                        const res = await subscribeUserToPush();
-                        if (res?.success) {
-                          setPushEnabled(true);
-                          setPushPermission('granted');
-                        } else {
-                          setPushTestMsg(res?.error || 'Could not enable notifications.');
-                        }
-                      } catch (e) {
-                        setPushTestMsg(e?.message || 'Could not enable notifications.');
-                      } finally {
-                        setPushLoading(false);
-                      }
-                    }}
-                    className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-md shadow-violet-200"
+                    onClick={handleLogout}
+                    className="px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1.5"
                   >
-                    <Bell className="w-4 h-4" />
-                    <span>{pushLoading ? 'Enabling...' : 'Enable Phone Notifications'}</span>
+                    <LogOut className="w-4 h-4" />
+                    <span>Log Out</span>
                   </button>
-                  {pushTestMsg && (
-                    <p className="text-xs text-red-600 font-semibold text-center">{pushTestMsg}</p>
-                  )}
                 </div>
-              )}
-            </div>
-
+              </div>
+            )}
           </div>
         )}
 

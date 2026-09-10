@@ -3284,6 +3284,83 @@ async def send_message(
 
     return new_msg
 
+@app.put("/api/messages/{message_id}", response_model=schemas.MessageOut)
+async def edit_message(
+    message_id: int,
+    msg_update: schemas.MessageUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    msg = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.sender_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own messages")
+    
+    new_content = msg_update.content.strip()
+    if not new_content:
+        raise HTTPException(status_code=400, detail="Message content cannot be empty")
+    
+    msg.content = new_content
+    db.commit()
+    db.refresh(msg)
+
+    try:
+        edit_payload = {
+            "type": "message_edited",
+            "message": {
+                "id": msg.id,
+                "sender_id": msg.sender_id,
+                "recipient_id": msg.recipient_id,
+                "post_id": msg.post_id,
+                "content": msg.content,
+                "message_type": msg.message_type,
+                "media_url": msg.media_url,
+                "duration": msg.duration,
+                "reply_to_id": msg.reply_to_id,
+                "reply_to_sender": msg.reply_to_sender,
+                "reply_to_text": msg.reply_to_text,
+                "is_read": msg.is_read,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            }
+        }
+        await ws_manager.broadcast_to_user(msg.recipient_id, edit_payload)
+        await ws_manager.broadcast_to_user(current_user.user_id, edit_payload)
+    except Exception as _ws_err:
+        print(f"[WebSocket] Edit broadcast notice: {_ws_err}")
+
+    return msg
+
+@app.delete("/api/messages/{message_id}")
+async def delete_message(
+    message_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    msg = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.sender_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own messages")
+    
+    recipient_id = msg.recipient_id
+    db.delete(msg)
+    db.commit()
+
+    try:
+        del_payload = {
+            "type": "message_deleted",
+            "message_id": message_id,
+            "sender_id": current_user.user_id,
+            "recipient_id": recipient_id
+        }
+        await ws_manager.broadcast_to_user(recipient_id, del_payload)
+        await ws_manager.broadcast_to_user(current_user.user_id, del_payload)
+    except Exception as _ws_err:
+        print(f"[WebSocket] Delete broadcast notice: {_ws_err}")
+
+    return {"status": "success", "message_id": message_id}
+
 @app.get("/api/messages/{other_user_id}", response_model=List[schemas.MessageOut])
 def get_conversation(
     other_user_id: str,

@@ -61,6 +61,18 @@ class User(Base):
     rides = relationship("RideBooking", back_populates="user")
     reports = relationship("Report", back_populates="reporter")
 
+    @property
+    def verification_status(self):
+        if self.vendor_profile:
+            return self.vendor_profile.verification_status
+        return None
+
+    @property
+    def is_verified(self):
+        if self.vendor_profile:
+            return self.vendor_profile.verification_status == "verified"
+        return False
+
 
 class Vendor(Base):
     __tablename__ = "vendors"
