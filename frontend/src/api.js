@@ -41,6 +41,32 @@ API.interceptors.request.use(
   }
 );
 
+// Handle 401 Unauthorized — only clear session if the token is truly gone or expired
+// This prevents accidental logouts on temporary network errors
+API.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      const token = getAuthToken();
+      // Only redirect to login if there's no token stored (genuine logout / expiry)
+      // If token still exists, it's likely a transient server error — don't log the user out
+      if (!token && typeof window !== 'undefined') {
+        const isAlreadyOnAuth = window.location.pathname === '/login' || window.location.pathname === '/signup' || window.location.pathname === '/auth';
+        if (!isAlreadyOnAuth) {
+          try {
+            localStorage.removeItem('token');
+            localStorage.removeItem('campuslink_token');
+            localStorage.removeItem('user');
+          } catch {}
+          window.location.href = '/login';
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+
 export const uploadFile = async (file) => {
   const formData = new FormData();
   formData.append('file', file);

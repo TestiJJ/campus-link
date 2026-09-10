@@ -2271,7 +2271,7 @@ export default function VendorDashboard() {
       </header>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto max-w-7xl w-full min-w-0 max-w-full overflow-x-hidden pb-28 md:pb-8">
+      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 pb-28 md:pb-8'}`}>
         
         {/* Live Store Announcement Banner (Always visible if configured) */}
         {storeBroadcast && (
@@ -2622,10 +2622,10 @@ export default function VendorDashboard() {
         {/* --- TAB 4: CHATS & CAMPUS NETWORK (INQUIRIES + STORIES + FRIENDS) --- */}
         {/* ========================================================================= */}
         {activeTab === 'messages' && (
-          <div className="space-y-4">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             
             {/* Header & Subtabs */}
-            <div className={`flex-col sm:flex-row sm:items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
               <div>
                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
                   Chats, Stories & Network
@@ -2806,7 +2806,7 @@ export default function VendorDashboard() {
 
             {/* --- SUBTAB A: ACTIVE INQUIRIES & CHAT INTERFACE --- */}
             {messageSubtab === 'chats' && (
-              <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs ${selectedPartner ? 'h-[calc(100dvh-2rem)] md:h-[calc(100vh-18rem)] rounded-2xl md:rounded-3xl' : 'h-[calc(100vh-18rem)] min-h-[500px] rounded-3xl'}`}>
+              <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs flex-1 min-h-0 ${selectedPartner ? 'rounded-2xl md:rounded-3xl' : 'rounded-3xl'}`}>
                 
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>

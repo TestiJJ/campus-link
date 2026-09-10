@@ -569,11 +569,19 @@ export default function StudentDashboard() {
 
   const scrollToChatBottom = (instant = true) => {
     scrollToBottom(instant ? "auto" : "smooth");
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   };
 
   // Trigger on active conversation switch or messages length change
   useEffect(() => {
     scrollToBottom("auto");
+    requestAnimationFrame(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    });
   }, [selectedPartner?.partner_id, activeTab, messageSubtab, chatMessages?.length]);
 
   // Trigger on AI tab switch or aiMessages length change
@@ -2736,7 +2744,7 @@ export default function StudentDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 overflow-y-auto max-w-7xl w-full min-w-0 ${selectedPartner && activeTab === 'messages' ? 'p-0 md:p-6 lg:p-8 pb-0 md:pb-8' : 'p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         
         {/* Mobile Top Header (Facebook style top bar for small screens) */}
         <div className={`items-center justify-between pb-3 mb-4 border-b border-slate-200 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
@@ -3915,10 +3923,10 @@ export default function StudentDashboard() {
 
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
-          <div className="space-y-4">
+          <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             {/* Instagram-Style Campus Stories Rail */}
             {!selectedPartner && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs">
+              <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs shrink-0">
                 <div className="flex items-center justify-between mb-3 px-1">
                   <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
                     <Camera className="w-3.5 h-3.5 text-sky-500" />
@@ -4048,7 +4056,7 @@ export default function StudentDashboard() {
 
 
             {/* Chat Box Container */}
-            <div className={`flex flex-col bg-white overflow-hidden ${selectedPartner && messageSubtab === 'chats' ? 'h-[100dvh] md:h-[calc(100vh-17rem)] rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'h-[calc(100vh-17rem)] min-h-[500px] rounded-3xl border border-slate-200 shadow-xs'}`}>
+            <div className={`flex flex-col overflow-hidden flex-1 min-h-0 bg-white ${selectedPartner && messageSubtab === 'chats' ? 'rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'rounded-3xl border border-slate-200 shadow-xs'}`}>
               
               {/* Top Sub-Switcher */}
               <div className={`p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
@@ -4147,11 +4155,11 @@ export default function StudentDashboard() {
             </div>
 
             {/* Subtab Views */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/40">
+            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/40 min-h-0">
               
               {/* 1. SUBTAB: ACTIVE CHATS (2-Column Split View) */}
               {messageSubtab === 'chats' && (
-                <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
                   {/* Left Column: Conversations List */}
                   <div className={`w-full md:w-84 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                     {/* Universal Chat & Directory Search */}
@@ -4384,7 +4392,7 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Right Column: Chat View */}
-                  <div className={`flex-1 flex flex-col justify-between overflow-hidden bg-white ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                  <div className={`flex-1 flex flex-col overflow-hidden bg-white min-h-0 ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
                     {selectedPartner ? (
                       (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                         <>

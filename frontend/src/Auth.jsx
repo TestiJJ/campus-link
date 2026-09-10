@@ -248,20 +248,20 @@ export default function Auth() {
     const payload = isLogin
       ? { email: formData.email.trim(), password: formData.password }
       : {
-          full_name: formData.full_name.trim(),
-          email: formData.email.trim(),
-          phone_number: formData.phone_number.trim(),
-          password: formData.password,
-          role,
-          university_id: formData.university_id,
-          matric_number: formData.matric_number ? formData.matric_number.trim() : null,
-          department: role === 'student' ? (formData.department?.trim() || null) : null,
-          level: role === 'student' ? formData.level : null,
-          hostel: formData.hostel?.trim() || null,
-          business_name: role === 'vendor' ? (formData.business_name || `${formData.full_name}'s Store`) : null,
-          business_description: role === 'vendor' ? formData.business_description : null,
-          category_id: role === 'vendor' ? Number(formData.category_id) : null,
-        };
+        full_name: formData.full_name.trim(),
+        email: formData.email.trim(),
+        phone_number: formData.phone_number.trim(),
+        password: formData.password,
+        role,
+        university_id: formData.university_id,
+        matric_number: formData.matric_number ? formData.matric_number.trim() : null,
+        department: role === 'student' ? (formData.department?.trim() || null) : null,
+        level: role === 'student' ? formData.level : null,
+        hostel: formData.hostel?.trim() || null,
+        business_name: role === 'vendor' ? (formData.business_name || `${formData.full_name}'s Store`) : null,
+        business_description: role === 'vendor' ? formData.business_description : null,
+        category_id: role === 'vendor' ? Number(formData.category_id) : null,
+      };
 
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -284,6 +284,20 @@ export default function Auth() {
           detail: data?.detail,
           data
         });
+
+        const detailText = String(data?.detail || '');
+        const isPendingVerificationForSignup = !isLogin && (
+          (response.status === 400 && detailText.toLowerCase().includes('email is already registered')) ||
+          response.status === 403
+        );
+
+        if (isPendingVerificationForSignup) {
+          setPendingEmail(formData.email.trim());
+          setShowOtpModal(true);
+          setResendCooldown(30);
+          setErrorMessage('This email is pending verification. Enter your 6-digit code to continue.');
+          return;
+        }
 
         if (response.status === 403 && data?.detail && String(data.detail).includes('not verified')) {
           setPendingEmail(formData.email.trim());
@@ -356,6 +370,28 @@ export default function Auth() {
       setOtpCode('');
       setErrorMessage('');
       setOtpSuccessMessage('Email verified successfully! You can now log in.');
+
+      // Attempt automatic login after verification
+      try {
+        const loginRes = await fetch(`${API_BASE_URL}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingEmail, password: formData.password })
+        });
+        const loginData = await loginRes.json();
+        if (loginRes.ok) {
+          localStorage.setItem('token', loginData.access_token);
+          localStorage.setItem('user', JSON.stringify(loginData.user));
+          if (loginData.user?.role === 'admin') navigate('/admin');
+          else if (loginData.user?.role === 'vendor') navigate('/vendor-dashboard');
+          else navigate('/student-dashboard');
+        } else {
+          setErrorMessage(formatAuthError(null, loginData, 'Login after verification failed.'));
+        }
+      } catch (loginErr) {
+        setErrorMessage(formatAuthError(loginErr, null, 'Login after verification failed.'));
+      }
+
       localStorage.setItem('campuslink_new_signup_pending', 'true');
     } catch (err) {
       setErrorMessage(formatAuthError(err, null, 'Invalid verification code.'));
@@ -402,7 +438,7 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-sky-50/70 via-white to-slate-50 text-slate-900 font-sans flex flex-col items-center justify-start sm:justify-center py-8 px-4 relative overflow-x-hidden">
-      
+
       {/* Top Navigation */}
       <div className="w-full max-w-4xl mb-6 flex items-center justify-between z-10">
         <Link to="/" className="inline-flex items-center space-x-2.5 group">
@@ -420,7 +456,7 @@ export default function Auth() {
 
       {/* Main Form Container Card */}
       <div className="w-full max-w-4xl bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 z-10 my-auto">
-        
+
         {/* Left Brand Panel (Desktop) */}
         <div className="hidden lg:flex lg:col-span-5 bg-gradient-to-br from-sky-500 via-sky-600 to-blue-600 text-white p-8 lg:p-10 flex-col justify-between relative overflow-hidden">
           <div className="relative z-10">
@@ -469,7 +505,7 @@ export default function Auth() {
 
         {/* Right Form Area */}
         <div className="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-center bg-white">
-          
+
           {/* Form Header */}
           <div className="mb-6">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
@@ -490,9 +526,8 @@ export default function Auth() {
                 setIsLogin(true);
                 setErrorMessage('');
               }}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                isLogin ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${isLogin ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               Sign In
             </button>
@@ -502,9 +537,8 @@ export default function Auth() {
                 setIsLogin(false);
                 setErrorMessage('');
               }}
-              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                !isLogin ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
+              className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${!isLogin ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
             >
               Create Account
             </button>
@@ -513,21 +547,20 @@ export default function Auth() {
           {/* Test Server Connection Status Indicator */}
           <div className="mb-4 flex items-center justify-between px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-[11px]">
             <div className="flex items-center space-x-2">
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                serverStatus === 'online'
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${serverStatus === 'online'
                   ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
                   : serverStatus === 'waking' || serverStatus === 'checking'
-                  ? 'bg-amber-500 shadow-xs shadow-amber-500/50 animate-pulse'
-                  : 'bg-rose-500'
-              }`} />
+                    ? 'bg-amber-500 shadow-xs shadow-amber-500/50 animate-pulse'
+                    : 'bg-rose-500'
+                }`} />
               <span className="font-semibold text-slate-700">
                 {serverStatus === 'online'
                   ? `Server Online (${serverPingMs || 0}ms)`
                   : serverStatus === 'waking'
-                  ? 'Server Waking Up (Cold Start)...'
-                  : serverStatus === 'checking'
-                  ? 'Pinging Server...'
-                  : 'Server Offline'}
+                    ? 'Server Waking Up (Cold Start)...'
+                    : serverStatus === 'checking'
+                      ? 'Pinging Server...'
+                      : 'Server Offline'}
               </span>
             </div>
             <button
@@ -567,15 +600,13 @@ export default function Auth() {
                 <button
                   type="button"
                   onClick={() => setRole('student')}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex items-center space-x-3 ${
-                    role === 'student'
+                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex items-center space-x-3 ${role === 'student'
                       ? 'border-sky-500 bg-sky-50/70 text-sky-900 shadow-xs'
                       : 'border-slate-200 hover:border-slate-300 text-slate-700'
-                  }`}
+                    }`}
                 >
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                    role === 'student' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${role === 'student' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}>
                     <GraduationCap className="w-4 h-4" />
                   </div>
                   <div>
@@ -587,15 +618,13 @@ export default function Auth() {
                 <button
                   type="button"
                   onClick={() => setRole('vendor')}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex items-center space-x-3 ${
-                    role === 'vendor'
+                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex items-center space-x-3 ${role === 'vendor'
                       ? 'border-sky-500 bg-sky-50/70 text-sky-900 shadow-xs'
                       : 'border-slate-200 hover:border-slate-300 text-slate-700'
-                  }`}
+                    }`}
                 >
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                    role === 'vendor' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${role === 'vendor' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}>
                     <Store className="w-4 h-4" />
                   </div>
                   <div>
@@ -609,7 +638,7 @@ export default function Auth() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
-            
+
             {/* Full Name (Sign Up Only) */}
             {!isLogin && (
               <div>

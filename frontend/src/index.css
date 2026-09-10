@@ -226,6 +226,14 @@ body {
     -webkit-tap-highlight-color: transparent;
     overflow-x: hidden !important;
     max-width: 100%;
+    /* Critical: prevents outer page from scrolling when chat is at boundary */
+    overscroll-behavior: contain;
+    /* GPU-accelerated scroll compositing for 60fps on mobile */
+    will-change: scroll-position;
+    /* Auto-pins scroll to bottom when new messages arrive */
+    overflow-anchor: auto;
+    /* Native momentum scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
   }
 
   /* WhatsApp/iMessage-Style Bubble Micro-Tactile Tap Feedback */
