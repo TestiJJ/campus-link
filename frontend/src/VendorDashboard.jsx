@@ -524,18 +524,6 @@ export default function VendorDashboard() {
     }
   }, [navigate]);
 
-  // Mobile back button / swipe gesture support (WhatsApp-style back navigation)
-  useEffect(() => {
-    if (!selectedPartner) return;
-    const handlePopState = () => {
-      setSelectedPartner(null);
-    };
-    window.history.pushState({ chatOpen: true }, '');
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [selectedPartner]);
 
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);

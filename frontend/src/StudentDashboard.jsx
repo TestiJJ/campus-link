@@ -337,7 +337,7 @@ export default function StudentDashboard() {
   const [selectedPartner, setSelectedPartner] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const chatId = params.get('chat');
+      const chatId = params.get('chat') || localStorage.getItem('campuslink_selected_chat');
       if (chatId) {
         if (chatId === 'campus_ai') {
           return {
@@ -349,8 +349,13 @@ export default function StudentDashboard() {
         }
         const cachedConvs = getCachedData('conversations', []);
         const found = cachedConvs.find(c => String(c.partner_id || c.user_id || c.id) === String(chatId));
-        if (found) return found;
-        return { partner_id: chatId, partner_name: 'Campus Peer' };
+        if (found) {
+          return {
+            ...found,
+            partner_id: String(chatId)
+          };
+        }
+        return { partner_id: String(chatId), partner_name: 'Campus Peer' };
       }
     } catch {}
     return null;
@@ -358,7 +363,7 @@ export default function StudentDashboard() {
   const [chatMessages, setChatMessages] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const chatId = params.get('chat');
+      const chatId = params.get('chat') || localStorage.getItem('campuslink_selected_chat');
       if (chatId && chatId !== 'campus_ai') {
         return getCachedThreadMessages(chatId);
       }
@@ -516,13 +521,21 @@ export default function StudentDashboard() {
 
       if (activeTab === 'messages' && selectedPartner) {
         const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
-        if (pId && url.searchParams.get('chat') !== pId) {
-          url.searchParams.set('chat', pId);
+        if (pId) {
+          localStorage.setItem('campuslink_selected_chat', pId);
+          if (url.searchParams.get('chat') !== pId) {
+            url.searchParams.set('chat', pId);
+            changed = true;
+          }
+        }
+      } else if (url.searchParams.has('chat') || (!selectedPartner && activeTab === 'messages')) {
+        if (url.searchParams.has('chat')) {
+          url.searchParams.delete('chat');
           changed = true;
         }
-      } else if (url.searchParams.has('chat')) {
-        url.searchParams.delete('chat');
-        changed = true;
+        if (!selectedPartner) {
+          localStorage.removeItem('campuslink_selected_chat');
+        }
       }
 
       if (changed) {
@@ -547,6 +560,9 @@ export default function StudentDashboard() {
         const chatId = params.get('chat');
         if (!chatId && selectedPartnerRef.current) {
           setSelectedPartner(null);
+          try {
+            localStorage.removeItem('campuslink_selected_chat');
+          } catch {}
         }
       } catch {}
     };
@@ -877,20 +893,7 @@ export default function StudentDashboard() {
     };
   }, [totalUnreadChatCount]);
 
-  // Mobile back button / swipe gesture support
-  useEffect(() => {
-    if (!selectedPartner) return;
-    const handlePopState = () => {
-      setSelectedPartner(null);
-    };
-    try {
-      window.history.pushState({ chatOpen: true }, '', window.location.href);
-    } catch {}
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [selectedPartner]);
+
 
   // Universal Chat & Friends Directory Filtering
   const filteredConversations = useMemo(() => {
@@ -1298,9 +1301,9 @@ export default function StudentDashboard() {
     if (selectedPartner.is_ai) return;
     if (!getAuthToken()) return;
 
-    // 1. Instantly show cached messages — zero latency
+    // 1. Instantly show cached messages if not already in state — zero latency
     const cached = getCachedThreadMessages(selectedPartner.partner_id);
-    setChatMessages(cached);
+    setChatMessages(prev => (prev && prev.length > 0 ? prev : cached));
     setIsLoadingChatMessages(false);
     smartScrollToBottom(chatContainerRef.current, false);
 
@@ -1322,15 +1325,41 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner?.partner_id]);
 
+  // Cleanly close active chat and remove from URL & localStorage
+  const handleCloseChat = () => {
+    setSelectedPartner(null);
+    try {
+      localStorage.removeItem('campuslink_selected_chat');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('chat');
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  };
+
   // Instant 0ms Chat Selection (Loads cached messages immediately on click without any lag)
   const handleSelectPartner = (c) => {
     if (!c) return;
-    const partnerId = c.partner_id || c.user_id || c.id;
+    const partnerId = String(c.partner_id || c.user_id || c.id || '');
+    if (!partnerId) return;
+
+    try {
+      localStorage.setItem('campuslink_selected_chat', partnerId);
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'messages');
+      url.searchParams.set('chat', partnerId);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+
+    const normalizedPartner = {
+      ...c,
+      partner_id: partnerId
+    };
+
     const cached = getCachedThreadMessages(partnerId);
     setChatMessages(cached);
     setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
-    setSelectedPartner(c);
+    setSelectedPartner(normalizedPartner);
     smartScrollToBottom(chatContainerRef.current, false);
   };
 
@@ -1512,13 +1541,14 @@ export default function StudentDashboard() {
     // Update or create conversation row in sidebar immediately (no waiting for sync)
     setConversations(prev => {
       const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
+      let next;
       if (idx !== -1) {
         // Existing conversation — move to top and update preview
         const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
-        return [updated, ...prev.filter((_, i) => i !== idx)];
+        next = [updated, ...prev.filter((_, i) => i !== idx)];
       } else {
         // New conversation — add immediately so it shows up in Active Chats right away
-        return [{
+        next = [{
           partner_id: partnerId,
           partner_name: selectedPartner?.partner_name || 'Campus Peer',
           partner_avatar: selectedPartner?.partner_avatar || null,
@@ -1531,6 +1561,8 @@ export default function StudentDashboard() {
           last_timestamp: new Date().toISOString()
         }, ...prev];
       }
+      setCachedData('conversations', next);
+      return next;
     });
 
     smartScrollToBottom(chatContainerRef.current, false);
@@ -1613,7 +1645,9 @@ export default function StudentDashboard() {
         const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
         if (idx !== -1) {
           const updated = { ...prev[idx], last_message: '🎤 Voice note', last_timestamp: new Date().toISOString() };
-          return [updated, ...prev.filter((_, i) => i !== idx)];
+          const next = [updated, ...prev.filter((_, i) => i !== idx)];
+          setCachedData('conversations', next);
+          return next;
         }
         return prev;
       });
@@ -2118,21 +2152,29 @@ export default function StudentDashboard() {
       setConversations(prev => {
         const preview = payload.reply_text || '💬 Story reply';
         const idx = prev.findIndex(c => String(c.partner_id) === String(group.user_id));
+        let next;
         if (idx !== -1) {
           const updated = { ...prev[idx], last_message: preview, last_timestamp: new Date().toISOString() };
-          return [updated, ...prev.filter((_, i) => i !== idx)];
+          next = [updated, ...prev.filter((_, i) => i !== idx)];
+        } else {
+          next = [{
+            partner_id: group.user_id,
+            partner_name: group.user_name || 'Campus Peer',
+            partner_avatar: group.user_avatar || null,
+            partner_role: 'Student',
+            unread_count: 0,
+            last_message: preview,
+            last_timestamp: new Date().toISOString()
+          }, ...prev];
         }
-        return [{
-          partner_id: group.user_id,
-          partner_name: group.user_name || 'Campus Peer',
-          partner_avatar: group.user_avatar || null,
-          partner_role: 'Student',
-          unread_count: 0,
-          last_message: preview,
-          last_timestamp: new Date().toISOString()
-        }, ...prev];
+        setCachedData('conversations', next);
+        return next;
       });
-      API.get('/conversations').then(r => setConversations(r.data || [])).catch(() => {});
+      API.get('/conversations').then(r => {
+        const c = r.data || [];
+        setConversations(c);
+        setCachedData('conversations', c);
+      }).catch(() => {});
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to send reply.');
     }
@@ -2185,19 +2227,23 @@ export default function StudentDashboard() {
       setConversations(prev => {
         const preview = `Reacted ${emoji} to story`;
         const idx = prev.findIndex(c => String(c.partner_id) === String(group.user_id));
+        let next;
         if (idx !== -1) {
           const updated = { ...prev[idx], last_message: preview, last_timestamp: new Date().toISOString() };
-          return [updated, ...prev.filter((_, i) => i !== idx)];
+          next = [updated, ...prev.filter((_, i) => i !== idx)];
+        } else {
+          next = [{
+            partner_id: group.user_id,
+            partner_name: group.user_name || 'Campus Peer',
+            partner_avatar: group.user_avatar || null,
+            partner_role: 'Student',
+            unread_count: 0,
+            last_message: preview,
+            last_timestamp: new Date().toISOString()
+          }, ...prev];
         }
-        return [{
-          partner_id: group.user_id,
-          partner_name: group.user_name || 'Campus Peer',
-          partner_avatar: group.user_avatar || null,
-          partner_role: 'Student',
-          unread_count: 0,
-          last_message: preview,
-          last_timestamp: new Date().toISOString()
-        }, ...prev];
+        setCachedData('conversations', next);
+        return next;
       });
       API.get('/conversations').then(r => setConversations(r.data || [])).catch(() => {});
     } catch (err) {
@@ -4527,7 +4573,7 @@ export default function StudentDashboard() {
                             <div className="flex items-center space-x-2.5 min-w-0">
                               <button
                                 type="button"
-                                onClick={() => setSelectedPartner(null)}
+                                onClick={handleCloseChat}
                                 className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer"
                                 title="Back to conversation list"
                               >
@@ -4559,7 +4605,7 @@ export default function StudentDashboard() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setSelectedPartner(null)}
+                                onClick={handleCloseChat}
                                 className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
                                 title="Close chat"
                               >
@@ -4679,7 +4725,7 @@ export default function StudentDashboard() {
                             <div className="flex items-center space-x-2.5 min-w-0">
                               <button
                                 type="button"
-                                onClick={() => setSelectedPartner(null)}
+                                onClick={handleCloseChat}
                                 className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer relative"
                                 title="Back to conversations"
                               >
@@ -4781,7 +4827,7 @@ export default function StudentDashboard() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => setSelectedPartner(null)}
+                                onClick={handleCloseChat}
                                 className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
                                 title="Close chat"
                               >
@@ -4801,7 +4847,7 @@ export default function StudentDashboard() {
                               </span>
                               <button
                                 type="button"
-                                onClick={() => setSelectedPartner(null)}
+                                onClick={handleCloseChat}
                                 className="text-[11px] font-bold text-sky-700 hover:text-sky-900 bg-sky-100/80 px-2 py-0.5 rounded-lg ml-2 shrink-0 cursor-pointer transition-colors"
                               >
                                 View chats &rarr;
