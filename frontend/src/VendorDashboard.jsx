@@ -333,6 +333,14 @@ export default function VendorDashboard() {
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showReelModal, setShowReelModal] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState({ type: '', text: '' });
+
+  const showToast = (text, type = 'error') => {
+    if (!text) return;
+    setFeedbackMsg({ type, text });
+    setTimeout(() => {
+      setFeedbackMsg(prev => (prev.text === text ? { type: '', text: '' } : prev));
+    }, 4500);
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Profile & Settings States
@@ -1066,7 +1074,7 @@ export default function VendorDashboard() {
       setSelectedProfile(res.data);
       setProfileModalOpen(true);
     } catch (err) {
-      alert('Failed to load user profile.');
+      showToast('Failed to load user profile.', 'error');
     }
   };
 
@@ -1098,12 +1106,12 @@ export default function VendorDashboard() {
       setStatusCaption('');
       setStatusMediaFile(null);
       setStatusMediaPreview(null);
-      setFeedbackMsg({ type: 'success', text: 'Status story posted to campus network!' });
+      showToast('Status story posted to campus network!', 'success');
 
       const statRes = await API.get('/campus/statuses');
       setStatusGroups(statRes.data || []);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post status.');
+      showToast(err.response?.data?.detail || 'Failed to post status.', 'error');
     } finally {
       setIsPublishingStatus(false);
     }
@@ -1114,11 +1122,11 @@ export default function VendorDashboard() {
     try {
       await API.delete(`/campus/statuses/${statusId}`);
       setActiveStatusViewer(null);
-      setFeedbackMsg({ type: 'info', text: 'Story deleted.' });
+      showToast('Story deleted.', 'info');
       const statRes = await API.get('/campus/statuses');
       setStatusGroups(statRes.data || []);
     } catch (err) {
-      alert('Failed to delete status story.');
+      showToast('Failed to delete status story.', 'error');
     }
   };
 
@@ -1151,7 +1159,7 @@ export default function VendorDashboard() {
       });
       setStatusReplyText('');
       setActiveStatusViewer(null);
-      setFeedbackMsg({ type: 'success', text: emoji ? `Sent ${emoji} reaction!` : 'Reply sent to chat!' });
+      showToast(emoji ? `Sent ${emoji} reaction!` : 'Reply sent to chat!', 'success');
       
       // Open that chat
       const partner = communityUsers.find(u => (u.user_id === recipientId || u.id === recipientId));
@@ -1163,7 +1171,7 @@ export default function VendorDashboard() {
       setMessageSubtab('chats');
       API.get('/conversations').then(res => setConversations(res.data || [])).catch(() => {});
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to send reply.');
+      showToast(err.response?.data?.detail || 'Failed to send reply.', 'error');
     }
   };
 
@@ -1199,10 +1207,10 @@ export default function VendorDashboard() {
       localStorage.setItem('user', JSON.stringify(updated));
       setUser(updated);
 
-      setFeedbackMsg({ type: 'success', text: 'Store profile & settings updated successfully!' });
+      showToast('Store profile & settings updated successfully!', 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to update settings.');
+      showToast(err.response?.data?.detail || 'Failed to update settings.', 'error');
     } finally {
       setSavingProfile(false);
     }
@@ -1221,10 +1229,10 @@ export default function VendorDashboard() {
       stored.profile_picture_url = url;
       localStorage.setItem('user', JSON.stringify(stored));
       setUser(stored);
-      setFeedbackMsg({ type: 'success', text: 'Profile picture / Store logo updated!' });
+      showToast('Profile picture / Store logo updated!', 'success');
       loadStoreData();
     } catch (err) {
-      alert('Failed to update picture.');
+      showToast('Failed to update picture.', 'error');
     } finally {
       setUploadingAvatar(false);
     }
@@ -1233,11 +1241,11 @@ export default function VendorDashboard() {
   const handleChangePassword = async (e) => {
     e.preventDefault();
     if (passwordForm.new_password !== passwordForm.confirm_password) {
-      alert('New password and confirmation do not match.');
+      showToast('New password and confirmation do not match.', 'error');
       return;
     }
     if (passwordForm.new_password.length < 6) {
-      alert('New password must be at least 6 characters.');
+      showToast('New password must be at least 6 characters.', 'error');
       return;
     }
     setChangingPassword(true);
@@ -1246,10 +1254,10 @@ export default function VendorDashboard() {
         current_password: passwordForm.current_password,
         new_password: passwordForm.new_password
       });
-      setFeedbackMsg({ type: 'success', text: 'Password changed successfully!' });
+      showToast('Password changed successfully!', 'success');
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to change password.');
+      showToast(err.response?.data?.detail || 'Failed to change password.', 'error');
     } finally {
       setChangingPassword(false);
     }
@@ -1521,7 +1529,7 @@ export default function VendorDashboard() {
       } catch (err) {
         console.error('Failed to upload media batch:', err);
         setChatMessages(prev => prev.filter(m => m.id !== tempId));
-        alert('Failed to send media files.');
+        showToast('Failed to send media files.', 'error');
       }
       return;
     }
@@ -1581,7 +1589,7 @@ export default function VendorDashboard() {
     } catch (err) {
       console.error('Failed to deliver message:', err);
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
-      alert(err.response?.data?.detail || 'Failed to send message.');
+      showToast(err.response?.data?.detail || 'Failed to send message.', 'error');
     }
   };
 
@@ -1682,7 +1690,7 @@ export default function VendorDashboard() {
       setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
     } catch (err) {
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
-      alert(err.response?.data?.detail || 'Failed to send media.');
+      showToast(err.response?.data?.detail || 'Failed to send media.', 'error');
     }
   };
 
@@ -1690,7 +1698,7 @@ export default function VendorDashboard() {
   const handleSendFriendRequest = async (targetUserId) => {
     try {
       const res = await API.post(`/friends/request/${targetUserId}`);
-      setFeedbackMsg({ type: 'success', text: res.data.message || 'Friend request sent!' });
+      showToast(res.data.message || 'Friend request sent!', 'success');
       
       setCommunityUsers(prev => prev.map(u => 
         (u.user_id === targetUserId || u.id === targetUserId)
@@ -1708,14 +1716,14 @@ export default function VendorDashboard() {
       setPendingRequests(pendRes.data);
       setCommunityUsers(commRes.data);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to send friend request.');
+      showToast(err.response?.data?.detail || 'Failed to send friend request.', 'error');
     }
   };
 
   const handleAcceptFriendRequest = async (requestId) => {
     try {
       const res = await API.post(`/friends/requests/${requestId}/accept`);
-      setFeedbackMsg({ type: 'success', text: res.data.message || 'Friend request accepted!' });
+      showToast(res.data.message || 'Friend request accepted!', 'success');
       if (selectedProfile) {
         setSelectedProfile(prev => ({ ...prev, friendship_status: 'friends' }));
       }
@@ -1729,21 +1737,21 @@ export default function VendorDashboard() {
       setPendingRequests(pendRes.data);
       setCommunityUsers(commRes.data);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to accept friend request.');
+      showToast(err.response?.data?.detail || 'Failed to accept friend request.', 'error');
     }
   };
 
   const handleDeclineFriendRequest = async (requestId) => {
     try {
       await API.post(`/friends/requests/${requestId}/decline`);
-      setFeedbackMsg({ type: 'info', text: 'Friend request declined.' });
+      showToast('Friend request declined.', 'info');
       if (selectedProfile) {
         setSelectedProfile(prev => ({ ...prev, friendship_status: 'none' }));
       }
       const pendRes = await API.get('/friends/requests/pending');
       setPendingRequests(pendRes.data);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to decline request.');
+      showToast(err.response?.data?.detail || 'Failed to decline request.', 'error');
     }
   };
 
@@ -1751,7 +1759,7 @@ export default function VendorDashboard() {
     if (!window.confirm('Remove friend from your campus network?')) return;
     try {
       await API.delete(`/friends/cancel/${targetUserId}`);
-      setFeedbackMsg({ type: 'info', text: 'Removed connection.' });
+      showToast('Removed connection.', 'info');
       if (selectedProfile && (selectedProfile.user_id === targetUserId || selectedProfile.id === targetUserId)) {
         setSelectedProfile(prev => ({ ...prev, friendship_status: 'none', request_id: null }));
       }
@@ -1762,7 +1770,7 @@ export default function VendorDashboard() {
       setFriendsList(friendsRes.data);
       setCommunityUsers(commRes.data);
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to remove connection.');
+      showToast(err.response?.data?.detail || 'Failed to remove connection.', 'error');
     }
   };
 
@@ -1844,7 +1852,7 @@ export default function VendorDashboard() {
         }
         return r;
       }));
-      setFeedbackMsg({ type: 'success', text: currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment published on campus drop!' });
+      showToast(currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment published on campus drop!', 'success');
     } catch (err) {
       setAllReels(prev => prev.map(r => {
         if (r.id === reelId) {
@@ -1853,7 +1861,7 @@ export default function VendorDashboard() {
         }
         return r;
       }));
-      alert(err.response?.data?.detail || 'Failed to post comment.');
+      showToast(err.response?.data?.detail || 'Failed to post comment.', 'error');
     } finally {
       setIsPostingComment(false);
     }
@@ -1875,7 +1883,7 @@ export default function VendorDashboard() {
       }
 
       if (!frontUrl || !backUrl) {
-        alert('Please select clear photos for both FRONT and BACK (or Page 1 and 2) of your verification document.');
+        showToast('Please select clear photos for both FRONT and BACK (or Page 1 and 2) of your verification document.', 'error');
         setIsSubmitting(false);
         return;
       }
@@ -1886,10 +1894,10 @@ export default function VendorDashboard() {
         id_card_back: backUrl
       });
 
-      setFeedbackMsg({ type: 'success', text: 'Verification document submitted! Campus Admins will review and approve your store.' });
+      showToast('Verification document submitted! Campus Admins will review and approve your store.', 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Verification submission failed.');
+      showToast(err.response?.data?.detail || 'Verification submission failed.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1960,7 +1968,7 @@ export default function VendorDashboard() {
       setProdPreview(null);
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || (editingProduct ? 'Failed to update product.' : 'Failed to add product.'));
+      showToast(err.response?.data?.detail || (editingProduct ? 'Failed to update product.' : 'Failed to add product.'), 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1989,10 +1997,10 @@ export default function VendorDashboard() {
       setServiceForm({ name: '', description: '', price: '', category_id: 5, location: '' });
       setSvcFile(null);
       setSvcPreview(null);
-      setFeedbackMsg({ type: 'success', text: 'Service published to Campus Marketplace!' });
+      showToast('Service published to Campus Marketplace!', 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to add service.');
+      showToast(err.response?.data?.detail || 'Failed to add service.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -2023,10 +2031,10 @@ export default function VendorDashboard() {
       setReelForm({ title: '', description: '', media_type: 'image', location: '' });
       setReelMediaFile(null);
       setReelMediaPreview(null);
-      setFeedbackMsg({ type: 'success', text: 'Promotional Drop published to Campus Reels feed!' });
+      showToast('Promotional Drop published to Campus Reels feed!', 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post reel.');
+      showToast(err.response?.data?.detail || 'Failed to post reel.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -2036,18 +2044,42 @@ export default function VendorDashboard() {
     if (!window.confirm('Delete this product?')) return;
     try {
       await API.delete(`/products/${id}`);
+      showToast('Product removed successfully.', 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Delete failed.');
+      showToast(err.response?.data?.detail || 'Delete failed.', 'error');
+    }
+  };
+
+  const handleDeleteService = async (id) => {
+    if (!window.confirm('Delete this service listing?')) return;
+    try {
+      await API.delete(`/services/${id}`);
+      showToast('Service listing deleted successfully.', 'success');
+      loadStoreData();
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Delete failed.', 'error');
+    }
+  };
+
+  const handleDeleteReel = async (id) => {
+    if (!window.confirm('Delete this promotional drop?')) return;
+    try {
+      await API.delete(`/reels/${id}`);
+      showToast('Promotional drop deleted successfully.', 'success');
+      loadStoreData();
+    } catch (err) {
+      showToast(err.response?.data?.detail || 'Delete failed.', 'error');
     }
   };
 
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     try {
       await API.post(`/orders/${orderId}/status?status_update=${newStatus}`);
+      showToast(`Order status updated to ${newStatus}.`, 'success');
       loadStoreData();
     } catch (err) {
-      alert(err.response?.data?.detail || 'Status update failed.');
+      showToast(err.response?.data?.detail || 'Status update failed.', 'error');
     }
   };
 
@@ -2484,7 +2516,16 @@ export default function VendorDashboard() {
                         <MapPin className="w-3 h-3 text-slate-400" />
                         <span>{svc.location || 'On Campus'}</span>
                       </span>
-                      <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Active</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Active</span>
+                        <button
+                          onClick={() => handleDeleteService(svc.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Delete Service"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -2552,27 +2593,53 @@ export default function VendorDashboard() {
                           <td className="p-4">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
                               o.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                              o.status === 'confirmed' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'
+                              o.status === 'confirmed' ? 'bg-sky-50 text-sky-700' :
+                              o.status === 'cancelled' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
                             }`}>
                               {o.status.toUpperCase()}
                             </span>
                           </td>
                           <td className="p-4 space-x-2">
                             {o.status === 'pending' && (
-                              <button
-                                onClick={() => handleUpdateOrderStatus(o.id, 'confirmed')}
-                                className="px-3 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                              >
-                                Confirm
-                              </button>
+                              <div className="flex items-center space-x-1.5">
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(o.id, 'confirmed')}
+                                  className="px-3 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                                >
+                                  Decline
+                                </button>
+                              </div>
                             )}
                             {o.status === 'confirmed' && (
-                              <button
-                                onClick={() => handleUpdateOrderStatus(o.id, 'completed')}
-                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold cursor-pointer"
-                              >
-                                Mark Delivered
-                              </button>
+                              <div className="flex items-center space-x-1.5">
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(o.id, 'completed')}
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                                >
+                                  Mark Delivered
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            )}
+                            {o.status === 'cancelled' && (
+                              <span className="text-[11px] text-slate-400 italic">Cancelled</span>
+                            )}
+                            {o.status === 'completed' && (
+                              <span className="text-[11px] text-emerald-600 font-semibold flex items-center space-x-1">
+                                <CheckCheck className="w-3.5 h-3.5" />
+                                <span>Delivered</span>
+                              </span>
                             )}
                           </td>
                         </tr>
@@ -2597,7 +2664,8 @@ export default function VendorDashboard() {
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                           o.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                          o.status === 'confirmed' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-700'
+                          o.status === 'confirmed' ? 'bg-sky-50 text-sky-700' :
+                          o.status === 'cancelled' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
                         }`}>
                           {o.status.toUpperCase()}
                         </span>
@@ -2613,20 +2681,45 @@ export default function VendorDashboard() {
 
                       <div className="pt-1">
                         {o.status === 'pending' && (
-                          <button
-                            onClick={() => handleUpdateOrderStatus(o.id, 'confirmed')}
-                            className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition-all"
-                          >
-                            Confirm Order
-                          </button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => handleUpdateOrderStatus(o.id, 'confirmed')}
+                              className="py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition-all"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
+                              className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer active:scale-98 transition-all"
+                            >
+                              Decline
+                            </button>
+                          </div>
                         )}
                         {o.status === 'confirmed' && (
-                          <button
-                            onClick={() => handleUpdateOrderStatus(o.id, 'completed')}
-                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition-all"
-                          >
-                            Mark as Delivered
-                          </button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => handleUpdateOrderStatus(o.id, 'completed')}
+                              className="py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer active:scale-98 transition-all"
+                            >
+                              Mark Delivered
+                            </button>
+                            <button
+                              onClick={() => handleUpdateOrderStatus(o.id, 'cancelled')}
+                              className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer active:scale-98 transition-all"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                        {o.status === 'cancelled' && (
+                          <p className="text-[11px] text-slate-400 text-center italic py-1">Order has been cancelled</p>
+                        )}
+                        {o.status === 'completed' && (
+                          <p className="text-[11px] text-emerald-600 text-center font-bold py-1 flex items-center justify-center space-x-1">
+                            <CheckCheck className="w-3.5 h-3.5" />
+                            <span>Delivered successfully</span>
+                          </p>
                         )}
                       </div>
                     </div>
@@ -4087,9 +4180,18 @@ export default function VendorDashboard() {
                         </div>
 
                         {isMine && (
-                          <span className="text-[9px] font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">
-                            My Drop
-                          </span>
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            <span className="text-[9px] font-bold bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">
+                              My Drop
+                            </span>
+                            <button
+                              onClick={() => handleDeleteReel(reel.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Delete Drop"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
                       </div>
 
@@ -6180,113 +6282,41 @@ export default function VendorDashboard() {
         onConfirm={handleConfirmSendChatMedia}
       />
 
-      {/* --- FACEBOOK/WHATSAPP-STYLE MOBILE BOTTOM NAVIGATION BAR FOR MERCHANTS --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-2 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
-        {/* Products */}
-        <button
-          onClick={() => setActiveTab('inventory')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'inventory'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Catalog"
-        >
-          <div className="relative flex items-center justify-center">
-            <Package className={`w-5 h-5 transition-transform ${activeTab === 'inventory' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Catalog</span>
-          {activeTab === 'inventory' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Orders */}
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'orders'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Orders"
-        >
-          <div className="relative flex items-center justify-center">
-            <ShoppingCart className={`w-5 h-5 transition-transform ${activeTab === 'orders' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-            {pendingOrdersCount > 0 && (
-              <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white text-[8px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white animate-bounce">
-                {pendingOrdersCount}
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Orders</span>
-          {activeTab === 'orders' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Chats & Stories */}
-        <button
-          onClick={() => setActiveTab('messages')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'messages'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Messages"
-        >
-          <div className="relative flex items-center justify-center">
-            <MessageSquare className={`w-5 h-5 transition-transform ${activeTab === 'messages' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-            {(totalUnreadChatCount > 0 || (pendingRequests || []).length > 0) && (
-              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white animate-bounce">
-                {totalUnreadChatCount > 0 ? totalUnreadChatCount : (pendingRequests || []).length}
-              </span>
-            )}
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Chats</span>
-          {activeTab === 'messages' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Sales Hub */}
-        <button
-          onClick={() => setActiveTab('hub')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'hub'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Sales Hub"
-        >
-          <div className="relative flex items-center justify-center">
-            <Store className={`w-5 h-5 transition-transform ${activeTab === 'hub' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Hub</span>
-          {activeTab === 'hub' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Settings */}
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'settings'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Settings"
-        >
-          <div className="relative flex items-center justify-center">
-            <Settings className={`w-5 h-5 transition-transform ${activeTab === 'settings' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
-          {activeTab === 'settings' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-      </nav>
+      {/* --- FLOATING NOTIFICATION / FEEDBACK TOAST --- */}
+      <AnimatePresence>
+        {feedbackMsg.text && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[90%] pointer-events-auto"
+          >
+            <div className={`p-3.5 sm:p-4 rounded-2xl shadow-xl border backdrop-blur-md flex items-center justify-between space-x-3 ${
+              feedbackMsg.type === 'error'
+                ? 'bg-rose-600/95 border-rose-500 text-white'
+                : feedbackMsg.type === 'info'
+                ? 'bg-slate-900/95 border-slate-700 text-white'
+                : 'bg-emerald-600/95 border-emerald-500 text-white'
+            }`}>
+              <div className="flex items-center space-x-2.5 min-w-0">
+                {feedbackMsg.type === 'error' ? (
+                  <AlertCircle className="w-5 h-5 shrink-0 text-white" />
+                ) : (
+                  <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />
+                )}
+                <span className="text-xs font-bold leading-snug break-words">{feedbackMsg.text}</span>
+              </div>
+              <button
+                onClick={() => setFeedbackMsg({ type: '', text: '' })}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
