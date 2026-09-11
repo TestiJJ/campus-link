@@ -105,8 +105,10 @@ export default function SwipeableMessageBubble({
   const progress = Math.min(1, Math.max(0, offsetX / TRIGGER_THRESHOLD));
   const isTriggered = offsetX >= TRIGGER_THRESHOLD;
 
+  const hasReactions = Boolean(message?.reactions);
+
   return (
-    <div className={`w-full flex ${isMine ? 'justify-end items-end' : 'justify-start items-start'} relative overflow-hidden group my-1 px-1 sm:px-2`}>
+    <div className={`w-full flex ${isMine ? 'justify-end items-end' : 'justify-start items-start'} relative overflow-visible group ${hasReactions ? 'my-1.5 mb-3' : 'my-1'} px-1 sm:px-2`}>
       {/* Swipe to Reply Curved Arrow Backing Indicator */}
       <div
         className={`absolute left-2 z-0 pointer-events-none flex items-center justify-center w-8 h-8 rounded-full transition-all duration-150 ${

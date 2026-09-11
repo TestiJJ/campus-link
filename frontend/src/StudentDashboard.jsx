@@ -338,7 +338,7 @@ export default function StudentDashboard() {
   const [selectedPartner, setSelectedPartner] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const chatId = params.get('chat') || localStorage.getItem('campuslink_selected_chat');
+      const chatId = params.get('chat');
       if (chatId) {
         if (chatId === 'campus_ai') {
           return {
@@ -364,7 +364,7 @@ export default function StudentDashboard() {
   const [chatMessages, setChatMessages] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      const chatId = params.get('chat') || localStorage.getItem('campuslink_selected_chat');
+      const chatId = params.get('chat');
       if (chatId && chatId !== 'campus_ai') {
         return getCachedThreadMessages(chatId);
       }
@@ -557,7 +557,6 @@ export default function StudentDashboard() {
       if (activeTab === 'messages' && selectedPartner) {
         const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
         if (pId) {
-          localStorage.setItem('campuslink_selected_chat', pId);
           if (url.searchParams.get('chat') !== pId) {
             url.searchParams.set('chat', pId);
             changed = true;
@@ -567,9 +566,6 @@ export default function StudentDashboard() {
         if (url.searchParams.has('chat')) {
           url.searchParams.delete('chat');
           changed = true;
-        }
-        if (!selectedPartner) {
-          localStorage.removeItem('campuslink_selected_chat');
         }
       }
 
@@ -595,9 +591,6 @@ export default function StudentDashboard() {
         const chatId = params.get('chat');
         if (!chatId && selectedPartnerRef.current) {
           setSelectedPartner(null);
-          try {
-            localStorage.removeItem('campuslink_selected_chat');
-          } catch {}
         }
       } catch {}
     };
@@ -680,10 +673,20 @@ export default function StudentDashboard() {
       if (behavior === "smooth") {
         try {
           el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-          return;
-        } catch {}
+        } catch {
+          el.scrollTop = el.scrollHeight;
+        }
+      } else {
+        el.scrollTop = el.scrollHeight;
       }
-      el.scrollTop = el.scrollHeight;
+    }
+    if (messagesEndRef.current) {
+      try {
+        messagesEndRef.current.scrollIntoView({
+          behavior: behavior === "smooth" ? "smooth" : "auto",
+          block: "end"
+        });
+      } catch {}
     }
   };
 
@@ -704,36 +707,35 @@ export default function StudentDashboard() {
     scrollToBottom(instant ? "auto" : "smooth");
   };
 
-  // Instant snap to bottom on partner selection or switching to chat tab
+  // Instant snap to bottom on partner selection or messages update (shows most recent chat)
   useEffect(() => {
     if (selectedPartner) {
-      const snap = () => scrollToBottom("auto");
+      const snap = () => {
+        scrollToBottom("auto");
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      };
       snap();
       const r1 = requestAnimationFrame(snap);
-      const t1 = setTimeout(snap, 60);
-      const t2 = setTimeout(() => {
+      const t1 = setTimeout(snap, 30);
+      const t2 = setTimeout(snap, 100);
+      const t3 = setTimeout(snap, 250);
+      const t4 = setTimeout(snap, 500);
+      const t5 = setTimeout(() => {
         snap();
         isSwitchingPartnerRef.current = false;
-      }, 200);
+      }, 900);
       return () => {
         cancelAnimationFrame(r1);
         clearTimeout(t1);
         clearTimeout(t2);
+        clearTimeout(t3);
+        clearTimeout(t4);
+        clearTimeout(t5);
       };
     }
-  }, [selectedPartner?.partner_id, activeTab, messageSubtab]);
-
-  // When new messages arrive, scroll down smoothly ONLY if user is already near bottom or switching
-  useEffect(() => {
-    const el = chatContainerRef.current;
-    if (!el || !chatMessages?.length) return;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 300;
-    if (isNearBottom || isSwitchingPartnerRef.current) {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
-  }, [chatMessages?.length]);
+  }, [selectedPartner?.partner_id, activeTab, messageSubtab, chatMessages?.length]);
 
   // Trigger on AI tab switch or aiMessages length change
   useEffect(() => {
@@ -1361,8 +1363,18 @@ export default function StudentDashboard() {
   // Chat Stale-While-Revalidate — smart merge so existing bubbles never flicker
   const fetchMessagesForPartner = async (partnerId) => {
     if (!partnerId) return;
+    // Mark as read immediately on the server and update local UI without waiting for GET
+    API.post(`/messages/${partnerId}/read`).catch(() => {});
+    setConversations(prev =>
+      prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
+    );
+
     try {
       await revalidateThreadMessages(partnerId, API, (fresh) => {
+        // Prevent race condition if user switched to another partner while request was in-flight
+        if (selectedPartnerRef.current && String(selectedPartnerRef.current.partner_id || selectedPartnerRef.current.user_id || selectedPartnerRef.current.id) !== String(partnerId)) {
+          return;
+        }
         setChatMessages(prev => {
           // Keep optimistic messages not yet confirmed by the server
           const freshIds = new Set(fresh.map(m => String(m.id)));
@@ -1385,14 +1397,8 @@ export default function StudentDashboard() {
           }
           return [...fresh, ...pendingOptimistic];
         });
-        if (isUserNearBottom(chatContainerRef.current)) {
-          smartScrollToBottom(chatContainerRef.current, false);
-        }
+        scrollToBottom("auto");
       });
-      API.post(`/messages/${partnerId}/read`).catch(() => {});
-      setConversations(prev =>
-        prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
-      );
     } catch (err) {
       // silent — WebSocket is the primary real-time source
     }
@@ -1403,11 +1409,11 @@ export default function StudentDashboard() {
     if (selectedPartner.is_ai) return;
     if (!getAuthToken()) return;
 
-    // 1. Instantly show cached messages if not already in state — zero latency
+    // 1. Instantly show cached messages for this partner — zero latency
     const cached = getCachedThreadMessages(selectedPartner.partner_id);
-    setChatMessages(prev => (prev && prev.length > 0 ? prev : cached));
+    setChatMessages(cached);
     setIsLoadingChatMessages(false);
-    smartScrollToBottom(chatContainerRef.current, false);
+    scrollToBottom("auto");
 
     // 2. Background revalidation — merges without flickering (WebSocket handles real-time)
     fetchMessagesForPartner(selectedPartner.partner_id);
@@ -1427,25 +1433,23 @@ export default function StudentDashboard() {
     };
   }, [selectedPartner?.partner_id]);
 
-  // Cleanly close active chat and remove from URL & localStorage
+  // Cleanly close active chat and remove from URL
   const handleCloseChat = () => {
     setSelectedPartner(null);
     try {
-      localStorage.removeItem('campuslink_selected_chat');
       const url = new URL(window.location.href);
       url.searchParams.delete('chat');
       window.history.replaceState({}, '', url.toString());
     } catch {}
   };
 
-  // Instant 0ms Chat Selection (Loads cached messages immediately on click without any lag)
+  // Instant 0ms Chat Selection (Loads cached messages immediately on click and snaps to latest chat)
   const handleSelectPartner = (c) => {
     if (!c) return;
     const partnerId = String(c.partner_id || c.user_id || c.id || '');
     if (!partnerId) return;
 
     try {
-      localStorage.setItem('campuslink_selected_chat', partnerId);
       const url = new URL(window.location.href);
       url.searchParams.set('tab', 'messages');
       url.searchParams.set('chat', partnerId);
@@ -1462,7 +1466,29 @@ export default function StudentDashboard() {
     setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
     setSelectedPartner(normalizedPartner);
-    smartScrollToBottom(chatContainerRef.current, false);
+
+    // 1. Instantly mark messages as read without waiting for network revalidation
+    API.post(`/messages/${partnerId}/read`).catch(() => {});
+    setConversations(prev =>
+      prev.map(conv => (String(conv.partner_id || conv.user_id) === String(partnerId) ? { ...conv, unread_count: 0 } : conv))
+    );
+
+    // 2. Multi-tier instant scroll to bottom to guarantee user is taken to the last chat message
+    const triggerBottomScroll = () => {
+      scrollToBottom("auto");
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    };
+    triggerBottomScroll();
+    requestAnimationFrame(triggerBottomScroll);
+    setTimeout(triggerBottomScroll, 30);
+    setTimeout(triggerBottomScroll, 100);
+    setTimeout(triggerBottomScroll, 250);
+    setTimeout(triggerBottomScroll, 500);
+
+    // 3. Background revalidation
+    fetchMessagesForPartner(partnerId);
   };
 
   // Trigger Swipe-to-Reply or Click-to-Reply
@@ -5277,6 +5303,8 @@ export default function StudentDashboard() {
                                       {/* Main Message Bubble */}
                                       <div
                                         className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
+                                          msg.reactions ? 'mb-2.5' : ''
+                                        } ${
                                           isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
                                         } ${
                                           isMine
@@ -5424,12 +5452,12 @@ export default function StudentDashboard() {
                                                 e.stopPropagation();
                                                 setActionModalMsg(msg);
                                               }}
-                                              className={`absolute -bottom-2.5 ${
+                                              className={`absolute -bottom-3 ${
                                                 isMine ? 'right-2' : 'left-2'
-                                              } z-10 flex items-center gap-0.5 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-full text-xs cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
+                                              } z-20 flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 shadow-md rounded-full text-xs font-medium cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
                                               title={`Reactions: ${emojis.join(' ')}`}
                                             >
-                                              <span>{uniqueEmojis.slice(0, 3).join('')}</span>
+                                              <span className="text-[13px] leading-none">{uniqueEmojis.slice(0, 3).join('')}</span>
                                               {emojis.length > 1 && (
                                                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-0.5">
                                                   {emojis.length}
@@ -6203,7 +6231,7 @@ export default function StudentDashboard() {
 
         {/* --- TAB 5: PROFILE & SETTINGS (MODERN SOCIAL MEDIA LAYOUT) --- */}
         {activeTab === 'profile' && (
-          <div className="max-w-3xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
             <div>
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Student Settings & Profile</h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">Manage your campus identity, hostel delivery location, and account security.</p>
@@ -6224,7 +6252,7 @@ export default function StudentDashboard() {
                     key={tab.id}
                     type="button"
                     onClick={() => setProfileSubtab(tab.id)}
-                    className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
+                    className={`px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
                       isActive
                         ? 'bg-slate-900 text-white shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -6239,20 +6267,20 @@ export default function StudentDashboard() {
 
             {/* 1. SUBTAB: PROFILE & IDENTITY */}
             {profileSubtab === 'profile' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Profile Photo & Summary Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
-                    <div className="relative self-start group">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-5 border-b border-slate-100">
+                    <div className="relative self-start group shrink-0">
                       {currentUser?.profile_picture_url ? (
                         <SafeImage
                           src={currentUser.profile_picture_url}
                           alt={currentUser.full_name}
                           fallbackType="avatar"
-                          className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
+                          className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
                         />
                       ) : (
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
+                        <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-2xl sm:text-3xl flex items-center justify-center shadow-md">
                           {currentUser?.full_name?.charAt(0) || 'S'}
                         </div>
                       )}
@@ -6269,22 +6297,22 @@ export default function StudentDashboard() {
                         type="button"
                         onClick={() => avatarInputRef.current?.click()}
                         disabled={uploadingAvatar}
-                        className="absolute -bottom-2 -right-2 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
+                        className="absolute -bottom-2 -right-2 p-1.5 sm:p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
                         title="Change Profile Picture"
                       >
                         <Camera className="w-4 h-4" />
                       </button>
                     </div>
 
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="text-xl font-bold text-slate-900">{currentUser?.full_name}</h3>
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 flex items-center space-x-1">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center flex-wrap gap-2">
+                        <h3 className="text-lg sm:text-xl font-bold text-slate-900 truncate max-w-full">{currentUser?.full_name}</h3>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 flex items-center space-x-1 shrink-0">
                           <ShieldCheck className="w-3 h-3 text-sky-600" />
                           <span>Verified Student</span>
                         </span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{currentUser?.email} {currentUser?.phone_number && `• ${currentUser.phone_number}`}</p>
+                      <p className="text-xs text-slate-500 mt-0.5 break-all sm:break-normal">{currentUser?.email} {currentUser?.phone_number && `• ${currentUser.phone_number}`}</p>
                       <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
                         "{currentUser?.bio || 'Add a short bio below to introduce yourself to your campus community.'}"
                       </p>
@@ -6292,20 +6320,20 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Student Academic & Location Quick Badges */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-xs">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{universityName}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Department</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{currentUser?.department || 'Not set'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Level</span>
                       <p className="font-bold text-slate-800 mt-1">{currentUser?.level || '100L'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Hostel Room</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{currentUser?.hostel || 'Not set'}</p>
                     </div>
@@ -6337,7 +6365,7 @@ export default function StudentDashboard() {
                 </div>
 
                 {/* Edit Profile Form */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
                   <div className="flex items-center space-x-2">
                     <Edit3 className="w-5 h-5 text-sky-600" />
                     <h3 className="text-base font-bold text-slate-900">Edit Profile Information</h3>
@@ -6345,7 +6373,7 @@ export default function StudentDashboard() {
                   <p className="text-xs text-slate-500">Keep your academic details and hostel room number current so vendors can deliver accurately.</p>
 
                   <form onSubmit={handleUpdateProfile} className="space-y-4 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Full Name</label>
                         <input
@@ -6353,7 +6381,7 @@ export default function StudentDashboard() {
                           required
                           value={profileForm.full_name}
                           onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         />
                       </div>
 
@@ -6364,7 +6392,7 @@ export default function StudentDashboard() {
                           placeholder="e.g. +2348012345678"
                           value={profileForm.phone_number}
                           onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         />
                       </div>
 
@@ -6375,7 +6403,7 @@ export default function StudentDashboard() {
                           placeholder="e.g. Computer Science"
                           value={profileForm.department}
                           onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         />
                       </div>
 
@@ -6384,7 +6412,7 @@ export default function StudentDashboard() {
                         <select
                           value={profileForm.level}
                           onChange={(e) => setProfileForm({ ...profileForm, level: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         >
                           <option value="">Select Level</option>
                           <option value="100L">100 Level</option>
@@ -6395,35 +6423,35 @@ export default function StudentDashboard() {
                           <option value="Postgraduate">Postgraduate</option>
                         </select>
                       </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel Residence & Room</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Moremi Hall, Room B12"
-                        value={profileForm.hostel}
-                        onChange={(e) => setProfileForm({ ...profileForm, hostel: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                      />
-                    </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel / Campus Delivery Location</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Queen Amina Hall, Room B12"
+                          value={profileForm.hostel}
+                          onChange={(e) => setProfileForm({ ...profileForm, hostel: e.target.value })}
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Student Bio</label>
-                      <textarea
-                        rows={2}
-                        placeholder="Share what you study, your hobbies, or what skills you offer on campus..."
-                        value={profileForm.bio}
-                        onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 resize-none"
-                      />
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">About / Bio</label>
+                        <textarea
+                          rows={2}
+                          placeholder="Tell campus peers what you do, what you buy or sell..."
+                          value={profileForm.bio}
+                          onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                        />
+                      </div>
                     </div>
 
                     <div className="flex justify-end pt-2">
                       <button
                         type="submit"
                         disabled={savingProfile}
-                        className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                        className="w-full sm:w-auto px-6 py-2.5 sm:py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
                       </button>
@@ -6435,16 +6463,16 @@ export default function StudentDashboard() {
 
             {/* 2. SUBTAB: ACCOUNT & SECURITY */}
             {profileSubtab === 'security' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Account Credentials Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <h3 className="text-base font-bold text-slate-900">Student Account Credentials</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
+                    <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Student Email</span>
                       <p className="font-bold text-slate-900 mt-1 truncate">{currentUser?.email}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Verified Status</span>
                       <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
                         <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
@@ -6455,7 +6483,7 @@ export default function StudentDashboard() {
                 </div>
 
                 {/* Change Password Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
                   <div className="flex items-center space-x-2">
                     <Lock className="w-5 h-5 text-sky-600" />
                     <h3 className="text-base font-bold text-slate-900">Change Password</h3>
@@ -6471,11 +6499,11 @@ export default function StudentDashboard() {
                         placeholder="Enter current password"
                         value={passwordForm.current_password}
                         onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                        className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
                         <input
@@ -6484,7 +6512,7 @@ export default function StudentDashboard() {
                           placeholder="Minimum 6 characters"
                           value={passwordForm.new_password}
                           onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         />
                       </div>
                       <div>
@@ -6495,7 +6523,7 @@ export default function StudentDashboard() {
                           placeholder="Re-enter new password"
                           value={passwordForm.confirm_password}
                           onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
                         />
                       </div>
                     </div>
@@ -6504,7 +6532,7 @@ export default function StudentDashboard() {
                       <button
                         type="submit"
                         disabled={changingPassword}
-                        className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                        className="w-full sm:w-auto px-6 py-2.5 sm:py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {changingPassword ? 'Updating Password...' : 'Update Password'}
                       </button>
@@ -6516,9 +6544,9 @@ export default function StudentDashboard() {
 
             {/* 3. SUBTAB: NOTIFICATIONS & SOUNDS */}
             {profileSubtab === 'notifications' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Push Notifications Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
                       <Bell className="w-5 h-5 text-sky-600" />
@@ -6574,7 +6602,7 @@ export default function StudentDashboard() {
                 </div>
 
                 {/* In-App Sound Alerts Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
@@ -6610,12 +6638,12 @@ export default function StudentDashboard() {
 
             {/* 4. SUBTAB: ABOUT & APP */}
             {profileSubtab === 'about' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Dedicated App Installation & Update Card */}
                 <InstallAppButton variant="settings" showInstalled={true} />
 
                 {/* Guidelines Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <h3 className="text-base font-bold text-slate-900">CampusLink Student Network</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
                     CampusLink is designed exclusively for verified students and authorized merchants to trade safely, connect with classmates, find lost items, and share campus drops.
@@ -6623,11 +6651,11 @@ export default function StudentDashboard() {
                 </div>
 
                 {/* App Information Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-3 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-3 shadow-xs">
                   <h4 className="text-sm font-bold text-slate-900">Application Details</h4>
                   <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
                     <span className="text-slate-500">Version</span>
-                    <span className="font-mono font-bold text-slate-800">2.4.0 (Campus Release)</span>
+                    <span className="font-mono font-bold text-slate-800">2.4.2 (Campus Release)</span>
                   </div>
                   <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
                     <span className="text-slate-500">Connected Campus</span>
@@ -6640,7 +6668,7 @@ export default function StudentDashboard() {
                 </div>
 
                 {/* Logout Card */}
-                <div className="bg-white border border-rose-100 rounded-3xl p-6 flex items-center justify-between shadow-xs">
+                <div className="bg-white border border-rose-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 flex items-center justify-between shadow-xs">
                   <div>
                     <h4 className="text-sm font-bold text-slate-900">Sign Out of CampusLink</h4>
                     <p className="text-xs text-slate-500 mt-0.5">End your student session on this browser.</p>

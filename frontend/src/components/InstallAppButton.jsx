@@ -140,14 +140,30 @@ export default function InstallAppButton({
   if (showInstalled) {
     if (variant === 'settings') {
       return (
-        <div className={`p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between text-xs text-emerald-800 ${className}`}>
+        <div className={`p-4 sm:p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-800 ${className}`}>
           <div className="flex items-center space-x-2.5">
-            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-bold">CampusLink App is installed & up to date (v{latestVersion})</span>
+            <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-slate-900">CampusLink App Installed</span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.2 rounded-full font-bold">
+                  v{latestVersion}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">Running progressive web application.</p>
+            </div>
           </div>
-          <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">
-            Latest
-          </span>
+          <button
+            type="button"
+            onClick={async () => {
+              await checkForUpdates();
+            }}
+            disabled={isUpdating}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all active:scale-95 flex items-center justify-center space-x-1.5 cursor-pointer shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
+            <span>{isUpdating ? 'Checking...' : 'Check for Updates'}</span>
+          </button>
         </div>
       );
     }

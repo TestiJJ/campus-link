@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.5';
+const CACHE_NAME = 'campuslink-v1.0.6';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',

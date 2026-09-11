@@ -1,5 +1,5 @@
 {
-  "version": "2.4.1",
-  "buildTime": 1741652000000,
-  "releaseNotes": "Performance improvements, message editing and unified feeds."
+  "version": "2.4.2",
+  "buildTime": 1741656000000,
+  "releaseNotes": "WhatsApp-grade instant chat opening, reaction badge fixes, fast read confirmations, responsive settings."
 }

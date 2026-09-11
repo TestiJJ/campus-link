@@ -1425,8 +1425,15 @@ export default function VendorDashboard() {
     }
   };
 
+  // Chat Stale-While-Revalidate for Vendor
   const fetchMessagesForPartner = async (partnerId) => {
     if (!partnerId) return;
+    // Mark as read immediately on server without waiting for GET
+    API.post(`/messages/${partnerId}/read`).catch(() => {});
+    setConversations(prev =>
+      prev.map(c => (String(c.partner_id || c.user_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
+    );
+
     try {
       const res = await API.get(`/messages/${partnerId}`);
       const fresh = res.data || [];
@@ -1449,10 +1456,7 @@ export default function VendorDashboard() {
         }
         return [...fresh, ...pendingOptimistic];
       });
-      API.post(`/messages/${partnerId}/read`).catch(() => {});
-      setConversations(prev =>
-        prev.map(c => (String(c.partner_id || c.user_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
-      );
+      scrollToChatBottom(false);
     } catch (err) {
       // silent
     }
@@ -1466,7 +1470,27 @@ export default function VendorDashboard() {
     setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
     setSelectedPartner(partner);
-    smartScrollToBottom(chatContainerRef.current, false);
+
+    // Instant read receipt
+    API.post(`/messages/${newPid}/read`).catch(() => {});
+    setConversations(prev =>
+      prev.map(c => (String(c.partner_id || c.user_id) === String(newPid) ? { ...c, unread_count: 0 } : c))
+    );
+
+    // Multi-tier scroll to bottom to ensure user is taken to the last chat message
+    const triggerBottomScroll = () => {
+      scrollToChatBottom(true);
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    };
+    triggerBottomScroll();
+    requestAnimationFrame(triggerBottomScroll);
+    setTimeout(triggerBottomScroll, 30);
+    setTimeout(triggerBottomScroll, 100);
+    setTimeout(triggerBottomScroll, 250);
+    setTimeout(triggerBottomScroll, 500);
+
     fetchMessagesForPartner(newPid);
   };
 
@@ -4077,6 +4101,8 @@ export default function VendorDashboard() {
                                       {/* Main Message Bubble */}
                                       <div
                                         className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
+                                          msg.reactions ? 'mb-2.5' : ''
+                                        } ${
                                           isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
                                         } ${
                                           isMine
@@ -4209,12 +4235,12 @@ export default function VendorDashboard() {
                                                 e.stopPropagation();
                                                 setActionModalMsg(msg);
                                               }}
-                                              className={`absolute -bottom-2.5 ${
+                                              className={`absolute -bottom-3 ${
                                                 isMine ? 'right-2' : 'left-2'
-                                              } z-10 flex items-center gap-0.5 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-full text-xs cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
+                                              } z-20 flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 shadow-md rounded-full text-xs font-medium cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
                                               title={`Reactions: ${emojis.join(' ')}`}
                                             >
-                                              <span>{uniqueEmojis.slice(0, 3).join('')}</span>
+                                              <span className="text-[13px] leading-none">{uniqueEmojis.slice(0, 3).join('')}</span>
                                               {emojis.length > 1 && (
                                                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-0.5">
                                                   {emojis.length}
@@ -5679,7 +5705,7 @@ export default function VendorDashboard() {
         {/* --- TAB 7: VENDOR PROFILE & SETTINGS (MODERN SOCIAL MEDIA LAYOUT) --- */}
         {/* ========================================================================= */}
         {activeTab === 'settings' && (
-          <div className="max-w-3xl mx-auto space-y-6">
+          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6 px-1 sm:px-0">
             <div>
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Store Settings & Preferences</h1>
               <p className="text-xs sm:text-sm text-slate-500 mt-1">
@@ -5718,9 +5744,9 @@ export default function VendorDashboard() {
 
             {/* 1. SUBTAB: STORE PROFILE */}
             {settingsSubtab === 'profile' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Profile Photo & Store Summary Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 shadow-xs">
                   <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
                     <div className="relative self-start group">
                       {user?.profile_picture_url || vendorStore?.logo ? (
@@ -5754,8 +5780,8 @@ export default function VendorDashboard() {
                       </button>
                     </div>
 
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-xl font-bold text-slate-900">{vendorStore?.business_name || user?.full_name}</h3>
                         {isVerified ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
@@ -5769,39 +5795,39 @@ export default function VendorDashboard() {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 mt-0.5">{user?.email} • {vendorStore?.phone || user?.phone_number || 'No phone set'}</p>
-                      <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
+                      <p className="text-xs text-slate-500 mt-0.5 break-words">{user?.email} • {vendorStore?.phone || user?.phone_number || 'No phone set'}</p>
+                      <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic break-words">
                         "{vendorStore?.business_description || 'Official campus store offering meals, goods or services to students.'}"
                       </p>
                     </div>
                   </div>
 
                   {/* Vendor Badges */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-xs">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.university_name || 'Campus'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Stall / Spot</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.location || 'SUB Food Court'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Category</span>
                       <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.category_name || 'General'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Standing</span>
                       <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>{isVerified ? 'Verified Active' : 'Under Review'}</span>
+                        <CheckCircle2 className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{isVerified ? 'Verified Active' : 'Under Review'}</span>
                       </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Edit Profile Form */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
                   <div className="flex items-center space-x-2">
                     <Edit3 className="w-5 h-5 text-sky-600" />
                     <h3 className="text-base font-bold text-slate-900">Edit Store & Personal Information</h3>
@@ -5901,10 +5927,10 @@ export default function VendorDashboard() {
 
             {/* 2. SUBTAB: PAYOUTS & BANKING */}
             {settingsSubtab === 'payouts' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Direct Bank Settlement Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
-                  <div className="flex items-center justify-between">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                       <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                         <CreditCard className="w-5 h-5 text-emerald-600" />
@@ -5918,7 +5944,7 @@ export default function VendorDashboard() {
                       <button
                         type="button"
                         onClick={() => { setBankForm({ ...bankInfo }); setIsEditingBank(true); }}
-                        className="text-xs font-bold text-sky-600 hover:underline cursor-pointer"
+                        className="text-xs font-bold text-sky-600 hover:underline cursor-pointer self-start sm:self-auto"
                       >
                         Edit Details
                       </button>
@@ -5978,7 +6004,7 @@ export default function VendorDashboard() {
                       </div>
                     </form>
                   ) : (
-                    <div className="p-5 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-700">
+                    <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-700">
                       <div>
                         <div className="flex items-center space-x-2 mb-2">
                           <span className="text-[10px] font-extrabold uppercase tracking-widest text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800">
@@ -5993,7 +6019,7 @@ export default function VendorDashboard() {
                           {bankInfo.account_name || vendorStore?.business_name || 'Campus Merchant'}
                         </p>
                       </div>
-                      <div className="text-right shrink-0">
+                      <div className="text-left sm:text-right shrink-0">
                         <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-800">
                           Active for Checkout
                         </span>
@@ -6003,7 +6029,7 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Broadcast Announcement Banner */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
@@ -6043,12 +6069,12 @@ export default function VendorDashboard() {
                       </div>
                     </form>
                   ) : (
-                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <p className="text-xs font-semibold text-slate-800">{storeBroadcast}</p>
                       <button
                         type="button"
                         onClick={() => { setBroadcastInput(storeBroadcast); setIsEditingBroadcast(true); }}
-                        className="px-3 py-1.5 bg-white border border-slate-200 text-sky-600 font-bold text-xs rounded-xl hover:bg-sky-50 cursor-pointer shrink-0 ml-3"
+                        className="px-3 py-1.5 bg-white border border-slate-200 text-sky-600 font-bold text-xs rounded-xl hover:bg-sky-50 cursor-pointer shrink-0 self-start sm:self-auto"
                       >
                         Edit Banner
                       </button>
@@ -6060,16 +6086,16 @@ export default function VendorDashboard() {
 
             {/* 3. SUBTAB: ACCOUNT & SECURITY */}
             {settingsSubtab === 'security' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Account Credentials Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <h3 className="text-base font-bold text-slate-900">Merchant Account Credentials</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Sign-in Email</span>
                       <p className="font-bold text-slate-900 mt-1 truncate">{user?.email || 'vendor@campuslink.ng'}</p>
                     </div>
-                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Account Role</span>
                       <p className="font-bold text-sky-700 mt-1">Campus Merchant (Vendor)</p>
                     </div>
@@ -6077,7 +6103,7 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Change Password Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-5 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
                   <div className="flex items-center space-x-2">
                     <Lock className="w-5 h-5 text-sky-600" />
                     <h3 className="text-base font-bold text-slate-900">Security & Password</h3>
@@ -6126,7 +6152,7 @@ export default function VendorDashboard() {
                       <button
                         type="submit"
                         disabled={changingPassword}
-                        className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                        className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                       >
                         {changingPassword ? 'Updating Password...' : 'Update Password'}
                       </button>
@@ -6138,9 +6164,9 @@ export default function VendorDashboard() {
 
             {/* 4. SUBTAB: NOTIFICATIONS & PREFERENCES */}
             {settingsSubtab === 'notifications' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Push Notification Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xs space-y-4 sm:space-y-5">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
                       <Smartphone className="w-5 h-5 text-violet-600" />
@@ -6215,7 +6241,7 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Sound & In-App Alerts Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xs space-y-4">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xs space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
@@ -6251,9 +6277,9 @@ export default function VendorDashboard() {
 
             {/* 5. SUBTAB: ABOUT & APP */}
             {settingsSubtab === 'about' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Guidelines & Verification link */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-4 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
                   <h3 className="text-base font-bold text-slate-900">CampusLink Merchant Program</h3>
                   <p className="text-xs text-slate-600 leading-relaxed">
                     CampusLink connects verified local businesses, campus restaurants, and student entrepreneurs directly with university students across Nigeria.
@@ -6274,11 +6300,11 @@ export default function VendorDashboard() {
                 <InstallAppButton variant="settings" showInstalled={true} />
 
                 {/* App Information Card */}
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 space-y-3 shadow-xs">
+                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-3 shadow-xs">
                   <h4 className="text-sm font-bold text-slate-900">Application Details</h4>
                   <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
                     <span className="text-slate-500">Version</span>
-                    <span className="font-mono font-bold text-slate-800">2.4.0 (Campus Release)</span>
+                    <span className="font-mono font-bold text-slate-800">2.4.2 (Campus Release)</span>
                   </div>
                   <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
                     <span className="text-slate-500">Platform</span>
@@ -6291,7 +6317,7 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Logout Card */}
-                <div className="bg-white border border-rose-100 rounded-3xl p-6 flex items-center justify-between shadow-xs">
+                <div className="bg-white border border-rose-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                   <div>
                     <h4 className="text-sm font-bold text-slate-900">Sign Out of Merchant Store</h4>
                     <p className="text-xs text-slate-500 mt-0.5">End your merchant session on this device.</p>
@@ -6299,7 +6325,7 @@ export default function VendorDashboard() {
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1.5"
+                    className="px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
                   >
                     <LogOut className="w-4 h-4" />
                     <span>Log Out</span>

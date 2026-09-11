@@ -17,18 +17,21 @@ const toKey = (partnerId) => String(partnerId || '').trim();
  */
 export const normalizeAndSortMessages = (msgs) => {
   if (!Array.isArray(msgs)) return [];
-  const seen = new Set();
-  const result = [];
+  const map = new Map();
 
   for (const m of msgs) {
     if (!m) continue;
-    // Build unique identifier key (prefer database id, fallback to client_id or timestamp/content hash)
+    // Prefer database id, fallback to client_id or temporary signature
     const uniqueKey = m.id ? `id_${m.id}` : m.client_id ? `cid_${m.client_id}` : `tmp_${m.sender_id}_${m.created_at}_${m.content}`;
-    if (!seen.has(uniqueKey)) {
-      seen.add(uniqueKey);
-      result.push(m);
+    if (map.has(uniqueKey)) {
+      // Merge: later incoming messages update reactions, is_read, is_edited, etc.
+      map.set(uniqueKey, { ...map.get(uniqueKey), ...m });
+    } else {
+      map.set(uniqueKey, m);
     }
   }
+
+  const result = Array.from(map.values());
 
   // Sort ascending by created_at or id
   result.sort((a, b) => {
@@ -200,13 +203,21 @@ export const revalidateThreadMessages = async (partnerId, API, onMessagesUpdated
       const serverMsgs = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
       const current = getCachedThreadMessages(key);
 
-      // Verify if current cache matches server accurately (content, IDs, and no transient preview/optimistic flags)
+      // Verify if current cache matches server accurately (content, IDs, reactions, is_read, and no transient flags)
       const isIdentical =
         current.length === serverMsgs.length &&
         current.length > 0 &&
         current.every((m, idx) => {
           const s = serverMsgs[idx];
-          return s && String(m.id) === String(s.id) && m.content === s.content && !m.is_preview && !m.is_optimistic;
+          return (
+            s &&
+            String(m.id) === String(s.id) &&
+            m.content === s.content &&
+            m.is_read === s.is_read &&
+            String(m.reactions || '') === String(s.reactions || '') &&
+            !m.is_preview &&
+            !m.is_optimistic
+          );
         });
 
       if (!isIdentical || current.some(m => m.is_preview || m.is_optimistic)) {

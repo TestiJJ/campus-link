@@ -31,7 +31,7 @@ export default function InstallPwaPrompt() {
     <>
       {/* 1. PRIORITY FLOATING UPDATE BANNER (Shows when updateNeeded is true) */}
       {updateNeeded && !dismissedUpdate && (
-        <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 md:max-w-md z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 md:max-w-md z-[9999] animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white rounded-3xl p-4 shadow-2xl shadow-orange-500/30 flex items-center justify-between gap-3 border-2 border-amber-300">
             <div className="flex items-center space-x-3 min-w-0">
               <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
