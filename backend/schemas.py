@@ -339,6 +339,9 @@ class MessageCreate(BaseModel):
 class MessageUpdate(BaseModel):
     content: str
 
+class MessageReact(BaseModel):
+    emoji: str
+
 class MessageOut(BaseModel):
     id: int
     sender_id: str
@@ -352,6 +355,7 @@ class MessageOut(BaseModel):
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
     is_edited: Optional[bool] = False
+    reactions: Optional[str] = None
     is_read: bool
     created_at: Optional[datetime] = None
 

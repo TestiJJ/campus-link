@@ -34,6 +34,7 @@ try:
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions TEXT;",
         "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
         "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
         "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
@@ -3380,8 +3381,92 @@ async def delete_message(
 
     return {"status": "success", "message_id": message_id}
 
+@app.post("/api/messages/{message_id}/react")
+async def react_to_message(
+    message_id: int,
+    req: schemas.MessageReact,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    msg = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    uid = str(current_user.user_id)
+    reactions_dict = {}
+    if msg.reactions:
+        try:
+            reactions_dict = json.loads(msg.reactions)
+            if not isinstance(reactions_dict, dict):
+                reactions_dict = {}
+        except Exception:
+            reactions_dict = {}
+
+    # Toggle if clicking same emoji, else update
+    current_emoji = reactions_dict.get(uid)
+    if current_emoji == req.emoji:
+        reactions_dict.pop(uid, None)
+    else:
+        reactions_dict[uid] = req.emoji
+
+    msg.reactions = json.dumps(reactions_dict) if reactions_dict else None
+    db.commit()
+    db.refresh(msg)
+
+    reaction_payload = {
+        "type": "message_reaction",
+        "message_id": msg.id,
+        "reactions": msg.reactions,
+        "user_id": uid,
+        "emoji": req.emoji,
+        "sender_id": msg.sender_id,
+        "recipient_id": msg.recipient_id
+    }
+
+    try:
+        await ws_manager.broadcast_to_user(str(msg.recipient_id), reaction_payload)
+        await ws_manager.broadcast_to_user(str(msg.sender_id), reaction_payload)
+    except Exception as _ws_err:
+        print(f"[WebSocket] Reaction broadcast notice: {_ws_err}")
+
+    return {"status": "success", "message_id": msg.id, "reactions": msg.reactions}
+
+@app.post("/api/messages/{other_user_id}/read")
+async def mark_conversation_read(
+    other_user_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    other_user = resolve_target_user_id(other_user_id, db)
+    if not other_user:
+        return {"status": "success", "marked_count": 0}
+
+    target_uid = other_user.user_id
+    unread_msgs = db.query(models.Message).filter(
+        (models.Message.sender_id == target_uid) &
+        (models.Message.recipient_id == current_user.user_id) &
+        (models.Message.is_read == False)
+    ).all()
+
+    unread_ids = [m.id for m in unread_msgs]
+    if unread_ids:
+        db.query(models.Message).filter(models.Message.id.in_(unread_ids)).update({"is_read": True}, synchronize_session=False)
+        db.commit()
+
+        # Real-time WebSocket read receipt to the sender
+        try:
+            await ws_manager.broadcast_to_user(str(target_uid), {
+                "type": "messages_read",
+                "reader_id": current_user.user_id,
+                "message_ids": unread_ids
+            })
+        except Exception as _ws_err:
+            print(f"[WebSocket] Read receipt broadcast notice: {_ws_err}")
+
+    return {"status": "success", "marked_count": len(unread_ids), "message_ids": unread_ids}
+
 @app.get("/api/messages/{other_user_id}", response_model=List[schemas.MessageOut])
-def get_conversation(
+async def get_conversation(
     other_user_id: str,
     background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
@@ -3397,17 +3482,25 @@ def get_conversation(
         ((models.Message.sender_id == target_uid) & (models.Message.recipient_id == current_user.user_id))
     ).order_by(models.Message.created_at.asc()).all()
 
-    # Bulk update unread messages asynchronously without blocking HTTP response
+    # Bulk update unread messages and notify sender over WebSocket instantly
     unread_ids = [m.id for m in msgs if m.recipient_id == current_user.user_id and not m.is_read]
     if unread_ids:
-        def _mark_read(ids_to_update):
-            try:
-                with database.SessionLocal() as bg_db:
-                    bg_db.query(models.Message).filter(models.Message.id.in_(ids_to_update)).update({"is_read": True}, synchronize_session=False)
-                    bg_db.commit()
-            except Exception:
-                pass
-        background_tasks.add_task(_mark_read, unread_ids)
+        try:
+            db.query(models.Message).filter(models.Message.id.in_(unread_ids)).update({"is_read": True}, synchronize_session=False)
+            db.commit()
+            for m in msgs:
+                if m.id in unread_ids:
+                    m.is_read = True
+
+            # Real-time WebSocket notification to sender so ticks turn cyan/blue immediately
+            await ws_manager.broadcast_to_user(str(target_uid), {
+                "type": "messages_read",
+                "reader_id": current_user.user_id,
+                "message_ids": unread_ids
+            })
+        except Exception as _read_err:
+            print(f"[Read Receipt] Notice: {_read_err}")
+
     return msgs
 
 @app.get("/api/conversations")

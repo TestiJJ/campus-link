@@ -395,6 +395,7 @@ export default function StudentDashboard() {
   const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
   const [showMediaEditor, setShowMediaEditor] = useState(false);
   const chatInputRef = useRef(null);
+  const longPressTimerRef = useRef(null);
 
   // My AI & Memory Vault State (SWR Instant Load scoped strictly to current user)
   const [aiMessages, setAiMessages] = useState(() => {
@@ -801,6 +802,23 @@ export default function StudentDashboard() {
               if (data.recipient_id) removeThreadMessage(data.recipient_id, delId);
             }
 
+            if (data.type === 'message_reaction' && data.message_id) {
+              const rId = data.message_id;
+              setChatMessages(prev => prev.map(m => String(m.id) === String(rId) ? { ...m, reactions: data.reactions } : m));
+              if (data.sender_id) updateThreadMessage(data.sender_id, rId, { reactions: data.reactions });
+              if (data.recipient_id) updateThreadMessage(data.recipient_id, rId, { reactions: data.reactions });
+            }
+
+            if (data.type === 'messages_read' && Array.isArray(data.message_ids)) {
+              const readSet = new Set(data.message_ids.map(String));
+              setChatMessages(prev => prev.map(m => readSet.has(String(m.id)) ? { ...m, is_read: true } : m));
+              if (selectedPartnerRef.current?.partner_id) {
+                data.message_ids.forEach(mid => {
+                  updateThreadMessage(selectedPartnerRef.current.partner_id, mid, { is_read: true });
+                });
+              }
+            }
+
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
               const currentUid = String(currentUser?.user_id || currentUser?.id || '');
@@ -819,6 +837,8 @@ export default function StudentDashboard() {
                     if (prev.some(m => m.id === newM.id)) return prev;
                     return [...prev, newM];
                   });
+                  // Instantly mark as read since current user is actively looking at this chat
+                  API.post(`/messages/${newM.sender_id}/read`).catch(() => {});
                   if (isUserNearBottom(chatContainerRef.current)) {
                     smartScrollToBottom(chatContainerRef.current, true);
                   }
@@ -1347,11 +1367,19 @@ export default function StudentDashboard() {
           // Keep optimistic messages not yet confirmed by the server
           const freshIds = new Set(fresh.map(m => String(m.id)));
           const pendingOptimistic = prev.filter(m => m.is_optimistic && !freshIds.has(String(m.id)));
-          // Skip re-render entirely if nothing changed (IDs, content, and flags)
+          // Skip re-render entirely if nothing changed (IDs, content, is_read, reactions, and flags)
           if (
             pendingOptimistic.length === 0 &&
             prev.length === fresh.length &&
-            prev.every((m, idx) => m.id === fresh[idx]?.id && m.content === fresh[idx]?.content && !m.is_optimistic && !m.is_preview)
+            prev.every((m, idx) => (
+              m.id === fresh[idx]?.id &&
+              m.content === fresh[idx]?.content &&
+              m.is_read === fresh[idx]?.is_read &&
+              m.reactions === fresh[idx]?.reactions &&
+              m.is_edited === fresh[idx]?.is_edited &&
+              !m.is_optimistic &&
+              !m.is_preview
+            ))
           ) {
             return prev;
           }
@@ -1361,6 +1389,7 @@ export default function StudentDashboard() {
           smartScrollToBottom(chatContainerRef.current, false);
         }
       });
+      API.post(`/messages/${partnerId}/read`).catch(() => {});
       setConversations(prev =>
         prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
       );
@@ -1495,30 +1524,42 @@ export default function StudentDashboard() {
     setActivePopoverMsgId(null);
   };
 
-  // Quick Emoji Reaction
-  const handleReactToMessage = (msg, emoji) => {
+  // Quick Emoji Reaction (WhatsApp-style: attaches reaction directly to message, does NOT send as text)
+  const handleReactToMessage = async (msg, emoji) => {
     if (!msg || !emoji) return;
-    setActivePopoverMsgId(null);
-    // Send quick reaction as a reply
-    const currentUserIdStr = String(currentUser?.user_id || currentUser?.id || '');
-    const isMine = Boolean(currentUserIdStr && msg.sender_id && String(msg.sender_id) === currentUserIdStr);
-    const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
-    const preview = msg.content?.length > 40 ? msg.content.slice(0, 40) + '...' : (msg.content || 'Photo/Media');
-    setReplyingToMessage({
-      id: msg.id,
-      sender_name: senderName,
-      preview: preview,
-      message_type: msg.message_type
-    });
-    setNewMsgText(emoji);
-    setTimeout(() => {
-      handleSendMessage(null, emoji, {
-        id: msg.id,
-        sender_name: senderName,
-        preview: preview,
-        message_type: msg.message_type
-      });
-    }, 50);
+    const msgId = msg.id;
+    const uid = String(currentUser?.user_id || currentUser?.id || '');
+
+    let currentReactions = {};
+    try {
+      currentReactions = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : (msg.reactions || {});
+      if (typeof currentReactions !== 'object' || currentReactions === null) currentReactions = {};
+    } catch {
+      currentReactions = {};
+    }
+
+    if (currentReactions[uid] === emoji) {
+      delete currentReactions[uid];
+    } else {
+      currentReactions[uid] = emoji;
+    }
+    const newReactionsStr = Object.keys(currentReactions).length ? JSON.stringify(currentReactions) : null;
+
+    // 0ms instant optimistic reaction update
+    setChatMessages(prev => prev.map(m => (String(m.id) === String(msgId) ? { ...m, reactions: newReactionsStr } : m)));
+    if (selectedPartner?.partner_id) {
+      updateThreadMessage(selectedPartner.partner_id, msgId, { reactions: newReactionsStr });
+    }
+    try {
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch {}
+
+    if (String(msgId).startsWith('temp_')) return;
+    try {
+      await API.post(`/messages/${msgId}/react`, { emoji });
+    } catch (err) {
+      console.error('Failed to react to message:', err);
+    }
   };
 
   const handleStartEditMessage = (msg) => {
@@ -5192,22 +5233,31 @@ export default function StudentDashboard() {
                                   >
                                     <div
                                       onClick={() => setActionModalMsg(msg)}
-                                      className={`relative max-w-[84%] sm:max-w-[72%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text group/bubble`}
-                                    >
-                                      {/* Visible 3-Dots Action Menu Trigger (Always accessible on Mobile & Desktop) */}
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                                      onTouchStart={() => {
+                                        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                                        longPressTimerRef.current = setTimeout(() => {
                                           setActionModalMsg(msg);
-                                        }}
-                                        className={`absolute -top-2.5 ${
-                                          isMine ? '-left-8' : '-right-8'
-                                        } w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-20 hover:scale-110 active:scale-90`}
-                                        title="Message options"
-                                      >
-                                        <MoreVertical className="w-3.5 h-3.5" />
-                                      </button>
+                                          try { if (navigator.vibrate) navigator.vibrate(25); } catch {}
+                                        }, 400);
+                                      }}
+                                      onTouchEnd={() => {
+                                        if (longPressTimerRef.current) {
+                                          clearTimeout(longPressTimerRef.current);
+                                          longPressTimerRef.current = null;
+                                        }
+                                      }}
+                                      onTouchCancel={() => {
+                                        if (longPressTimerRef.current) {
+                                          clearTimeout(longPressTimerRef.current);
+                                          longPressTimerRef.current = null;
+                                        }
+                                      }}
+                                      onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        setActionModalMsg(msg);
+                                      }}
+                                      className={`relative max-w-[84%] sm:max-w-[72%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer active:scale-[0.99] transition-transform select-none group/bubble`}
+                                    >
 
                                       {/* Desktop Hover Quick-Reply Button */}
                                       <button
@@ -5335,35 +5385,59 @@ export default function StudentDashboard() {
                                           <p className="leading-relaxed whitespace-pre-wrap">{getDisplayContent(msg.content || msg.text)}</p>
                                         )}
 
-                                        {/* Inline Timestamp, Read Receipt Checkmarks & WhatsApp Options Trigger */}
-                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-80 ${
+                                        {/* Inline Timestamp & Read Receipt Checkmarks (WhatsApp Double Blue Ticks) */}
+                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-85 ${
                                           isMine ? 'text-blue-100' : 'text-slate-400'
                                         }`}>
                                           <span>{safeTime(msg.created_at, 'Just now')}</span>
                                           {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
                                           {isMine && (
-                                            <span className="inline-flex items-center">
+                                            <span className="inline-flex items-center ml-0.5" title={msg.is_optimistic ? 'Sending...' : msg.is_read ? 'Read / Viewed' : 'Delivered'}>
                                               {msg.is_optimistic ? (
-                                                <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse" />
+                                                <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse text-white" />
                                               ) : msg.is_read ? (
-                                                <CheckCheck className="w-3 h-3 text-sky-200" />
+                                                <span className="inline-flex items-center text-cyan-300 drop-shadow-[0_0_2px_rgba(103,232,249,0.9)]">
+                                                  <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
+                                                </span>
                                               ) : (
-                                                <Check className="w-2.5 h-2.5 opacity-80" />
+                                                <CheckCheck className="w-3 h-3 text-white/50" />
                                               )}
                                             </span>
                                           )}
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setActionModalMsg(msg);
-                                            }}
-                                            className="p-0.5 -mr-0.5 hover:bg-black/10 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer text-inherit ml-0.5 opacity-80 hover:opacity-100"
-                                            title="Message options"
-                                          >
-                                            <MoreVertical className="w-3 h-3" />
-                                          </button>
                                         </div>
+
+                                        {/* WhatsApp Reaction Pill Badge */}
+                                        {msg.reactions && (() => {
+                                          let rObj = {};
+                                          try {
+                                            rObj = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : (msg.reactions || {});
+                                            if (typeof rObj !== 'object' || rObj === null) rObj = {};
+                                          } catch {
+                                            if (typeof msg.reactions === 'string' && msg.reactions.length <= 4) rObj = { d: msg.reactions };
+                                          }
+                                          const emojis = Object.values(rObj || {});
+                                          if (!emojis.length) return null;
+                                          const uniqueEmojis = Array.from(new Set(emojis));
+                                          return (
+                                            <div
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setActionModalMsg(msg);
+                                              }}
+                                              className={`absolute -bottom-2.5 ${
+                                                isMine ? 'right-2' : 'left-2'
+                                              } z-10 flex items-center gap-0.5 px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-full text-xs cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
+                                              title={`Reactions: ${emojis.join(' ')}`}
+                                            >
+                                              <span>{uniqueEmojis.slice(0, 3).join('')}</span>
+                                              {emojis.length > 1 && (
+                                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-0.5">
+                                                  {emojis.length}
+                                                </span>
+                                              )}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     </div>
                                   </SwipeableMessageBubble>

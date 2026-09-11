@@ -332,6 +332,7 @@ class Message(Base):
     reply_to_sender = Column(String(100), nullable=True)
     reply_to_text = Column(String(255), nullable=True)
     is_edited = Column(Boolean, default=False)
+    reactions = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     __table_args__ = (
