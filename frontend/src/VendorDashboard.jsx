@@ -303,6 +303,7 @@ export default function VendorDashboard() {
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const [chatSearchQuery, setChatSearchQuery] = useState('');
   const [activePopoverMsgId, setActivePopoverMsgId] = useState(null);
+  const [actionModalMsg, setActionModalMsg] = useState(null);
   const messagesEndRef = useRef(null);
   const aiMessagesEndRef = useRef(null);
   const chatBottomRef = messagesEndRef;
@@ -3967,7 +3968,7 @@ export default function VendorDashboard() {
                                     onReply={() => handleStartReply(msg)}
                                   >
                                     <div
-                                      onClick={() => setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id))}
+                                      onClick={() => setActionModalMsg(msg)}
                                       className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text group/bubble`}
                                     >
                                       {/* Visible 3-Dots Action Menu Trigger (Always accessible on Mobile & Desktop) */}
@@ -3975,112 +3976,15 @@ export default function VendorDashboard() {
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id));
+                                          setActionModalMsg(msg);
                                         }}
                                         className={`absolute -top-2 ${
                                           isMine ? '-left-8' : '-right-8'
                                         } w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-30 hover:scale-110 active:scale-90 opacity-80 hover:opacity-100`}
-                                        title="Message options (Edit, Delete, Reply, Copy)"
+                                        title="Message options"
                                       >
                                         <MoreVertical className="w-3.5 h-3.5" />
                                       </button>
-
-                                      {/* Floating Action Popover Mini-Toolbar */}
-                                      {isPopoverOpen && (
-                                        <div
-                                          onClick={(e) => e.stopPropagation()}
-                                          className={`absolute ${
-                                            idx <= 1 ? 'top-full mt-2' : '-top-14 sm:-top-12'
-                                          } ${
-                                            isMine ? 'right-0' : 'left-0'
-                                          } z-50 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5 chat-popover-toolbar shadow-2xl backdrop-blur-md max-w-[290px] sm:max-w-md animate-in fade-in zoom-in-95 duration-150`}
-                                        >
-                                          {/* Quick Emoji Reactions */}
-                                          <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700 shrink-0">
-                                            {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
-                                              <button
-                                                key={emoji}
-                                                type="button"
-                                                onClick={() => handleReactToMessage(msg, emoji)}
-                                                className="hover:scale-125 active:scale-95 transition-transform text-sm p-0.5 cursor-pointer leading-none"
-                                                title={`React with ${emoji}`}
-                                              >
-                                                {emoji}
-                                              </button>
-                                            ))}
-                                          </div>
-
-                                          {/* Action Buttons: Edit, Delete, Reply, Copy */}
-                                          <div className="flex items-center space-x-1 shrink-0">
-                                            {/* Edit Button (Only for my own non-audio messages) */}
-                                            {isMine && msg.message_type !== 'audio' && (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setActivePopoverMsgId(null);
-                                                  handleStartEditMessage(msg);
-                                                }}
-                                                className="text-amber-300 hover:text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
-                                                title="Edit message"
-                                              >
-                                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                                                <span>Edit</span>
-                                              </button>
-                                            )}
-
-                                            {/* Delete Button (Only for my own messages) */}
-                                            {isMine && (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setActivePopoverMsgId(null);
-                                                  handleDeleteMessage(msg.id);
-                                                }}
-                                                className="text-rose-300 hover:text-rose-200 bg-rose-500/20 hover:bg-rose-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
-                                                title="Delete message"
-                                              >
-                                                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                                                <span>Delete</span>
-                                              </button>
-                                            )}
-
-                                            {/* Quick Reply Button */}
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setActivePopoverMsgId(null);
-                                                handleStartReply(msg);
-                                              }}
-                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-                                              title="Reply"
-                                            >
-                                              <Reply className="w-3.5 h-3.5 text-sky-400" />
-                                              <span>Reply</span>
-                                            </button>
-
-                                            {/* Copy Text Button */}
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCopyMessageText(rawMsgText)}
-                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-                                              title="Copy text"
-                                            >
-                                              <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                                              <span className="hidden sm:inline">Copy</span>
-                                            </button>
-
-                                            {/* Close Button */}
-                                            <button
-                                              type="button"
-                                              onClick={() => setActivePopoverMsgId(null)}
-                                              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                                              title="Close menu"
-                                            >
-                                              <X className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      )}
 
                                       {/* Main Message Bubble */}
                                       <div
@@ -4195,6 +4099,18 @@ export default function VendorDashboard() {
                                               )}
                                             </span>
                                           )}
+                                          {/* Inline 3-Dots Button */}
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActionModalMsg(msg);
+                                            }}
+                                            className="p-0.5 -mr-0.5 hover:bg-black/10 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer text-inherit ml-0.5 opacity-80 hover:opacity-100"
+                                            title="Message options"
+                                          >
+                                            <MoreVertical className="w-3 h-3" />
+                                          </button>
                                         </div>
                                       </div>
                                     </div>
@@ -4451,6 +4367,148 @@ export default function VendorDashboard() {
                             </form>
                           )}
                         </div>
+
+                        {/* WhatsApp-Style Message Options Bottom Sheet / Modal */}
+                        {actionModalMsg && (
+                          <div
+                            className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+                            onClick={() => setActionModalMsg(null)}
+                          >
+                            <div
+                              className="w-full sm:max-w-xs bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in slide-in-from-bottom-5 sm:zoom-in-95 duration-200"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* WhatsApp Quick Reactions Bar */}
+                              <div className="flex items-center justify-around py-3 px-3 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800">
+                                {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => {
+                                      const m = actionModalMsg;
+                                      setActionModalMsg(null);
+                                      handleReactToMessage(m, emoji);
+                                    }}
+                                    className="text-2xl hover:scale-130 active:scale-95 transition-transform p-1 cursor-pointer leading-none"
+                                    title={`React with ${emoji}`}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Message Quote Preview Snippet */}
+                              <div className="px-4 py-2.5 bg-slate-100/60 dark:bg-slate-800/30 text-xs text-slate-500 dark:text-slate-400 truncate border-b border-slate-100 dark:border-slate-800 flex items-center space-x-2">
+                                <MessageSquare className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                                <span className="truncate italic">
+                                  "{typeof actionModalMsg.content === 'string' ? actionModalMsg.content.slice(0, 75) : (actionModalMsg.text || 'Attachment')}"
+                                </span>
+                              </div>
+
+                              {/* WhatsApp Options Menu */}
+                              <div className="p-2 space-y-1">
+                                {/* Reply */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const m = actionModalMsg;
+                                    setActionModalMsg(null);
+                                    handleStartReply(m);
+                                  }}
+                                  className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                >
+                                  <div className="w-8 h-8 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-600 flex items-center justify-center shrink-0">
+                                    <Reply className="w-4 h-4" />
+                                  </div>
+                                  <span>Reply</span>
+                                </button>
+
+                                {/* Copy Text */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const m = actionModalMsg;
+                                    setActionModalMsg(null);
+                                    handleCopyMessageText(m);
+                                  }}
+                                  className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                >
+                                  <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0">
+                                    <Copy className="w-4 h-4" />
+                                  </div>
+                                  <span>Copy Text</span>
+                                </button>
+
+                                {/* Edit Message (Only for own messages, non-audio) */}
+                                {(() => {
+                                  const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                                  const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
+                                    String(actionModalMsg.sender_id) === currentUserIdStr ||
+                                    (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
+                                  ));
+                                  if (isMine && actionModalMsg.message_type !== 'audio') {
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const m = actionModalMsg;
+                                          setActionModalMsg(null);
+                                          handleStartEditMessage(m);
+                                        }}
+                                        className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                      >
+                                        <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center shrink-0">
+                                          <Edit3 className="w-4 h-4" />
+                                        </div>
+                                        <span>Edit Message</span>
+                                      </button>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+
+                                {/* Delete Message (Only for own messages) */}
+                                {(() => {
+                                  const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                                  const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
+                                    String(actionModalMsg.sender_id) === currentUserIdStr ||
+                                    (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
+                                  ));
+                                  if (isMine) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const id = actionModalMsg.id;
+                                          setActionModalMsg(null);
+                                          handleDeleteMessage(id);
+                                        }}
+                                        className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                      >
+                                        <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 flex items-center justify-center shrink-0">
+                                          <Trash2 className="w-4 h-4" />
+                                        </div>
+                                        <span>Delete Message</span>
+                                      </button>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                              </div>
+
+                              {/* Cancel button */}
+                              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800">
+                                <button
+                                  type="button"
+                                  onClick={() => setActionModalMsg(null)}
+                                  className="w-full py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )
                   ) : (
