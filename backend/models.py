@@ -331,6 +331,7 @@ class Message(Base):
     reply_to_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     reply_to_sender = Column(String(100), nullable=True)
     reply_to_text = Column(String(255), nullable=True)
+    is_edited = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     __table_args__ = (

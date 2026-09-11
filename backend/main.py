@@ -33,6 +33,7 @@ try:
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
         "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
         "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
         "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
@@ -3305,7 +3306,7 @@ async def edit_message(
     msg = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    if msg.sender_id != current_user.user_id:
+    if str(msg.sender_id) != str(current_user.user_id):
         raise HTTPException(status_code=403, detail="You can only edit your own messages")
     
     new_content = msg_update.content.strip()
@@ -3313,6 +3314,7 @@ async def edit_message(
         raise HTTPException(status_code=400, detail="Message content cannot be empty")
     
     msg.content = new_content
+    msg.is_edited = True
     db.commit()
     db.refresh(msg)
 
@@ -3321,8 +3323,8 @@ async def edit_message(
             "type": "message_edited",
             "message": {
                 "id": msg.id,
-                "sender_id": msg.sender_id,
-                "recipient_id": msg.recipient_id,
+                "sender_id": str(msg.sender_id),
+                "recipient_id": str(msg.recipient_id),
                 "post_id": msg.post_id,
                 "content": msg.content,
                 "message_type": msg.message_type,
@@ -3331,6 +3333,7 @@ async def edit_message(
                 "reply_to_id": msg.reply_to_id,
                 "reply_to_sender": msg.reply_to_sender,
                 "reply_to_text": msg.reply_to_text,
+                "is_edited": True,
                 "is_read": msg.is_read,
                 "created_at": msg.created_at.isoformat() if msg.created_at else None,
             }
@@ -3351,10 +3354,15 @@ async def delete_message(
     msg = db.query(models.Message).filter(models.Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    if msg.sender_id != current_user.user_id:
+    if str(msg.sender_id) != str(current_user.user_id):
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
     
     recipient_id = msg.recipient_id
+    # Clean up foreign key references from any replies to avoid IntegrityError
+    try:
+        db.query(models.Message).filter(models.Message.reply_to_id == message_id).update({models.Message.reply_to_id: None})
+    except Exception as _fk_err:
+        print(f"[Delete Message] Foreign key update notice: {_fk_err}")
     db.delete(msg)
     db.commit()
 

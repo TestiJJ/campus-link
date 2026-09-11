@@ -739,21 +739,25 @@ export default function VendorDashboard() {
 
             if (data.type === 'message_edited' && data.message) {
               const ed = data.message;
-              setChatMessages(prev => prev.map(m => m.id === ed.id ? { ...m, content: ed.content, is_edited: true } : m));
+              setChatMessages(prev => prev.map(m => String(m.id) === String(ed.id) ? { ...m, content: ed.content, is_edited: true } : m));
               updateThreadMessage(ed.sender_id, ed.id, { content: ed.content, is_edited: true });
               updateThreadMessage(ed.recipient_id, ed.id, { content: ed.content, is_edited: true });
             }
 
             if (data.type === 'message_deleted' && data.message_id) {
               const delId = data.message_id;
-              setChatMessages(prev => prev.filter(m => m.id !== delId));
+              setChatMessages(prev => prev.filter(m => String(m.id) !== String(delId)));
               if (data.sender_id) removeThreadMessage(data.sender_id, delId);
               if (data.recipient_id) removeThreadMessage(data.recipient_id, delId);
             }
 
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
-              const isFromMe = (newM.sender_id === uid);
+              const currentUid = String(uid || user?.user_id || user?.id || vendorStore?.user_id || '');
+              const isFromMe = Boolean(currentUid && (
+                String(newM.sender_id) === currentUid ||
+                (vendorStore?.id && String(newM.sender_id) === String(vendorStore.id))
+              ));
 
               // Immediately append to thread cache
               appendThreadMessage(newM.sender_id, newM);
@@ -1520,7 +1524,11 @@ export default function VendorDashboard() {
   const handleStartReply = (msg) => {
     if (!msg) return;
     setActivePopoverMsgId(null);
-    const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+    const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+    const isMine = Boolean(currentUserIdStr && msg.sender_id && (
+      String(msg.sender_id) === currentUserIdStr ||
+      (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
+    ));
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
     const previewText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 100);
     setReplyingToMessage({
@@ -1530,18 +1538,28 @@ export default function VendorDashboard() {
     });
   };
 
-  const handleCopyMessageText = (text) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
+  const handleCopyMessageText = (msgOrText) => {
+    if (!msgOrText) return;
+    const text = typeof msgOrText === 'string' ? msgOrText : (msgOrText.content || msgOrText.text || '');
+    if (text) {
+      navigator.clipboard.writeText(text);
+      setFeedbackMsg({ type: 'success', text: 'Message copied to clipboard' });
+      try {
+        if (navigator.vibrate) navigator.vibrate(15);
+      } catch {}
+    }
     setActivePopoverMsgId(null);
-    setFeedbackMsg({ type: 'success', text: 'Message copied to clipboard' });
   };
 
   const handleReactToMessage = (msg, emoji) => {
     if (!msg || !emoji) return;
     setActivePopoverMsgId(null);
     const quoteText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 80);
-    const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+    const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+    const isMine = Boolean(currentUserIdStr && msg.sender_id && (
+      String(msg.sender_id) === currentUserIdStr ||
+      (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
+    ));
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
     
     // Dispatch instant reaction message with reference to quoted message
@@ -1553,12 +1571,15 @@ export default function VendorDashboard() {
   };
 
   const handleStartEditMessage = (msg) => {
+    if (!msg) return;
+    setActivePopoverMsgId(null);
     setReplyingToMessage(null);
     setEditingMessage(msg);
-    setNewMsgText(typeof msg.content === 'string' ? msg.content : (msg.text || ''));
+    const textContent = typeof msg.content === 'string' ? msg.content : (msg.text || '');
+    setNewMsgText(textContent);
     setTimeout(() => {
       chatInputRef.current?.focus();
-    }, 50);
+    }, 60);
   };
 
   const handleCancelEditMessage = () => {
@@ -1567,16 +1588,21 @@ export default function VendorDashboard() {
   };
 
   const handleDeleteMessage = async (msgId) => {
+    if (!msgId) return;
+    setActivePopoverMsgId(null);
     const partnerId = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
     // 0ms instant optimistic removal
-    setChatMessages(prev => prev.filter(m => m.id !== msgId));
+    setChatMessages(prev => prev.filter(m => String(m.id) !== String(msgId)));
     if (partnerId) {
       removeThreadMessage(partnerId, msgId);
     }
+    setFeedbackMsg({ type: 'success', text: 'Message deleted' });
+    if (String(msgId).startsWith('temp_')) return;
     try {
       await API.delete(`/messages/${msgId}`);
     } catch (err) {
       console.error('Failed to delete message:', err);
+      setFeedbackMsg({ type: 'error', text: err.response?.data?.detail || 'Failed to delete message.' });
     }
   };
 
@@ -1721,15 +1747,19 @@ export default function VendorDashboard() {
       if (!updatedText) return;
 
       // 0ms Optimistic Update
-      setChatMessages(prev => prev.map(m => (m.id === editId ? { ...m, content: updatedText, is_edited: true } : m)));
+      setChatMessages(prev => prev.map(m => (String(m.id) === String(editId) ? { ...m, content: updatedText, is_edited: true } : m)));
       if (partnerId) {
         updateThreadMessage(partnerId, editId, { content: updatedText, is_edited: true });
       }
+      setFeedbackMsg({ type: 'success', text: 'Message edited successfully!' });
+
+      if (String(editId).startsWith('temp_')) return;
 
       try {
         await API.put(`/messages/${editId}`, { content: updatedText });
       } catch (err) {
         console.error('Failed to edit message:', err);
+        setFeedbackMsg({ type: 'error', text: err.response?.data?.detail || 'Failed to edit message.' });
       }
       return;
     }
@@ -3911,13 +3941,17 @@ export default function VendorDashboard() {
                             </div>
                           ) : chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
-                              const isMine = (msg.sender_id === user?.user_id) || (msg.sender_id === user?.id);
+                              const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                              const isMine = Boolean(currentUserIdStr && msg.sender_id && (
+                                String(msg.sender_id) === currentUserIdStr ||
+                                (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
+                              ));
                               const isStatusReply = msg.message_type === 'status_reply' || (typeof msg.content === 'string' && (msg.content.includes('"type":"status_reply"') || msg.content.startsWith('Replying to') || msg.content.startsWith('Reacted ')));
                               const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
                               const rawMsgText = msg.content || msg.text || '';
-                              const showPopover = activePopoverMsgId === msg.id;
+                              const isPopoverOpen = Boolean(activePopoverMsgId && String(activePopoverMsgId) === String(msg.id));
 
                               return (
                                 <div
@@ -3933,80 +3967,120 @@ export default function VendorDashboard() {
                                     onReply={() => handleStartReply(msg)}
                                   >
                                     <div
-                                      onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
-                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text`}
+                                      onClick={() => setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id))}
+                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text group/bubble`}
                                     >
-                                      {/* Tactile Floating Action Toolbar (Tap/Hover Popover) */}
-                                      <div
-                                        className={`chat-popover-toolbar absolute -top-11 ${
-                                          isMine ? 'right-0' : 'left-0'
-                                        } z-30 flex items-center space-x-1 px-2 py-1 rounded-full border border-slate-200/80 shadow-md transition-all ${
-                                          showPopover
-                                            ? 'opacity-100 pointer-events-auto scale-100'
-                                            : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto scale-95 group-hover:scale-100'
-                                        }`}
-                                        onClick={(e) => e.stopPropagation()}
+                                      {/* Visible 3-Dots Action Menu Trigger (Always accessible on Mobile & Desktop) */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id));
+                                        }}
+                                        className={`absolute -top-2 ${
+                                          isMine ? '-left-8' : '-right-8'
+                                        } w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-30 hover:scale-110 active:scale-90 opacity-80 hover:opacity-100`}
+                                        title="Message options (Edit, Delete, Reply, Copy)"
                                       >
-                                        {/* Quick Emoji Reactions */}
-                                        {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
-                                          <button
-                                            key={emoji}
-                                            type="button"
-                                            onClick={() => handleReactToMessage(msg, emoji)}
-                                            className="text-xs sm:text-sm hover:scale-125 active:scale-95 transition-transform p-0.5 cursor-pointer"
-                                            title={`React with ${emoji}`}
-                                          >
-                                            {emoji}
-                                          </button>
-                                        ))}
-                                        <div className="w-px h-3.5 bg-slate-300 mx-0.5" />
-                                        {/* Quick Reply Button */}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleStartReply(msg)}
-                                          className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                          title="Reply"
+                                        <MoreVertical className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      {/* Floating Action Popover Mini-Toolbar */}
+                                      {isPopoverOpen && (
+                                        <div
+                                          onClick={(e) => e.stopPropagation()}
+                                          className={`absolute ${
+                                            idx <= 1 ? 'top-full mt-2' : '-top-14 sm:-top-12'
+                                          } ${
+                                            isMine ? 'right-0' : 'left-0'
+                                          } z-50 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5 chat-popover-toolbar shadow-2xl backdrop-blur-md max-w-[290px] sm:max-w-md animate-in fade-in zoom-in-95 duration-150`}
                                         >
-                                          <Reply className="w-3.5 h-3.5" />
-                                        </button>
-                                        {/* Copy Text Button */}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCopyMessageText(rawMsgText)}
-                                          className="p-1 rounded-full text-slate-600 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                          title="Copy text"
-                                        >
-                                          <Copy className="w-3.5 h-3.5" />
-                                        </button>
-                                        {/* Edit Button (My text/reply messages only) */}
-                                        {isMine && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'reply') && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setActivePopoverMsgId(null);
-                                              handleStartEditMessage(msg);
-                                            }}
-                                            className="p-1 rounded-full text-slate-600 hover:text-amber-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                            title="Edit message"
-                                          >
-                                            <Edit3 className="w-3.5 h-3.5 text-amber-500" />
-                                          </button>
-                                        )}
-                                        {/* Delete Button (My messages only) */}
-                                        {isMine && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setActivePopoverMsgId(null);
-                                              handleDeleteMessage(msg.id);
-                                            }}
-                                            className="p-1 rounded-full text-slate-600 hover:text-rose-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                                            title="Delete message"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                          </button>
-                                        )}
-                                      </div>
+                                          {/* Quick Emoji Reactions */}
+                                          <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700 shrink-0">
+                                            {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                              <button
+                                                key={emoji}
+                                                type="button"
+                                                onClick={() => handleReactToMessage(msg, emoji)}
+                                                className="hover:scale-125 active:scale-95 transition-transform text-sm p-0.5 cursor-pointer leading-none"
+                                                title={`React with ${emoji}`}
+                                              >
+                                                {emoji}
+                                              </button>
+                                            ))}
+                                          </div>
+
+                                          {/* Action Buttons: Edit, Delete, Reply, Copy */}
+                                          <div className="flex items-center space-x-1 shrink-0">
+                                            {/* Edit Button (Only for my own non-audio messages) */}
+                                            {isMine && msg.message_type !== 'audio' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setActivePopoverMsgId(null);
+                                                  handleStartEditMessage(msg);
+                                                }}
+                                                className="text-amber-300 hover:text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
+                                                title="Edit message"
+                                              >
+                                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Edit</span>
+                                              </button>
+                                            )}
+
+                                            {/* Delete Button (Only for my own messages) */}
+                                            {isMine && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setActivePopoverMsgId(null);
+                                                  handleDeleteMessage(msg.id);
+                                                }}
+                                                className="text-rose-300 hover:text-rose-200 bg-rose-500/20 hover:bg-rose-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
+                                                title="Delete message"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                                <span>Delete</span>
+                                              </button>
+                                            )}
+
+                                            {/* Quick Reply Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setActivePopoverMsgId(null);
+                                                handleStartReply(msg);
+                                              }}
+                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                                              title="Reply"
+                                            >
+                                              <Reply className="w-3.5 h-3.5 text-sky-400" />
+                                              <span>Reply</span>
+                                            </button>
+
+                                            {/* Copy Text Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCopyMessageText(rawMsgText)}
+                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                                              title="Copy text"
+                                            >
+                                              <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                                              <span className="hidden sm:inline">Copy</span>
+                                            </button>
+
+                                            {/* Close Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => setActivePopoverMsgId(null)}
+                                              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                              title="Close menu"
+                                            >
+                                              <X className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
 
                                       {/* Main Message Bubble */}
                                       <div
@@ -4332,7 +4406,7 @@ export default function VendorDashboard() {
                               <textarea
                                 ref={chatInputRef}
                                 rows={1}
-                                placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
+                                placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                 value={newMsgText}
                                 onChange={(e) => {
                                   setNewMsgText(e.target.value);
@@ -4340,9 +4414,9 @@ export default function VendorDashboard() {
                                   e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                                 }}
                                 onKeyDown={(e) => {
-                                  const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
+                                  const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
                                   if (e.key === 'Enter') {
-                                    if (isMobileDevice) return;
+                                    if (isTouch) return;
                                     if (e.shiftKey || e.altKey) return;
                                     e.preventDefault();
                                     if (newMsgText.trim() || pendingMediaFiles.length > 0) {
@@ -4350,22 +4424,29 @@ export default function VendorDashboard() {
                                     }
                                   }
                                 }}
-                                className="flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
+                                className={`flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none resize-none leading-relaxed transition-colors ${
+                                  editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500 focus:bg-white'
+                                }`}
                               />
-                              <button
-                                type="button"
-                                onClick={handleStartRecordingAudio}
-                                className="w-11 h-11 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
-                                title="Record Voice Note"
-                              >
-                                <Mic className="w-5 h-5" />
-                              </button>
+                              {!editingMessage && (
+                                <button
+                                  type="button"
+                                  onClick={handleStartRecordingAudio}
+                                  className="w-11 h-11 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                                  title="Record Voice Note"
+                                >
+                                  <Mic className="w-5 h-5" />
+                                </button>
+                              )}
                               <button
                                 type="submit"
                                 disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
-                                className="w-11 h-11 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5"
+                                className={`w-11 h-11 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5 active:scale-95 ${
+                                  editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                                title={editingMessage ? 'Save edited message' : 'Send message'}
                               >
-                                <Send className="w-5 h-5" />
+                                {editingMessage ? <Check className="w-5 h-5" /> : <Send className="w-5 h-5" />}
                               </button>
                             </form>
                           )}

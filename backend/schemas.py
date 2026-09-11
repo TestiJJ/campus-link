@@ -351,6 +351,7 @@ class MessageOut(BaseModel):
     reply_to_id: Optional[int] = None
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
+    is_edited: Optional[bool] = False
     is_read: bool
     created_at: Optional[datetime] = None
 

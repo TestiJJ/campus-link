@@ -788,21 +788,22 @@ export default function StudentDashboard() {
 
             if (data.type === 'message_edited' && data.message) {
               const ed = data.message;
-              setChatMessages(prev => prev.map(m => m.id === ed.id ? { ...m, content: ed.content, is_edited: true } : m));
+              setChatMessages(prev => prev.map(m => String(m.id) === String(ed.id) ? { ...m, content: ed.content, is_edited: true } : m));
               updateThreadMessage(ed.sender_id, ed.id, { content: ed.content, is_edited: true });
               updateThreadMessage(ed.recipient_id, ed.id, { content: ed.content, is_edited: true });
             }
 
             if (data.type === 'message_deleted' && data.message_id) {
               const delId = data.message_id;
-              setChatMessages(prev => prev.filter(m => m.id !== delId));
+              setChatMessages(prev => prev.filter(m => String(m.id) !== String(delId)));
               if (data.sender_id) removeThreadMessage(data.sender_id, delId);
               if (data.recipient_id) removeThreadMessage(data.recipient_id, delId);
             }
 
             if (data.type === 'new_message' && data.message) {
               const newM = data.message;
-              const isFromMe = newM.sender_id === currentUser.user_id;
+              const currentUid = String(currentUser?.user_id || currentUser?.id || '');
+              const isFromMe = Boolean(currentUid && String(newM.sender_id) === currentUid);
 
               appendThreadMessage(newM.sender_id, newM);
               appendThreadMessage(newM.recipient_id, newM);
@@ -1437,7 +1438,8 @@ export default function StudentDashboard() {
   // Trigger Swipe-to-Reply or Click-to-Reply
   const handleStartReply = (msg) => {
     if (!msg) return;
-    const isMine = msg.sender_id === currentUser.user_id;
+    const currentUserIdStr = String(currentUser?.user_id || currentUser?.id || '');
+    const isMine = Boolean(currentUserIdStr && msg.sender_id && String(msg.sender_id) === currentUserIdStr);
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
     let preview = '';
     if (msg.message_type === 'audio') preview = '🎤 Voice Note';
@@ -1497,7 +1499,8 @@ export default function StudentDashboard() {
     if (!msg || !emoji) return;
     setActivePopoverMsgId(null);
     // Send quick reaction as a reply
-    const isMine = msg.sender_id === currentUser.user_id;
+    const currentUserIdStr = String(currentUser?.user_id || currentUser?.id || '');
+    const isMine = Boolean(currentUserIdStr && msg.sender_id && String(msg.sender_id) === currentUserIdStr);
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
     const preview = msg.content?.length > 40 ? msg.content.slice(0, 40) + '...' : (msg.content || 'Photo/Media');
     setReplyingToMessage({
@@ -1518,12 +1521,15 @@ export default function StudentDashboard() {
   };
 
   const handleStartEditMessage = (msg) => {
+    if (!msg) return;
+    setActivePopoverMsgId(null);
     setReplyingToMessage(null);
     setEditingMessage(msg);
-    setNewMsgText(msg.content || '');
+    const textContent = typeof msg.content === 'string' ? msg.content : (msg.text || '');
+    setNewMsgText(textContent);
     setTimeout(() => {
       chatInputRef.current?.focus();
-    }, 50);
+    }, 60);
   };
 
   const handleCancelEditMessage = () => {
@@ -1532,16 +1538,21 @@ export default function StudentDashboard() {
   };
 
   const handleDeleteMessage = async (msgId) => {
+    if (!msgId) return;
+    setActivePopoverMsgId(null);
     const partnerId = selectedPartner?.partner_id;
     // 0ms instant optimistic removal
-    setChatMessages(prev => prev.filter(m => m.id !== msgId));
+    setChatMessages(prev => prev.filter(m => String(m.id) !== String(msgId)));
     if (partnerId) {
       removeThreadMessage(partnerId, msgId);
     }
+    setToast({ text: 'Message deleted', type: 'success' });
+    if (String(msgId).startsWith('temp_')) return;
     try {
       await API.delete(`/messages/${msgId}`);
     } catch (err) {
       console.error('Failed to delete message:', err);
+      setToast({ text: err.response?.data?.detail || 'Failed to delete message.', type: 'error' });
     }
   };
 
@@ -1568,15 +1579,19 @@ export default function StudentDashboard() {
       if (!updatedText) return;
 
       // 0ms Optimistic Update in UI
-      setChatMessages(prev => prev.map(m => (m.id === editId ? { ...m, content: updatedText, is_edited: true } : m)));
+      setChatMessages(prev => prev.map(m => (String(m.id) === String(editId) ? { ...m, content: updatedText, is_edited: true } : m)));
       if (partnerId) {
         updateThreadMessage(partnerId, editId, { content: updatedText, is_edited: true });
       }
+      setToast({ text: 'Message edited successfully!', type: 'success' });
+
+      if (String(editId).startsWith('temp_')) return;
 
       try {
         await API.put(`/messages/${editId}`, { content: updatedText });
       } catch (err) {
         console.error('Failed to edit message:', err);
+        setToast({ text: err.response?.data?.detail || 'Failed to edit message.', type: 'error' });
       }
       return;
     }
@@ -5156,10 +5171,11 @@ export default function StudentDashboard() {
                             </div>
                           ) : chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
-                              const isMine = msg.sender_id === currentUser.user_id;
+                              const currentUserIdStr = String(currentUser?.user_id || currentUser?.id || '');
+                              const isMine = Boolean(currentUserIdStr && msg.sender_id && String(msg.sender_id) === currentUserIdStr);
                               const chatReply = parseChatReply(msg);
                               const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
-                              const isPopoverOpen = activePopoverMsgId === msg.id;
+                              const isPopoverOpen = Boolean(activePopoverMsgId && String(activePopoverMsgId) === String(msg.id));
                               return (
                                 <div
                                   key={msg.id || idx}
@@ -5174,19 +5190,36 @@ export default function StudentDashboard() {
                                     isMine={isMine}
                                   >
                                     <div
-                                      onClick={() => setActivePopoverMsgId(prev => (prev === msg.id ? null : msg.id))}
-                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text`}
+                                      onClick={() => setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id))}
+                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer select-text group/bubble`}
                                     >
+                                      {/* Visible 3-Dots Action Menu Trigger (Always accessible on Mobile & Desktop) */}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActivePopoverMsgId(prev => (String(prev) === String(msg.id) ? null : msg.id));
+                                        }}
+                                        className={`absolute -top-2 ${
+                                          isMine ? '-left-8' : '-right-8'
+                                        } w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-all cursor-pointer z-30 hover:scale-110 active:scale-90 opacity-80 hover:opacity-100`}
+                                        title="Message options (Edit, Delete, Reply, Copy)"
+                                      >
+                                        <MoreVertical className="w-3.5 h-3.5" />
+                                      </button>
+
                                       {/* Floating Action Popover Mini-Toolbar */}
                                       {isPopoverOpen && (
                                         <div
                                           onClick={(e) => e.stopPropagation()}
-                                          className={`absolute -top-11 ${
+                                          className={`absolute ${
+                                            idx <= 1 ? 'top-full mt-2' : '-top-14 sm:-top-12'
+                                          } ${
                                             isMine ? 'right-0' : 'left-0'
-                                          } z-30 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl px-2.5 py-1.5 flex items-center space-x-2 chat-popover-toolbar shadow-xl`}
+                                          } z-50 bg-slate-900/95 text-white border border-slate-700/80 rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5 chat-popover-toolbar shadow-2xl backdrop-blur-md max-w-[290px] sm:max-w-md animate-in fade-in zoom-in-95 duration-150`}
                                         >
                                           {/* Reaction Emojis */}
-                                          <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700">
+                                          <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-700 shrink-0">
                                             {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
                                               <button
                                                 key={emoji}
@@ -5198,59 +5231,76 @@ export default function StudentDashboard() {
                                               </button>
                                             ))}
                                           </div>
-                                          {/* Reply Button */}
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setActivePopoverMsgId(null);
-                                              handleStartReply(msg);
-                                            }}
-                                            className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                            title="Reply"
-                                          >
-                                            <Reply className="w-3.5 h-3.5 text-sky-400" />
-                                            <span className="hidden sm:inline">Reply</span>
-                                          </button>
-                                          {/* Copy Button */}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCopyMessageText(msg)}
-                                            className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                            title="Copy Text"
-                                          >
-                                            <Copy className="w-3.5 h-3.5 text-emerald-400" />
-                                            <span className="hidden sm:inline">Copy</span>
-                                          </button>
-                                          {/* Edit Button (Only for my own text/reply messages) */}
-                                          {isMine && (!msg.message_type || msg.message_type === 'text' || msg.message_type === 'reply') && (
+
+                                          {/* Action Buttons: Edit, Delete, Reply, Copy */}
+                                          <div className="flex items-center space-x-1 shrink-0">
+                                            {/* Edit Button (Only for my own non-audio messages) */}
+                                            {isMine && msg.message_type !== 'audio' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setActivePopoverMsgId(null);
+                                                  handleStartEditMessage(msg);
+                                                }}
+                                                className="text-amber-300 hover:text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
+                                                title="Edit Message"
+                                              >
+                                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Edit</span>
+                                              </button>
+                                            )}
+
+                                            {/* Delete Button (Only for my own messages) */}
+                                            {isMine && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setActivePopoverMsgId(null);
+                                                  handleDeleteMessage(msg.id);
+                                                }}
+                                                className="text-rose-300 hover:text-rose-200 bg-rose-500/20 hover:bg-rose-500/30 flex items-center space-x-1 text-[11px] font-bold px-2 py-1 rounded-xl transition-all cursor-pointer active:scale-95"
+                                                title="Delete Message"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                                                <span>Delete</span>
+                                              </button>
+                                            )}
+
+                                            {/* Reply Button */}
                                             <button
                                               type="button"
                                               onClick={() => {
                                                 setActivePopoverMsgId(null);
-                                                handleStartEditMessage(msg);
+                                                handleStartReply(msg);
                                               }}
-                                              className="text-slate-300 hover:text-amber-400 flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                              title="Edit Message"
+                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                                              title="Reply"
                                             >
-                                              <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                                              <span className="hidden sm:inline">Edit</span>
+                                              <Reply className="w-3.5 h-3.5 text-sky-400" />
+                                              <span>Reply</span>
                                             </button>
-                                          )}
-                                          {/* Delete Button (Only for my own messages) */}
-                                          {isMine && (
+
+                                            {/* Copy Button */}
                                             <button
                                               type="button"
-                                              onClick={() => {
-                                                setActivePopoverMsgId(null);
-                                                handleDeleteMessage(msg.id);
-                                              }}
-                                              className="text-slate-300 hover:text-rose-400 flex items-center space-x-1 text-[11px] font-semibold px-1 py-0.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                              title="Delete Message"
+                                              onClick={() => handleCopyMessageText(msg)}
+                                              className="text-slate-300 hover:text-white flex items-center space-x-1 text-[11px] font-semibold px-1.5 py-1 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                                              title="Copy Text"
                                             >
-                                              <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                                              <span className="hidden sm:inline">Delete</span>
+                                              <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                                              <span className="hidden sm:inline">Copy</span>
                                             </button>
-                                          )}
+
+                                            {/* Close Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => setActivePopoverMsgId(null)}
+                                              className="p-1 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                              title="Close menu"
+                                            >
+                                              <X className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
                                         </div>
                                       )}
 
@@ -5261,8 +5311,8 @@ export default function StudentDashboard() {
                                           e.stopPropagation();
                                           handleStartReply(msg);
                                         }}
-                                        className={`hidden group-hover:flex absolute -top-2 ${
-                                          isMine ? '-left-6' : '-right-6'
+                                        className={`hidden group-hover/bubble:flex absolute -top-2 ${
+                                          isMine ? '-left-13' : '-right-13'
                                         } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
                                         title="Reply to this message"
                                       >
@@ -5601,7 +5651,7 @@ export default function StudentDashboard() {
                                   <textarea
                                     ref={chatInputRef}
                                     rows={1}
-                                    placeholder={replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
+                                    placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                     value={newMsgText}
                                     onChange={(e) => {
                                       setNewMsgText(e.target.value);
@@ -5609,9 +5659,9 @@ export default function StudentDashboard() {
                                       e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                                     }}
                                     onKeyDown={(e) => {
-                                      const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
                                       if (e.key === 'Enter') {
-                                        if (isMobileDevice) {
+                                        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+                                        if (isTouch) {
                                           return; // Allow mobile on-screen return key to insert newlines
                                         }
                                         if (e.shiftKey || e.altKey) {
@@ -5628,25 +5678,32 @@ export default function StudentDashboard() {
                                         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
                                       }, 200);
                                     }}
-                                    className="flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 resize-none leading-relaxed transition-colors"
+                                    className={`flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed transition-colors ${
+                                      editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500'
+                                    }`}
                                   />
 
                                   {/* Voice Note Button */}
-                                  <button
-                                    type="button"
-                                    onClick={handleStartRecordingAudio}
-                                    title="Record Voice Note"
-                                    className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
-                                  >
-                                    <Mic className="w-4 h-4" />
-                                  </button>
+                                  {!editingMessage && (
+                                    <button
+                                      type="button"
+                                      onClick={handleStartRecordingAudio}
+                                      title="Record Voice Note"
+                                      className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
+                                    >
+                                      <Mic className="w-4 h-4" />
+                                    </button>
+                                  )}
 
                                   <button
                                     type="submit"
                                     disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
-                                    className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95"
+                                    className={`p-2.5 min-tap-target-sm text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95 ${
+                                      editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
+                                    }`}
+                                    title={editingMessage ? 'Save edited message' : 'Send message'}
                                   >
-                                    <Send className="w-4 h-4" />
+                                    {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                                   </button>
                                 </form>
                               )}
