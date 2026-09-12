@@ -1483,7 +1483,10 @@ export default function StudentDashboard() {
 
     const normalizedPartner = {
       ...c,
-      partner_id: partnerId
+      partner_id: partnerId,
+      partner_name: c.partner_name || c.full_name || c.name || c.business_name || 'Campus Peer',
+      partner_role: c.partner_role || c.role || 'Student',
+      partner_avatar: c.partner_avatar || c.avatar_url || c.profile_picture_url || null
     };
 
     const cached = getCachedThreadMessages(partnerId);
@@ -1491,11 +1494,13 @@ export default function StudentDashboard() {
     setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
     setSelectedPartner(normalizedPartner);
+    setActiveTab('messages');
+    setMessageSubtab('chats');
 
     // 1. Instantly mark messages as read without waiting for network revalidation
     API.post(`/messages/${partnerId}/read`).catch(() => {});
     setConversations(prev =>
-      prev.map(conv => (String(conv.partner_id || conv.user_id) === String(partnerId) ? { ...conv, unread_count: 0 } : conv))
+      prev.map(conv => (String(conv.partner_id || conv.user_id || conv.id) === String(partnerId) ? { ...conv, unread_count: 0 } : conv))
     );
 
     // 2. Multi-tier instant scroll to bottom to guarantee user is taken to the last chat message
@@ -1650,18 +1655,23 @@ export default function StudentDashboard() {
   };
 
   // Send Message (Instant Zero-Latency Optimistic Delivery & Batch Media)
-  const handleSendMessage = async (e, overrideText = null, overrideReply = null) => {
+  const handleSendMessage = async (e, overrideText = null, overrideReply = null, overridePartner = null) => {
     if (e) e.preventDefault();
-    if (selectedPartner?.is_ai) {
+    const targetPartner = overridePartner || selectedPartner;
+    if (targetPartner?.is_ai) {
       return handleSendAiMessage(overrideText);
     }
     const textToSend = typeof overrideText === 'string' ? overrideText : newMsgText;
     const hasMedia = pendingMediaFiles.length > 0;
 
     if (!textToSend.trim() && !hasMedia) return;
-    if (!selectedPartner?.partner_id) return;
 
-    const partnerId = selectedPartner.partner_id;
+    const partnerId = String(targetPartner?.partner_id || targetPartner?.user_id || targetPartner?.id || '');
+    if (!partnerId) {
+      console.warn('handleSendMessage: Missing recipient partnerId', targetPartner);
+      setToast({ text: 'Please select a recipient to send a message.', type: 'error' });
+      return;
+    }
 
     // Handle Edit Mode
     if (editingMessage) {
@@ -1770,7 +1780,7 @@ export default function StudentDashboard() {
 
     // Update or create conversation row in sidebar immediately (no waiting for sync)
     setConversations(prev => {
-      const idx = prev.findIndex(c => String(c.partner_id) === String(partnerId));
+      const idx = prev.findIndex(c => String(c.partner_id || c.user_id || c.id) === String(partnerId));
       let next;
       if (idx !== -1) {
         // Existing conversation — move to top and update preview
@@ -1780,12 +1790,12 @@ export default function StudentDashboard() {
         // New conversation — add immediately so it shows up in Active Chats right away
         next = [{
           partner_id: partnerId,
-          partner_name: selectedPartner?.partner_name || 'Campus Peer',
-          partner_avatar: selectedPartner?.partner_avatar || null,
-          partner_role: selectedPartner?.partner_role || 'Student',
-          partner_phone: selectedPartner?.partner_phone || null,
-          is_friend: selectedPartner?.is_friend || false,
-          is_online: selectedPartner?.is_online || false,
+          partner_name: targetPartner?.partner_name || targetPartner?.full_name || targetPartner?.name || 'Campus Peer',
+          partner_avatar: targetPartner?.partner_avatar || targetPartner?.avatar_url || targetPartner?.profile_picture_url || null,
+          partner_role: targetPartner?.partner_role || targetPartner?.role || 'Student',
+          partner_phone: targetPartner?.partner_phone || targetPartner?.phone_number || null,
+          is_friend: targetPartner?.is_friend || false,
+          is_online: targetPartner?.is_online || false,
           unread_count: 0,
           last_message: messageText,
           last_timestamp: new Date().toISOString()
@@ -2742,17 +2752,21 @@ export default function StudentDashboard() {
 
   // 6. Start Chat from Profile or Student Card (Instant Cache Render)
   const handleStartChatWithStudent = (student) => {
-    const partnerId = student.user_id || student.id;
-    const existing = conversations.find(c => String(c.partner_id) === String(partnerId));
+    const partnerId = String(student.user_id || student.id || student.partner_id || '');
+    if (!partnerId) {
+      setToast({ text: 'Unable to start chat: student ID missing.', type: 'error' });
+      return;
+    }
+    const existing = conversations.find(c => String(c.partner_id || c.user_id || c.id) === partnerId);
     if (existing) {
       handleSelectPartner(existing);
     } else {
       const partner = {
         partner_id: partnerId,
-        partner_name: student.full_name,
-        partner_phone: student.phone_number,
-        partner_avatar: student.profile_picture_url,
-        partner_role: 'Student',
+        partner_name: student.full_name || student.partner_name || student.name || 'Campus Student',
+        partner_phone: student.phone_number || student.partner_phone,
+        partner_avatar: student.profile_picture_url || student.partner_avatar,
+        partner_role: student.role || 'Student',
         department: student.department,
         level: student.level
       };
@@ -2765,16 +2779,17 @@ export default function StudentDashboard() {
 
   // 7. Start Chat with Vendor from Marketplace (Instant Cache Render)
   const handleStartVendorChat = (productOrService) => {
+    const vUserId = productOrService.vendor_user_id || productOrService.user_id;
     const existing = conversations.find(c => 
-      (productOrService.vendor_user_id && String(c.partner_id) === String(productOrService.vendor_user_id)) ||
+      (vUserId && String(c.partner_id || c.user_id || c.id) === String(vUserId)) ||
       (productOrService.vendor_name && c.partner_name === productOrService.vendor_name)
     );
     if (existing) {
       handleSelectPartner(existing);
     } else {
-      const partnerId = productOrService.vendor_user_id || `v_${productOrService.vendor_id || productOrService.vendor_name}`;
+      const partnerId = vUserId || (productOrService.vendor_id ? `v_${productOrService.vendor_id}` : (productOrService.vendor_name ? `v_${productOrService.vendor_name}` : 'vendor'));
       const partner = {
-        partner_id: partnerId,
+        partner_id: String(partnerId),
         partner_name: productOrService.vendor_name || 'Campus Merchant',
         partner_phone: productOrService.vendor_phone,
         partner_role: 'Vendor',
@@ -5373,8 +5388,9 @@ export default function StudentDashboard() {
                             return (
                               <button
                                 key={pid}
+                                type="button"
                                 onClick={() => handleSelectPartner(c)}
-                                className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${
                                   isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
                                 }`}
                               >
@@ -7433,13 +7449,25 @@ export default function StudentDashboard() {
                   <button
                     type="button"
                     disabled={sendingQuickMessage}
-                    onClick={() => {
+                    onClick={async () => {
                       const item = orderModalItem;
-                      const msg = quickMessageText;
+                      const msg = quickMessageText.trim() || "Is this still available?";
                       setOrderModalItem(null);
-                      handleStartVendorChat(item);
-                      setNewMsgText(`Hi! I'm interested in "${item.name}": ${msg}`);
-                      setToast({ text: `Message queued for ${item.vendor_name || 'seller'}!`, type: 'success' });
+                      
+                      const vUserId = item.vendor_user_id || item.user_id;
+                      const partnerId = vUserId || (item.vendor_id ? `v_${item.vendor_id}` : (item.vendor_name ? `v_${item.vendor_name}` : 'vendor'));
+                      const partner = {
+                        partner_id: String(partnerId),
+                        partner_name: item.vendor_name || 'Campus Merchant',
+                        partner_phone: item.vendor_phone,
+                        partner_role: 'Vendor',
+                        location: item.vendor_location || item.location
+                      };
+
+                      handleSelectPartner(partner);
+                      const fullMsg = `Hi! I'm interested in "${item.name}": ${msg}`;
+                      await handleSendMessage(null, fullMsg, null, partner);
+                      setToast({ text: `Message sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
                     }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
                   >

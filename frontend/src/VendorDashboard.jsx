@@ -11,7 +11,8 @@ import {
   Share2, DollarSign, Bell, Sparkles, AlertTriangle, ExternalLink,
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
-  Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard
+  Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
+  User
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -199,20 +200,20 @@ export function getInitialVendorTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (tabParam === 'home') return 'reels';
-    if (tabParam === 'services') return 'inventory';
-    const validTabs = ['reels', 'friends', 'messages', 'inventory', 'orders', 'hub', 'settings', 'verification'];
+    if (tabParam === 'reels' || tabParam === 'feed') return 'home';
+    if (tabParam === 'services' || tabParam === 'catalog') return 'inventory';
+    const validTabs = ['home', 'reels', 'friends', 'messages', 'inventory', 'orders', 'hub', 'settings', 'verification'];
     if (tabParam && validTabs.includes(tabParam)) {
-      return tabParam;
+      return tabParam === 'reels' ? 'home' : (tabParam === 'services' || tabParam === 'catalog') ? 'inventory' : tabParam;
     }
     const saved = localStorage.getItem('campuslink_vendor_tab');
-    if (saved === 'home') return 'reels';
-    if (saved === 'services') return 'inventory';
+    if (saved === 'reels' || saved === 'feed') return 'home';
+    if (saved === 'services' || saved === 'catalog') return 'inventory';
     if (saved && validTabs.includes(saved)) {
-      return saved;
+      return saved === 'reels' ? 'home' : (saved === 'services' || saved === 'catalog') ? 'inventory' : saved;
     }
   } catch {}
-  return 'reels';
+  return 'home';
 }
 
 export default function VendorDashboard() {
@@ -236,6 +237,12 @@ export default function VendorDashboard() {
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogSearchOpen, setCatalogSearchOpen] = useState(false);
   const [friendsTabFilter, setFriendsTabFilter] = useState('all'); // 'all' (requests) | 'friends' | 'find'
+  
+  // Settings & Profile Experience Modals
+  const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
+  const [bankModalOpen, setBankModalOpen] = useState(false);
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   
   // New Vendor Profile Completion Prompt State
   const [showNewVendorModal, setShowNewVendorModal] = useState(() => {
@@ -359,7 +366,7 @@ export default function VendorDashboard() {
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
   const commentInputRef = useRef(null);
 
-  // Settings Subtabs State
+  // Settings & Sound State
   const [settingsSubtab, setSettingsSubtab] = useState('profile'); // 'profile' | 'payouts' | 'security' | 'notifications' | 'about'
   const [soundEnabled, setSoundEnabled] = useState(() => {
     try {
@@ -368,6 +375,33 @@ export default function VendorDashboard() {
       return true;
     }
   });
+
+  // Native Phone Push Notifications State
+  const [pushState, setPushState] = useState(() => getNotificationPermissionState());
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushMessage, setPushMessage] = useState('');
+
+  // Auto-sync push registration to backend on mount if already granted
+  useEffect(() => {
+    if (isPushSupported() && Notification.permission === 'granted') {
+      subscribeUserToPush(API).then(res => {
+        if (res?.success) setPushState('granted');
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleEnablePush = async () => {
+    setPushLoading(true);
+    setPushMessage('');
+    const res = await subscribeUserToPush(API);
+    setPushLoading(false);
+    if (res.success) {
+      setPushState('granted');
+      showToast('🔔 Notifications enabled successfully!', 'info');
+    } else {
+      showToast(res.error || 'Could not enable notifications.', 'error');
+    }
+  };
 
   // Modals State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -476,19 +510,6 @@ export default function VendorDashboard() {
       (s.location || '').toLowerCase().includes(q)
     );
   }, [services, catalogSearchQuery]);
-
-  // Push Notification States
-  const [pushPermission, setPushPermission] = useState('default'); // 'default'|'granted'|'denied'
-  const [pushLoading, setPushLoading] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushTestMsg, setPushTestMsg] = useState('');
-  const [pushBannerDismissed, setPushBannerDismissed] = useState(() => {
-    try {
-      return localStorage.getItem('campuslink_vendor_push_dismissed') === 'true';
-    } catch (_) {
-      return false;
-    }
-  });
 
   // Verification Form State
   const [idFrontFile, setIdFrontFile] = useState(null);
@@ -1383,6 +1404,7 @@ export default function VendorDashboard() {
       setUser(updated);
 
       showToast('Store profile & settings updated successfully!', 'success');
+      setEditProfileModalOpen(false);
       loadStoreData();
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to update settings.', 'error');
@@ -1431,6 +1453,7 @@ export default function VendorDashboard() {
       });
       showToast('Password changed successfully!', 'success');
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      setChangePasswordModalOpen(false);
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to change password.', 'error');
     } finally {
@@ -1454,6 +1477,7 @@ export default function VendorDashboard() {
     setStoreBroadcast(broadcastInput);
     localStorage.setItem('vendor_store_broadcast', broadcastInput);
     setIsEditingBroadcast(false);
+    setBroadcastModalOpen(false);
     setFeedbackMsg({ type: 'success', text: 'Live announcement banner updated!' });
   };
 
@@ -1462,6 +1486,7 @@ export default function VendorDashboard() {
     setBankInfo(bankForm);
     localStorage.setItem('vendor_bank_info', JSON.stringify(bankForm));
     setIsEditingBank(false);
+    setBankModalOpen(false);
     setFeedbackMsg({ type: 'success', text: 'Store bank payment details saved!' });
   };
 
@@ -1527,17 +1552,36 @@ export default function VendorDashboard() {
 
   const handleSelectPartner = (partner) => {
     if (!partner) return;
-    const newPid = partner.partner_id || partner.user_id || partner.id;
+    const newPid = String(partner.partner_id || partner.user_id || partner.id || '');
+    if (!newPid) return;
+
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', 'messages');
+      url.searchParams.set('chat', newPid);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+
+    const normalized = {
+      ...partner,
+      partner_id: newPid,
+      partner_name: partner.partner_name || partner.full_name || partner.name || partner.business_name || 'Customer',
+      role: partner.role || 'student',
+      partner_avatar: partner.partner_avatar || partner.avatar_url || partner.profile_picture_url || null
+    };
+
     const cached = getCachedThreadMessages(newPid);
     setChatMessages(cached);
     setIsLoadingChatMessages(false);
     isSwitchingPartnerRef.current = true;
-    setSelectedPartner(partner);
+    setSelectedPartner(normalized);
+    setActiveTab('messages');
+    setMessageSubtab('chats');
 
     // Instant read receipt
     API.post(`/messages/${newPid}/read`).catch(() => {});
     setConversations(prev =>
-      prev.map(c => (String(c.partner_id || c.user_id) === String(newPid) ? { ...c, unread_count: 0 } : c))
+      prev.map(c => (String(c.partner_id || c.user_id || c.id) === String(newPid) ? { ...c, unread_count: 0 } : c))
     );
 
     // Multi-tier scroll to bottom to ensure user is taken to the last chat message
@@ -1894,16 +1938,21 @@ export default function VendorDashboard() {
     };
   };
 
-  const handleSendChatMessage = async (customContent = null, customReply = null) => {
-    if (selectedPartner?.is_ai) {
+  const handleSendChatMessage = async (customContent = null, customReply = null, overridePartner = null) => {
+    const targetPartner = overridePartner || selectedPartner;
+    if (targetPartner?.is_ai) {
       return handleSendAiMessage(customContent);
     }
 
     const text = customContent || newMsgText;
     const hasMedia = pendingMediaFiles.length > 0;
-    if ((!text.trim() && !hasMedia) || !selectedPartner) return;
+    if ((!text.trim() && !hasMedia) || !targetPartner) return;
 
-    const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    const partnerId = String(targetPartner.partner_id || targetPartner.user_id || targetPartner.id || '');
+    if (!partnerId) {
+      showToast('Please select a chat recipient first.', 'error');
+      return;
+    }
 
     // Handle Edit Mode
     if (editingMessage) {
@@ -2017,12 +2066,21 @@ export default function VendorDashboard() {
 
     // 3. Immediately update the conversation row in sidebar to top
     setConversations(prev => {
-      const idx = prev.findIndex(c => String(c.partner_id || c.user_id) === String(partnerId));
+      const idx = prev.findIndex(c => String(c.partner_id || c.user_id || c.id) === String(partnerId));
       if (idx !== -1) {
         const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
         return [updated, ...prev.filter((_, i) => i !== idx)];
       }
-      return prev;
+      const newConv = {
+        partner_id: partnerId,
+        partner_name: targetPartner?.partner_name || targetPartner?.full_name || 'Customer',
+        role: targetPartner?.role || 'student',
+        partner_avatar: targetPartner?.partner_avatar || targetPartner?.avatar_url || null,
+        unread_count: 0,
+        last_message: messageText,
+        last_timestamp: new Date().toISOString()
+      };
+      return [newConv, ...prev];
     });
 
     // 4. Instant scroll to bottom
@@ -2772,7 +2830,7 @@ export default function VendorDashboard() {
         <div>
           <button
             type="button"
-            onClick={() => setActiveTab('reels')}
+            onClick={() => setActiveTab('home')}
             className="flex items-center space-x-2.5 mb-6 cursor-pointer text-left group"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center font-black text-sm text-white shadow-xs group-hover:scale-105 transition-transform">
@@ -2830,9 +2888,9 @@ export default function VendorDashboard() {
           <nav className="space-y-1 text-xs font-semibold">
             {/* 1. Home & Drops */}
             <button
-              onClick={() => setActiveTab('reels')}
+              onClick={() => setActiveTab('home')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'home' || activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <Home className="w-4 h-4" />
@@ -2947,16 +3005,16 @@ export default function VendorDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
         
         {/* --- BESPOKE CAMPUS HEADER & MODERN CAPSULE NAVIGATION --- */}
         <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
           {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
-          {activeTab === 'reels' && (
+          {(activeTab === 'home' || activeTab === 'reels') && (
             <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setActiveTab('reels')}
+                onClick={() => setActiveTab('home')}
                 className="flex items-center space-x-2 text-left cursor-pointer group"
               >
                 <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-xs tracking-tight shadow-xs group-hover:scale-105 transition-transform">
@@ -3011,7 +3069,7 @@ export default function VendorDashboard() {
           <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
               {[
-                { id: 'reels', icon: Home, label: 'Home' },
+                { id: 'home', icon: Home, label: 'Home' },
                 { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
                 { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
                 { id: 'inventory', icon: Store, label: 'Store' },
@@ -3019,7 +3077,7 @@ export default function VendorDashboard() {
                 { id: 'settings', icon: Settings, label: 'Settings' }
               ].map((tab) => {
                 const Icon = tab.icon;
-                const isActive = activeTab === tab.id || (tab.id === 'settings' && activeTab === 'hub') || (tab.id === 'inventory' && activeTab === 'services');
+                const isActive = activeTab === tab.id || (tab.id === 'home' && activeTab === 'reels') || (tab.id === 'settings' && activeTab === 'hub') || (tab.id === 'inventory' && activeTab === 'services');
                 return (
                   <button
                     key={tab.id}
@@ -3113,49 +3171,61 @@ export default function VendorDashboard() {
         {/* ========================================================================= */}
         {/* --- MERGED TAB: PRODUCTS & SERVICES CATALOG --- */}
         {/* ========================================================================= */}
-        {(activeTab === 'inventory' || activeTab === 'services') && (
-          <div className="space-y-4 sm:space-y-6">
-            {/* Catalog Top Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-              <div>
-                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  Store Catalog & Services
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  Manage food packs, sneakers, gadget accessories, and student services on campus.
-                </p>
+        {(activeTab === 'inventory' || activeTab === 'services' || activeTab === 'catalog') && (
+          <div className="space-y-4">
+            {/* Marketplace-Style Header (Matching Student Marketplace) */}
+            <div className="space-y-3 mb-2">
+              <div className="flex items-center justify-between py-1">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('home')}
+                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Back to home"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Store Catalog & Services</h1>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogSearchOpen(prev => !prev)}
+                    className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Search catalog"
+                  >
+                    <Search className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    disabled={!isVerified}
+                    onClick={catalogType === 'products' ? handleOpenAddProduct : () => setShowServiceModal(true)}
+                    title={!isVerified ? 'Complete ID verification first' : ''}
+                    className="px-3.5 sm:px-4 py-1.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold shadow-xs flex items-center justify-center space-x-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden xs:inline">{catalogType === 'products' ? 'Add Product' : 'Add Service'}</span>
+                    <span className="xs:hidden">Add</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-2">
-                <button
-                  disabled={!isVerified}
-                  onClick={catalogType === 'products' ? handleOpenAddProduct : () => setShowServiceModal(true)}
-                  title={!isVerified ? 'Complete ID verification first' : ''}
-                  className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold shadow-md shadow-sky-500/20 flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{catalogType === 'products' ? 'Add Product' : 'Add Service'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Segmented Filter Pills & Search Bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-2 sm:p-2.5 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
-              <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto scrollbar-none">
+              {/* Mode Chips: Products, Services, Search */}
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
                 <button
                   type="button"
                   onClick={() => {
                     setCatalogType('products');
                     setActiveTab('inventory');
                   }}
-                  className={`px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
                     catalogType === 'products'
-                      ? 'bg-sky-500 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                   }`}
                 >
-                  <Package className="w-3.5 h-3.5" />
-                  <span>Products ({products.length})</span>
+                  Products ({products.length})
                 </button>
 
                 <button
@@ -3164,82 +3234,115 @@ export default function VendorDashboard() {
                     setCatalogType('services');
                     setActiveTab('inventory');
                   }}
-                  className={`px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
                     catalogType === 'services'
-                      ? 'bg-sky-500 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                   }`}
                 >
-                  <Wrench className="w-3.5 h-3.5" />
-                  <span>Services ({services.length})</span>
+                  Services ({services.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCatalogSearchOpen(prev => !prev)}
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                    catalogSearchOpen || catalogSearchQuery
+                      ? 'bg-sky-50 text-sky-700 border border-sky-200 shadow-2xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search</span>
                 </button>
               </div>
 
-              {/* Search input */}
-              <div className="relative flex-1 sm:max-w-xs">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder={catalogType === 'products' ? 'Filter products by name or tag...' : 'Filter services by name or location...'}
-                  value={catalogSearchQuery}
-                  onChange={(e) => setCatalogSearchQuery(e.target.value)}
-                  className="w-full pl-8.5 pr-7 py-1.5 sm:py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 rounded-xl sm:rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
-                />
-                {catalogSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setCatalogSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+              {/* Search Bar (Expandable) */}
+              {catalogSearchOpen && (
+                <div className="relative pt-1 animate-in fade-in duration-200">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder={`Search ${catalogType} in your store...`}
+                    value={catalogSearchQuery}
+                    onChange={(e) => setCatalogSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white"
+                    autoFocus
+                  />
+                  {catalogSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setCatalogSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Today's Picks / Status Sub-bar */}
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                <span className="font-extrabold text-sm sm:text-base text-slate-900">
+                  {catalogType === 'products' ? `Products (${displayedProducts.length})` : `Services (${displayedServices.length})`}
+                </span>
+                <span className="text-xs text-sky-600 font-semibold flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-sky-600" />
+                  <span>{vendorStore?.university_abbr || vendorStore?.university_name || 'Campus'} · Live</span>
+                </span>
               </div>
             </div>
 
-            {/* Products Grid */}
+            {/* Products Grid - Mobile 2-Column Responsive Layout Matching Student Marketplace */}
             {catalogType === 'products' && (
               displayedProducts.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {displayedProducts.map((item) => (
-                    <div key={item.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between hover:border-sky-200 hover:shadow-md transition-all">
+                    <div key={item.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
                       <div>
-                        <div className="h-44 w-full rounded-2xl overflow-hidden bg-slate-100 mb-3.5 relative">
-                          <SafeImage src={item.image} alt={item.name} fallbackType="product" className="w-full h-full object-cover" />
-                          <span className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-[10px] font-bold text-sky-700 shadow-xs flex items-center space-x-1">
-                            <MapPin className="w-3 h-3 text-sky-600" />
-                            <span>{item.university_abbr || item.university_name || vendorStore?.university_abbr || 'Campus'}</span>
+                        {/* Aspect Ratio Container for Zero Cumulative Layout Shift */}
+                        <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
+                          <SafeImage src={item.image} alt={item.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <span className="absolute top-2 left-2 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100 max-w-[85%] truncate">
+                            <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-600 shrink-0" />
+                            <span className="truncate">{item.university_abbr || item.university_name || vendorStore?.university_abbr || 'Campus'}</span>
+                          </span>
+                          <span className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-xs text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-xs">
+                            Qty: {item.quantity}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-lg font-black text-sky-700">₦{Number(item.price).toLocaleString()}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Qty: {item.quantity}</span>
+
+                        <div className="p-2.5 sm:p-4">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="text-sm sm:text-base font-black text-sky-700">
+                              ₦{Number(item.price).toLocaleString()}
+                            </span>
+                            <span className="text-[9px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                              In Stock
+                            </span>
+                          </div>
+
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{item.name}</h4>
+                          <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
                         </div>
-                        <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{item.name}</h4>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
                       </div>
 
-                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-emerald-600 flex items-center space-x-1">
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>In Stock</span>
-                        </span>
-                        <div className="flex items-center space-x-1">
-                          <button
-                            onClick={() => handleOpenEditProduct(item)}
-                            className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-colors cursor-pointer"
-                            title="Edit product"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProduct(item.id)}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                            title="Delete product"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                      <div className="p-2.5 sm:p-4 pt-0 flex items-center space-x-1.5 border-t border-slate-100 mt-2">
+                        <button
+                          onClick={() => handleOpenEditProduct(item)}
+                          className="flex-1 py-1.5 sm:py-2 bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-700 font-bold text-[11px] sm:text-xs rounded-xl transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                          title="Edit product"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(item.id)}
+                          className="p-1.5 sm:p-2 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 rounded-xl transition-all cursor-pointer"
+                          title="Delete product"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -3269,35 +3372,43 @@ export default function VendorDashboard() {
               )
             )}
 
-            {/* Services Grid */}
+            {/* Services Grid - Mobile 2-Column Responsive Layout */}
             {catalogType === 'services' && (
               displayedServices.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {displayedServices.map((svc) => (
-                    <div key={svc.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between hover:border-sky-200 hover:shadow-md transition-all">
+                    <div key={svc.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
                       <div>
-                        <div className="h-40 w-full rounded-2xl overflow-hidden bg-slate-100 mb-3.5">
-                          <SafeImage src={svc.image} alt={svc.name} fallbackType="product" className="w-full h-full object-cover" />
+                        {/* Aspect Ratio Container */}
+                        <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
+                          <SafeImage src={svc.image} alt={svc.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <span className="absolute top-2 left-2 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100 max-w-[85%] truncate">
+                            <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-600 shrink-0" />
+                            <span className="truncate">{svc.location || 'On Campus'}</span>
+                          </span>
+                          <span className="absolute top-2 right-2 bg-emerald-600/90 backdrop-blur-xs text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-xs">
+                            Active
+                          </span>
                         </div>
-                        <span className="text-xs text-sky-600 font-bold block mb-1">Starting from ₦{Number(svc.price).toLocaleString()}</span>
-                        <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{svc.name}</h4>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{svc.description}</p>
+
+                        <div className="p-2.5 sm:p-4">
+                          <span className="text-xs sm:text-sm font-black text-sky-700 block mb-1">
+                            From ₦{Number(svc.price).toLocaleString()}
+                          </span>
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{svc.name}</h4>
+                          <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{svc.description}</p>
+                        </div>
                       </div>
-                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400 flex items-center space-x-1">
-                          <MapPin className="w-3 h-3 text-slate-400" />
-                          <span>{svc.location || 'On Campus'}</span>
-                        </span>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Active</span>
-                          <button
-                            onClick={() => handleDeleteService(svc.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Delete Service"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+
+                      <div className="p-2.5 sm:p-4 pt-0 flex items-center justify-between border-t border-slate-100 mt-2">
+                        <span className="text-[10px] text-slate-400 truncate">{svc.location || 'Campus'}</span>
+                        <button
+                          onClick={() => handleDeleteService(svc.id)}
+                          className="p-1.5 sm:p-2 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 rounded-xl transition-all cursor-pointer"
+                          title="Delete Service"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -3309,7 +3420,7 @@ export default function VendorDashboard() {
                     {catalogSearchQuery ? `No services match "${catalogSearchQuery}"` : 'No services listed yet'}
                   </h4>
                   <p className="text-xs text-slate-500 mt-1">
-                    {catalogSearchQuery ? 'Try another keyword or clear the search query.' : 'Offer laundry pickup, phone screen repair, photography or tutoring options.'}
+                    {catalogSearchQuery ? 'Try another keyword or clear the search query.' : 'Offer laundry pickup, phone repair, styling or photography.'}
                   </p>
                   {isVerified && !catalogSearchQuery && (
                     <button
@@ -3671,8 +3782,9 @@ export default function VendorDashboard() {
                           return (
                             <button
                               key={pid}
+                              type="button"
                               onClick={() => handleSelectPartner(c)}
-                              className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                              className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${
                                 isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
                               }`}
                             >
@@ -3686,12 +3798,9 @@ export default function VendorDashboard() {
                                       userIdx: partnerStoryIdx,
                                       itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
                                     });
-                                  } else {
-                                    e.stopPropagation();
-                                    handleOpenProfile(pid);
                                   }
                                 }}
-                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : 'View Profile'}
+                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
                                 className={`relative shrink-0 rounded-2xl transition-all ${
                                   hasStory
                                     ? `p-0.5 cursor-pointer ${
@@ -5116,15 +5225,15 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 5: CAMPUS REELS & PROMO DROPS (MATCHING STUDENT FEED) --- */}
+        {/* --- TAB 5: CAMPUS HOME & PROMO DROPS (MATCHING STUDENT FEED) --- */}
         {/* ========================================================================= */}
-        {activeTab === 'reels' && (
+        {(activeTab === 'home' || activeTab === 'reels') && (
           <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
-                  Campus Reels & Drops
+                  Campus Home & Drops
                 </h1>
                 <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
                   Discover trending student clips, food drops, new stock & share promotional drops.
@@ -5320,7 +5429,7 @@ export default function VendorDashboard() {
                   onClick={() => setShowReelModal(true)}
                   className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
                 >
-                  <span className="truncate">Share a promo drop or store update...</span>
+                  <span className="truncate">Share a promo drop, new stock or food special...</span>
                 </div>
 
                 <button
@@ -5887,7 +5996,7 @@ export default function VendorDashboard() {
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                   <p className="text-xs font-semibold text-slate-800">{storeBroadcast}</p>
                   <button
-                    onClick={() => { setBroadcastInput(storeBroadcast); setIsEditingBroadcast(true); }}
+                    onClick={() => { setBroadcastInput(storeBroadcast); setBroadcastModalOpen(true); }}
                     className="px-3 py-1.5 bg-white border border-slate-200 text-sky-600 font-bold text-xs rounded-xl hover:bg-sky-50 cursor-pointer shrink-0 ml-3"
                   >
                     Edit Banner
@@ -5900,639 +6009,415 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 7: VENDOR PROFILE & SETTINGS (MODERN SOCIAL MEDIA LAYOUT) --- */}
+        {/* --- TAB 7: STORE PROFILE & SETTINGS (MODERN SOCIAL / IOS GROUPED EXPERIENCE) --- */}
         {/* ========================================================================= */}
         {activeTab === 'settings' && (
-          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6 px-1 sm:px-0">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Store Settings & Preferences</h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                Manage your campus store identity, payout bank accounts, notifications, and security.
-              </p>
+          <div className="w-full max-w-2xl mx-auto space-y-3.5 sm:space-y-5 pb-16 overflow-x-hidden min-w-0">
+            {/* Header Title */}
+            <div className="px-1">
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Settings & Profile</h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Manage your store identity, stall location, notifications & security.</p>
             </div>
 
-            {/* Social Media Segmented Subtab Navigation */}
-            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none border-b border-slate-200">
-              {[
-                { id: 'profile', label: 'Store Profile', icon: Store },
-                { id: 'payouts', label: 'Payouts & Banking', icon: CreditCard },
-                { id: 'security', label: 'Account & Security', icon: Lock },
-                { id: 'notifications', label: 'Notifications', icon: Bell },
-                { id: 'about', label: 'About & App', icon: Sliders }
-              ].map(tab => {
-                const Icon = tab.icon;
-                const isActive = settingsSubtab === tab.id;
-                return (
+            {/* 1. HERO STORE PROFILE CARD */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-7 shadow-xs relative overflow-hidden w-full min-w-0">
+              {/* Subtle background gradient glow */}
+              <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl from-amber-400/10 via-sky-500/5 to-transparent rounded-bl-full pointer-events-none" />
+
+              <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left space-y-3.5 sm:space-y-0 sm:space-x-5 w-full min-w-0">
+                {/* Store Logo / Avatar with Camera Overlay */}
+                <div className="relative group shrink-0">
+                  {user?.profile_picture_url || vendorStore?.logo ? (
+                    <SafeImage
+                      src={user?.profile_picture_url || vendorStore?.logo}
+                      alt={vendorStore?.business_name || user?.full_name}
+                      fallbackType="avatar"
+                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl object-cover border-2 border-sky-500 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-tr from-sky-500 via-blue-600 to-indigo-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
+                      {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                    </div>
+                  )}
+
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarSelect}
+                    className="hidden"
+                  />
                   <button
-                    key={tab.id}
                     type="button"
-                    onClick={() => setSettingsSubtab(tab.id)}
-                    className={`px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                    className="absolute -bottom-1 -right-1 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110 active:scale-95"
+                    title="Change Store Logo"
                   >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-sky-400' : 'text-slate-400'}`} />
-                    <span>{tab.label}</span>
+                    <Camera className="w-4 h-4" />
                   </button>
-                );
-              })}
-            </div>
-
-            {/* 1. SUBTAB: STORE PROFILE */}
-            {settingsSubtab === 'profile' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Profile Photo & Store Summary Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-6 border-b border-slate-100">
-                    <div className="relative self-start group">
-                      {user?.profile_picture_url || vendorStore?.logo ? (
-                        <SafeImage
-                          src={user?.profile_picture_url || vendorStore?.logo}
-                          alt={vendorStore?.business_name}
-                          fallbackType="avatar"
-                          className="w-20 h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
-                          {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
-                        </div>
-                      )}
-
-                      <input
-                        ref={avatarInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarSelect}
-                        className="hidden"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        disabled={uploadingAvatar}
-                        className="absolute -bottom-2 -right-2 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
-                        title="Change Logo / Picture"
-                      >
-                        <Camera className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-xl font-bold text-slate-900">{vendorStore?.business_name || user?.full_name}</h3>
-                        {isVerified ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                            <span>Verified Merchant</span>
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 flex items-center space-x-1">
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            <span>Pending Verification</span>
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5 break-words">{user?.email} • {vendorStore?.phone || user?.phone_number || 'No phone set'}</p>
-                      <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic break-words">
-                        "{vendorStore?.business_description || 'Official campus store offering meals, goods or services to students.'}"
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Vendor Badges */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-xs">
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.university_name || 'Campus'}</p>
-                    </div>
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Stall / Spot</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.location || 'SUB Food Court'}</p>
-                    </div>
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Category</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{vendorStore?.category_name || 'General'}</p>
-                    </div>
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Standing</span>
-                      <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{isVerified ? 'Verified Active' : 'Under Review'}</span>
-                      </p>
-                    </div>
-                  </div>
                 </div>
 
-                {/* Edit Profile Form */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex items-center space-x-2">
-                    <Edit3 className="w-5 h-5 text-sky-600" />
-                    <h3 className="text-base font-bold text-slate-900">Edit Store & Personal Information</h3>
-                  </div>
-                  <p className="text-xs text-slate-500">Keep your store name, stall address and WhatsApp contact up-to-date for campus buyers.</p>
-
-                  <form onSubmit={handleUpdateVendorProfile} className="space-y-4 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Your Full Name (Owner)</label>
-                        <input
-                          type="text"
-                          required
-                          value={profileForm.full_name}
-                          onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business / Store Name</label>
-                        <input
-                          type="text"
-                          required
-                          value={profileForm.business_name}
-                          onChange={(e) => setProfileForm({ ...profileForm, business_name: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Phone / WhatsApp Number</label>
-                        <input
-                          type="tel"
-                          required
-                          placeholder="+234 801 234 5678"
-                          value={profileForm.phone_number}
-                          onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Stall / Pickup Spot</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. SUB Food Court Stall 4"
-                          value={profileForm.location}
-                          onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Business Category</label>
-                      <select
-                        value={profileForm.category_id}
-                        onChange={(e) => setProfileForm({ ...profileForm, category_id: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                      >
-                        <option value={1}>Food & Meals (Cafeteria / Restaurant)</option>
-                        <option value={2}>Fashion, Shoes & Wears</option>
-                        <option value={3}>Laptops, Phones & Accessories</option>
-                        <option value={4}>Academic Materials & Books</option>
-                        <option value={5}>Laundry, Styling & Campus Services</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Description / Bio</label>
-                      <textarea
-                        rows={3}
-                        placeholder="Describe what your store specializes in, opening hours, or special hostel delivery terms..."
-                        value={profileForm.business_description}
-                        onChange={(e) => setProfileForm({ ...profileForm, business_description: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 resize-none"
-                      />
-                    </div>
-
-                    <div className="flex justify-end pt-2">
-                      <button
-                        type="submit"
-                        disabled={savingProfile}
-                        className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* 2. SUBTAB: PAYOUTS & BANKING */}
-            {settingsSubtab === 'payouts' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Direct Bank Settlement Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-                        <CreditCard className="w-5 h-5 text-emerald-600" />
-                        <span>Direct Bank Transfer Settlement</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Your bank account details displayed to campus buyers during checkout for instant transfers.
-                      </p>
-                    </div>
-                    {!isEditingBank && (
+                {/* Profile Details */}
+                <div className="w-full flex-1 min-w-0">
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start justify-center sm:justify-start gap-1 sm:gap-2">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full">
+                      {vendorStore?.business_name || user?.business_name || user?.full_name || 'Campus Merchant'}
+                    </h2>
+                    {isVerified ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center space-x-1 shrink-0">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Verified Merchant</span>
+                      </span>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => { setBankForm({ ...bankInfo }); setIsEditingBank(true); }}
-                        className="text-xs font-bold text-sky-600 hover:underline cursor-pointer self-start sm:self-auto"
+                        onClick={() => setActiveTab('verification')}
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center space-x-1 shrink-0 hover:bg-amber-100 cursor-pointer"
                       >
-                        Edit Details
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Get Verified →</span>
                       </button>
                     )}
                   </div>
 
-                  {isEditingBank ? (
-                    <form onSubmit={handleSaveBankInfo} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Bank Name</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. OPay / Palmpay / GTBank"
-                          value={bankForm.bank_name}
-                          onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Number</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="8012345678"
-                          value={bankForm.account_number}
-                          onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Name</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Store Owner Name"
-                          value={bankForm.account_name}
-                          onChange={(e) => setBankForm({ ...bankForm, account_name: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
+                  <p className="text-xs text-slate-500 mt-1 break-words">
+                    {user?.email} {(vendorStore?.phone || user?.phone_number) && `• ${vendorStore?.phone || user?.phone_number}`}
+                  </p>
 
-                      <div className="sm:col-span-3 flex items-center space-x-2 pt-2">
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
-                        >
-                          Save Bank Details
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditingBank(false)}
-                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="p-4 sm:p-5 rounded-2xl sm:rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-700">
-                      <div>
-                        <div className="flex items-center space-x-2 mb-2">
-                          <span className="text-[10px] font-extrabold uppercase tracking-widest text-sky-400 bg-sky-950/60 px-2 py-0.5 rounded border border-sky-800">
-                            {bankInfo.bank_name || 'OPay / Digital Bank'}
-                          </span>
-                          <span className="text-[10px] text-slate-400">Direct Campus Settlement</span>
-                        </div>
-                        <p className="text-xl sm:text-2xl font-mono tracking-wider font-black text-white">
-                          {bankInfo.account_number || '8012345678'}
-                        </p>
-                        <p className="text-xs text-slate-300 font-medium mt-1">
-                          {bankInfo.account_name || vendorStore?.business_name || 'Campus Merchant'}
-                        </p>
-                      </div>
-                      <div className="text-left sm:text-right shrink-0">
-                        <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 px-2.5 py-1 rounded-full border border-emerald-800">
-                          Active for Checkout
-                        </span>
-                      </div>
-                    </div>
+                  {/* Campus Badges */}
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 mt-2.5 max-w-full">
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold inline-flex items-center space-x-1 max-w-full">
+                      <Store className="w-3 h-3 text-slate-500 shrink-0" />
+                      <span className="truncate max-w-[170px]">{vendorStore?.category_name || 'Retail & Services'}</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold inline-flex items-center space-x-1 max-w-full">
+                      <MapPin className="w-3 h-3 text-slate-500 shrink-0" />
+                      <span className="truncate max-w-[150px]">{vendorStore?.location || 'SUB Food Court'}</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-700 text-[11px] font-semibold shrink-0">
+                      {vendorStore?.university_name || 'Main Campus'}
+                    </span>
+                  </div>
+
+                  {(vendorStore?.business_description || user?.bio) && (
+                    <p className="text-xs text-slate-600 mt-2.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic break-words">
+                      "{vendorStore?.business_description || user?.bio}"
+                    </p>
                   )}
-                </div>
 
-                {/* Broadcast Announcement Banner */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-                        <Sparkles className="w-5 h-5 text-amber-500" />
-                        <span>Live Marketplace Store Broadcast Banner</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Displayed at the top of the campus marketplace when students view your catalog or products.
-                      </p>
-                    </div>
-                  </div>
-
-                  {isEditingBroadcast ? (
-                    <form onSubmit={handleSaveBroadcast} className="space-y-3">
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. 50% discount on all sneakers before 6 PM today!"
-                        value={broadcastInput}
-                        onChange={(e) => setBroadcastInput(e.target.value)}
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
-                      />
-                      <div className="flex items-center space-x-2">
-                        <button
-                          type="submit"
-                          className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
-                        >
-                          Save Announcement
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setIsEditingBroadcast(false)}
-                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-slate-800">{storeBroadcast}</p>
-                      <button
-                        type="button"
-                        onClick={() => { setBroadcastInput(storeBroadcast); setIsEditingBroadcast(true); }}
-                        className="px-3 py-1.5 bg-white border border-slate-200 text-sky-600 font-bold text-xs rounded-xl hover:bg-sky-50 cursor-pointer shrink-0 self-start sm:self-auto"
-                      >
-                        Edit Banner
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 3. SUBTAB: ACCOUNT & SECURITY */}
-            {settingsSubtab === 'security' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Account Credentials Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900">Merchant Account Credentials</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Sign-in Email</span>
-                      <p className="font-bold text-slate-900 mt-1 truncate">{user?.email || 'vendor@campuslink.ng'}</p>
-                    </div>
-                    <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Account Role</span>
-                      <p className="font-bold text-sky-700 mt-1">Campus Merchant (Vendor)</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Change Password Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex items-center space-x-2">
-                    <Lock className="w-5 h-5 text-sky-600" />
-                    <h3 className="text-base font-bold text-slate-900">Security & Password</h3>
-                  </div>
-                  <p className="text-xs text-slate-500">Ensure your vendor account is protected with a strong password (minimum 6 characters).</p>
-
-                  <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Enter current password"
-                        value={passwordForm.current_password}
-                        onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Minimum 6 characters"
-                          value={passwordForm.new_password}
-                          onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Repeat new password"
-                          value={passwordForm.confirm_password}
-                          onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-                          className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-2">
-                      <button
-                        type="submit"
-                        disabled={changingPassword}
-                        className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {changingPassword ? 'Updating Password...' : 'Update Password'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
-
-            {/* 4. SUBTAB: NOTIFICATIONS & PREFERENCES */}
-            {settingsSubtab === 'notifications' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Push Notification Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xs space-y-4 sm:space-y-5">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-2xl bg-violet-100 flex items-center justify-center shrink-0">
-                      <Smartphone className="w-5 h-5 text-violet-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">Phone Push Notifications</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">Get instant order, chat & payment alerts on your phone — even when the browser is closed.</p>
-                    </div>
-                  </div>
-
-                  {!isPushSupported() ? (
-                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-xs text-amber-800">
-                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                      <p>Push notifications are not supported on this browser. Try opening CampusLink in Chrome or Edge on your phone.</p>
-                    </div>
-                  ) : pushPermission === 'denied' ? (
-                    <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1">
-                      <p className="font-bold flex items-center space-x-1.5"><AlertCircle className="w-4 h-4" /><span>Notifications blocked by browser</span></p>
-                      <p>To enable: open your browser settings → Site Settings → Notifications → Allow for this site, then reload.</p>
-                    </div>
-                  ) : pushEnabled ? (
-                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                      <div>
-                        <p className="text-xs font-bold text-emerald-800">Push notifications are active on this device</p>
-                        <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for new orders, customer chats, and payments instantly.</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="p-4 rounded-2xl bg-violet-50 border border-violet-200 text-xs text-violet-800 space-y-1.5">
-                        <p className="font-bold">🔔 What you'll get notified about:</p>
-                        <ul className="space-y-1 list-disc list-inside text-violet-700">
-                          <li>New student orders placed at your store</li>
-                          <li>New customer chat messages</li>
-                          <li>Payment confirmations</li>
-                          <li>Campus notices &amp; broadcasts</li>
-                        </ul>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={pushLoading}
-                        onClick={async () => {
-                          setPushLoading(true);
-                          setPushTestMsg('');
-                          try {
-                            const state = getNotificationPermissionState();
-                            if (state === 'denied') { setPushPermission('denied'); return; }
-                            const res = await subscribeUserToPush();
-                            if (res?.success) {
-                              setPushEnabled(true);
-                              setPushPermission('granted');
-                            } else {
-                              setPushTestMsg(res?.error || 'Could not enable notifications.');
-                            }
-                          } catch (e) {
-                            setPushTestMsg(e?.message || 'Could not enable notifications.');
-                          } finally {
-                            setPushLoading(false);
-                          }
-                        }}
-                        className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-md shadow-violet-200"
-                      >
-                        <Bell className="w-4 h-4" />
-                        <span>{pushLoading ? 'Enabling...' : 'Enable Phone Notifications'}</span>
-                      </button>
-                      {pushTestMsg && (
-                        <p className="text-xs text-red-600 font-semibold text-center">{pushTestMsg}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Sound & In-App Alerts Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
-                        <Volume2 className="w-5 h-5 text-sky-600" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">In-App Notification Sounds</h4>
-                        <p className="text-xs text-slate-500">Play a gentle chime when new orders or messages arrive while using the app.</p>
-                      </div>
-                    </div>
+                  {/* Edit Profile & Password Action Buttons */}
+                  <div className="mt-3.5 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-start sm:space-x-2 w-full max-w-xs mx-auto sm:mx-0">
                     <button
                       type="button"
+                      onClick={() => setEditProfileModalOpen(true)}
+                      className="w-full sm:w-auto px-4 py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Edit Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangePasswordModalOpen(true)}
+                      className="w-full sm:w-auto px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span>Password</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Merchant Store Stats Strip */}
+              <div className="grid grid-cols-3 gap-1 mt-5 pt-4 border-t border-slate-100 text-center w-full">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('inventory'); setCatalogType('products'); }}
+                  className="py-2 px-1 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
+                >
+                  <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(products || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Products</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('inventory'); setCatalogType('services'); }}
+                  className="py-2 px-1 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
+                >
+                  <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(services || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Services</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('orders')}
+                  className="py-2 px-1 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
+                >
+                  <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(vendorOrders || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Orders</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. GROUPED SETTINGS: PREFERENCES & SOUNDS */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs w-full min-w-0">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Preferences & Alerts</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {/* Push Notifications Row */}
+                <div className="p-3.5 sm:p-5 flex items-center justify-between gap-3 w-full min-w-0">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-1">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                      <Bell className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">Phone Push Notifications</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug line-clamp-2 sm:line-clamp-1">Instant sound & lock screen alerts for new orders & buyer chats.</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    {pushState === 'granted' ? (
+                      <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1 shrink-0">
+                        <Check className="w-3 h-3" />
+                        <span>Active</span>
+                      </span>
+                    ) : pushState === 'denied' ? (
+                      <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 flex items-center space-x-1 shrink-0">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Blocked</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleEnablePush}
+                        disabled={pushLoading}
+                        className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        {pushLoading ? 'Enabling...' : 'Enable'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* In-App Sounds Toggle */}
+                <div className="p-3.5 sm:p-5 flex items-center justify-between gap-3 w-full min-w-0">
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-1">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                      <Volume2 className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">In-App Audio Chimes</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug line-clamp-2 sm:line-clamp-1">Gentle audio sounds on incoming buyer messages & order alerts.</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={soundEnabled}
                       onClick={() => {
                         const next = !soundEnabled;
                         setSoundEnabled(next);
                         try { localStorage.setItem('cl_sound_enabled', String(next)); } catch (_) {}
-                        showToast(next ? 'Sound alerts enabled' : 'Sound alerts muted', 'info');
+                        showToast(next ? 'In-app audio sounds enabled' : 'In-app audio sounds muted', 'info');
                       }}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                      className={`w-12 h-7 rounded-full transition-colors relative cursor-pointer p-0.5 ${
                         soundEnabled ? 'bg-sky-500' : 'bg-slate-300'
                       }`}
                     >
                       <span
-                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-xs ${
-                          soundEnabled ? 'left-6.5' : 'left-0.5'
+                        className={`block w-6 h-6 bg-white rounded-full transition-transform shadow-xs ${
+                          soundEnabled ? 'translate-x-5' : 'translate-x-0'
                         }`}
                       />
                     </button>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* 5. SUBTAB: ABOUT & APP */}
-            {settingsSubtab === 'about' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Guidelines & Verification link */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900">CampusLink Merchant Program</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    CampusLink connects verified local businesses, campus restaurants, and student entrepreneurs directly with university students across Nigeria.
-                  </p>
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('verification')}
-                      className="px-4 py-2.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs flex items-center space-x-2 cursor-pointer transition-colors"
-                    >
-                      <ShieldCheck className="w-4 h-4 text-sky-600" />
-                      <span>View Merchant Verification Status</span>
-                    </button>
+            {/* 3. GROUPED SETTINGS: STORE OPERATIONS & SETTLEMENT */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs w-full min-w-0">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Store Operations & Account</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {/* Store Profile Row */}
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(true)}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                      <Store className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Store Identity & Contact Details</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        {vendorStore?.business_name || 'Set store name'} • {vendorStore?.phone || user?.phone_number || 'Hotline'}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
 
-                {/* Dedicated App Installation & Update Card */}
+                {/* Stall & Delivery Spot Row */}
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(true)}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                      <MapPin className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Stall Spot & Pickup Desk</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        {vendorStore?.location || 'Tap to set stall location or hostel delivery point'}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
+
+                {/* Bank Settlement Details Row */}
+                <button
+                  type="button"
+                  onClick={() => { setBankForm({ ...bankInfo }); setBankModalOpen(true); }}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Bank Payouts & Settlement</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        {bankInfo.bank_name} • {bankInfo.account_number} ({bankInfo.account_name})
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
+
+                {/* ID & Business Verification Row */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('verification')}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                      isVerified ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
+                    }`}>
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">ID & Business Verification</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        {isVerified ? 'Verified Merchant Certificate Active' : 'Submit ID to unlock verified badge & full perks'}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
+
+                {/* Broadcast Announcement Row */}
+                <button
+                  type="button"
+                  onClick={() => { setBroadcastInput(storeBroadcast); setBroadcastModalOpen(true); }}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Campus Flash Announcement</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                        {storeBroadcast || 'Post flash promo or menu special banner'}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
+
+                {/* Password & Security Row */}
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordModalOpen(true)}
+                  className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
+                >
+                  <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
+                    <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                      <Lock className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Account Security & Password</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">Update your merchant account password.</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0 ml-1" />
+                </button>
+              </div>
+            </div>
+
+            {/* 4. GROUPED SETTINGS: APP & UPDATES */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs w-full min-w-0">
+              <div className="px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">App & Downloads</span>
+              </div>
+              <div className="p-3.5 sm:p-5 space-y-4 w-full min-w-0">
                 <InstallAppButton variant="settings" showInstalled={true} />
 
-                {/* App Information Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-3 shadow-xs">
-                  <h4 className="text-sm font-bold text-slate-900">Application Details</h4>
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
-                    <span className="text-slate-500">Version</span>
-                    <span className="font-mono font-bold text-slate-800">2.4.2 (Campus Release)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
-                    <span className="text-slate-500">Platform</span>
-                    <span className="font-bold text-slate-800">Progressive Web App (PWA)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs py-2">
-                    <span className="text-slate-500">Connected Campus</span>
-                    <span className="font-bold text-sky-700">{vendorStore?.university_name || 'Main Campus'}</span>
-                  </div>
-                </div>
-
-                {/* Logout Card */}
-                <div className="bg-white border border-rose-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900">Sign Out of Merchant Store</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">End your merchant session on this device.</p>
+                    <span className="font-bold text-slate-800">CampusLink Merchant Edition</span>
+                    <span className="text-slate-500 block text-[11px]">v2.4.2 • {vendorStore?.university_name || 'Main Campus'}</span>
                   </div>
                   <button
                     type="button"
-                    onClick={handleLogout}
-                    className="px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                    onClick={() => {
+                      try {
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                          const k = localStorage.key(i);
+                          if (k && k.startsWith('cl_cache_')) keysToRemove.push(k);
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                        showToast('Temporary cache cleared! Reloading...', 'info');
+                        setTimeout(() => window.location.reload(), 600);
+                      } catch (_) {
+                        window.location.reload();
+                      }
+                    }}
+                    className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4" />
-                    <span>Log Out</span>
+                    Clear Cache & Sync
                   </button>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* 5. SIGN OUT BUTTON */}
+            <div className="bg-white rounded-3xl border border-rose-100 p-3.5 sm:p-5 shadow-xs flex items-center justify-between gap-3 w-full min-w-0">
+              <div className="min-w-0 flex-1 pr-2">
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900">Sign Out of Merchant Store</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">End your merchant session on this browser.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs transition-colors cursor-pointer flex items-center space-x-1.5 shrink-0"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log Out</span>
+              </button>
+            </div>
           </div>
         )}
+
 
         {/* ========================================================================= */}
         {/* --- TAB 8: ID & BUSINESS VERIFICATION (FLEXIBLE FOR GRADUATES/RESTAURANTS) --- */}
@@ -6780,6 +6665,359 @@ export default function VendorDashboard() {
 
         </div>
       </main>
+
+      {/* --- MODAL 1: EDIT STORE & MERCHANT PROFILE --- */}
+      <AnimatePresence>
+        {editProfileModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-4 sm:p-7 max-h-[85dvh] overflow-y-auto overscroll-contain space-y-4 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-7"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <Edit3 className="w-5 h-5 text-sky-600 shrink-0" />
+                  <h3 className="text-base font-bold text-slate-900">Edit Store & Merchant Profile</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateVendorProfile} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Merchant Owner Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.full_name}
+                    onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store / Business Brand Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.business_name}
+                    onChange={(e) => setProfileForm({ ...profileForm, business_name: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hotline & WhatsApp</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. +2348012345678"
+                      value={profileForm.phone_number}
+                      onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Category</label>
+                    <select
+                      value={profileForm.category_id}
+                      onChange={(e) => setProfileForm({ ...profileForm, category_id: e.target.value })}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                    >
+                      <option value={1}>Food & Meals (Cafeteria / Restaurant)</option>
+                      <option value={2}>Fashion, Shoes & Wears</option>
+                      <option value={3}>Laptops, Phones & Accessories</option>
+                      <option value={4}>Academic Materials & Books</option>
+                      <option value={5}>Laundry, Styling & Campus Services</option>
+                      <option value={6}>Hostel Essentials & Groceries</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Stall Spot / Campus Delivery Location</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. SUB Food Court Stall 4 / Faculty Block B Desk"
+                    value={profileForm.location}
+                    onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Description & Customer Bio</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Introduce your store offerings, delivery speed, and opening hours..."
+                    value={profileForm.business_description}
+                    onChange={(e) => setProfileForm({ ...profileForm, business_description: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm resize-none"
+                  />
+                </div>
+
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditProfileModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {savingProfile ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL 2: CHANGE MERCHANT PASSWORD --- */}
+      <AnimatePresence>
+        {changePasswordModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-4 sm:p-7 space-y-4 max-h-[85dvh] overflow-y-auto overscroll-contain pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-7"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <Lock className="w-5 h-5 text-sky-600 shrink-0" />
+                  <h3 className="text-base font-bold text-slate-900">Change Account Password</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter current password"
+                    value={passwordForm.current_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Minimum 6 characters"
+                    value={passwordForm.new_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Re-enter new password"
+                    value={passwordForm.confirm_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setChangePasswordModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={changingPassword}
+                    className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {changingPassword ? 'Updating...' : 'Update Password'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL 3: BANK PAYOUT SETTLEMENT --- */}
+      <AnimatePresence>
+        {bankModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-4 sm:p-7 space-y-4 max-h-[85dvh] overflow-y-auto overscroll-contain pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-7"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <DollarSign className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <h3 className="text-base font-bold text-slate-900">Direct Bank Settlement Details</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBankModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                These bank account details will be shown to student customers during checkout so they can transfer payment directly to you.
+              </p>
+
+              <form onSubmit={handleSaveBankInfo} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Bank Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. OPay / PalmPay / Access Bank / GTBank"
+                    value={bankForm.bank_name}
+                    onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Number</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={10}
+                    placeholder="10-digit Account Number"
+                    value={bankForm.account_number}
+                    onChange={(e) => setBankForm({ ...bankForm, account_number: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Exact name matching bank records"
+                    value={bankForm.account_name}
+                    onChange={(e) => setBankForm({ ...bankForm, account_name: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
+                  />
+                </div>
+
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setBankModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs"
+                  >
+                    Save Bank Details
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL 4: CAMPUS FLASH BROADCAST BANNER --- */}
+      <AnimatePresence>
+        {broadcastModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-4 sm:p-7 space-y-4 max-h-[85dvh] overflow-y-auto overscroll-contain pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] sm:pb-7"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-5 h-5 text-amber-500 shrink-0" />
+                  <h3 className="text-base font-bold text-slate-900">Campus Flash Announcement</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBroadcastModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                This message appears in an eye-catching banner across your store page and product listings to announce flash sales or menu drops.
+              </p>
+
+              <form onSubmit={handleSaveBroadcast} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Announcement Message</label>
+                  <textarea
+                    rows={3}
+                    required
+                    placeholder="e.g. 50% discount on all sneakers before 6 PM today! / Fresh hot jollof rice available now!"
+                    value={broadcastInput}
+                    onChange={(e) => setBroadcastInput(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm resize-none"
+                  />
+                </div>
+
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs"
+                  >
+                    Save Banner
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
 
       {/* --- NEW VENDOR WELCOME & STORE COMPLETION PROMPT MODAL --- */}
       <AnimatePresence>
@@ -8071,6 +8309,58 @@ export default function VendorDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+
+      {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+        <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
+          {[
+            { id: 'home', icon: Home, label: 'Home' },
+            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
+            { id: 'inventory', icon: Store, label: 'Store' },
+            { id: 'orders', icon: ShoppingCart, label: 'Orders', badge: pendingOrdersCount },
+            { id: 'settings', icon: Settings, label: 'Settings' }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = tab.id === 'home'
+              ? (activeTab === 'home' || activeTab === 'reels')
+              : tab.id === 'settings'
+              ? (activeTab === 'settings' || activeTab === 'hub' || activeTab === 'verification')
+              : tab.id === 'inventory'
+              ? (activeTab === 'inventory' || activeTab === 'services' || activeTab === 'catalog')
+              : activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  localStorage.setItem('campuslink_vendor_tab', tab.id);
+                }}
+                className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
+                  isActive ? 'text-sky-600 font-bold' : 'text-slate-500 hover:text-slate-900 font-medium'
+                }`}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                  {tab.badge > 0 && (
+                    <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center ring-1 ring-white">
+                      {tab.badge > 15 ? '15+' : tab.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">
+                  {tab.label}
+                </span>
+                {isActive && (
+                  <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
     </div>
   );
