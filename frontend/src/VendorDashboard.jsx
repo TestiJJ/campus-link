@@ -8733,20 +8733,18 @@ export default function VendorDashboard() {
         <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
           {[
             { id: 'home', icon: Home, label: 'Home' },
-            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
-            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'inventory', icon: Store, label: 'Store' },
-            { id: 'orders', icon: ShoppingCart, label: 'Orders', badge: pendingOrdersCount },
-            { id: 'settings', icon: Settings, label: 'Settings' }
+            { id: 'marketplace', icon: ShoppingBag, label: 'Market' },
+            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
+            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+            { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadNotifCount }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = tab.id === 'home'
               ? (activeTab === 'home' || activeTab === 'reels')
-              : tab.id === 'settings'
-                ? (activeTab === 'settings' || activeTab === 'hub' || activeTab === 'verification')
-                : tab.id === 'inventory'
-                  ? (activeTab === 'inventory' || activeTab === 'services' || activeTab === 'catalog')
-                  : activeTab === tab.id;
+              : tab.id === 'inventory'
+                ? (activeTab === 'inventory' || activeTab === 'services' || activeTab === 'catalog')
+                : activeTab === tab.id;
             return (
               <button
                 key={tab.id}
