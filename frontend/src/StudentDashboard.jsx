@@ -464,6 +464,25 @@ export default function StudentDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
 
+  // Determine if any modal is currently open to hide the mobile bottom navigation bar
+  const isAnyModalOpen = Boolean(
+    editProfileModalOpen ||
+    changePasswordModalOpen ||
+    orderModalItem ||
+    reportModalOpen ||
+    createStatusModalOpen ||
+    statusPrivacyModalOpen ||
+    statusViewersModalOpen ||
+    memoryModalOpen ||
+    profileModalOpen ||
+    activeStatusViewer ||
+    showNewUserModal ||
+    showMediaEditor ||
+    videoRecorderOpen ||
+    audioRecorderOpen ||
+    notificationsOpen
+  );
+
   // Native Phone Push Notifications State
   const [pushState, setPushState] = useState(() => getNotificationPermissionState());
   const [pushLoading, setPushLoading] = useState(false);
@@ -1055,54 +1074,16 @@ export default function StudentDashboard() {
   }, [notificationsOpen]);
 
   const loadAllData = async () => {
-    // Only show full skeleton spinner if we don't already have cached items on screen
-    if (products.length === 0 && services.length === 0) {
+    // Stale-While-Revalidate: If we have any cached data, never block the UI with a full spinner
+    const hasInitialCache = products.length > 0 || services.length > 0 || reels.length > 0 || notices.length > 0;
+    if (!hasInitialCache) {
       setLoading(true);
     }
-    try {
-      // Tier 1: Critical UI data needed for immediate first-paint
-      const [meRes, notifRes, prodRes, svcRes, catRes, reelsRes, convRes, notRes] = await Promise.all([
-        API.get('/me').catch(() => ({ data: null })),
-        API.get('/notifications').catch(() => ({ data: [] })),
-        API.get('/products').catch(err => { console.warn('Products fetch error:', err); return { data: [] }; }),
-        API.get('/services').catch(err => { console.warn('Services fetch error:', err); return { data: [] }; }),
-        API.get('/categories').catch(err => { console.warn('Categories fetch error:', err); return { data: [] }; }),
-        API.get('/reels').catch(err => { console.warn('Reels fetch error:', err); return { data: [] }; }),
-        API.get('/conversations').catch(err => { console.warn('Conversations fetch error:', err); return { data: [] }; }),
-        API.get('/campus/notices').catch(err => { console.warn('Notices fetch error:', err); return { data: [] }; })
-      ]);
 
-      const fetchedProds = prodRes.data || [];
-      const fetchedSvcs = svcRes.data || [];
-      const fetchedCats = catRes.data || [];
-      const fetchedReels = reelsRes.data || [];
-      const fetchedConvs = convRes.data || [];
-      const fetchedNotices = notRes.data || [];
-
-      setProducts(fetchedProds);
-      setServices(fetchedSvcs);
-      setCategories(fetchedCats);
-      setReels(fetchedReels);
-      setConversations(fetchedConvs);
-      setNotices(fetchedNotices);
-
-      // Persist to local cache for instant reload
-      setCachedData('products', fetchedProds);
-      setCachedData('services', fetchedSvcs);
-      setCachedData('categories', fetchedCats);
-      setCachedData('reels', fetchedReels);
-      setCachedData('conversations', fetchedConvs);
-      setCachedData('notices', fetchedNotices);
-
-      const notifs = notifRes.data?.notifications || (Array.isArray(notifRes.data) ? notifRes.data : []);
-      const unread = notifRes.data?.unread_count ?? notifs.filter(n => !n.is_read).length;
-      setNotifications(notifs);
-      setUnreadCount(unread);
-      setCachedData('notifications', notifs);
-      setCachedData('unreadCount', unread);
-
-      if (meRes?.data) {
-        const u = meRes.data;
+    // Stream Active Profile & Auth
+    API.get('/me').then(res => {
+      if (res.data) {
+        const u = res.data;
         setCurrentUser(u);
         localStorage.setItem('user', JSON.stringify(u));
         setProfileForm({
@@ -1115,53 +1096,102 @@ export default function StudentDashboard() {
           current_password: ''
         });
       }
+    }).catch(() => {});
 
-      // Instantly prefetch top conversations in the background for 0ms chat loading
-      prefetchRecentConversations(fetchedConvs);
+    // Stream Notifications
+    API.get('/notifications').then(res => {
+      const notifs = res.data?.notifications || (Array.isArray(res.data) ? res.data : []);
+      const unread = res.data?.unread_count ?? notifs.filter(n => !n.is_read).length;
+      setNotifications(notifs);
+      setUnreadCount(unread);
+      setCachedData('notifications', notifs);
+      setCachedData('unreadCount', unread);
+    }).catch(() => {});
 
-      // Immediately unblock visible UI!
+    // Stream Reels (Home Feed)
+    API.get('/reels').then(res => {
+      const fetched = res.data || [];
+      setReels(fetched);
+      setCachedData('reels', fetched);
+    }).catch(() => {});
+
+    // Stream Marketplace Products
+    API.get('/products').then(res => {
+      const fetched = res.data || [];
+      setProducts(fetched);
+      setCachedData('products', fetched);
       setLoading(false);
-
-      // Tier 2: Background secondary data (statuses, community, friends, orders, memories)
-      Promise.all([
-        API.get('/campus/statuses').catch(() => ({ data: [] })),
-        API.get('/community/users').catch(() => ({ data: [] })),
-        API.get('/friends/requests/pending').catch(() => ({ data: [] })),
-        API.get('/friends').catch(() => ({ data: [] })),
-        API.get('/orders/my').catch(() => ({ data: [] })),
-        API.get('/ai/memories').catch(() => ({ data: [] }))
-      ]).then(([statRes, commRes, reqRes, friendsRes, ordersRes, memsRes]) => {
-        const fetchedStatuses = statRes.data || [];
-        const fetchedCommunity = commRes.data || [];
-        const fetchedRequests = reqRes.data || [];
-        const fetchedFriends = friendsRes.data || [];
-        const fetchedStudents = fetchedCommunity;
-        const fetchedOrders = ordersRes.data || [];
-        const fetchedMemories = memsRes.data || [];
-
-        setStatusGroups(fetchedStatuses);
-        setCommunityUsers(fetchedCommunity);
-        setPendingRequests(fetchedRequests);
-        setMyFriends(fetchedFriends);
-        setCampusStudents(fetchedStudents);
-        setMyOrders(fetchedOrders);
-        setAiMemories(fetchedMemories);
-
-        setCachedData('statusGroups', fetchedStatuses);
-        setCachedData('communityUsers', fetchedCommunity);
-        setCachedData('pendingRequests', fetchedRequests);
-        setCachedData('myFriends', fetchedFriends);
-        setCachedData('campusStudents', fetchedStudents);
-        setCachedData('myOrders', fetchedOrders);
-        setCachedData('aiMemories', fetchedMemories);
-      }).catch(err => {
-        console.warn('Background campus data warning:', err);
-      });
-
-    } catch (err) {
-      console.error('Error fetching campus data:', err);
+    }).catch(() => {
       setLoading(false);
-    }
+    });
+
+    // Stream Marketplace Services
+    API.get('/services').then(res => {
+      const fetched = res.data || [];
+      setServices(fetched);
+      setCachedData('services', fetched);
+    }).catch(() => {});
+
+    // Stream Categories
+    API.get('/categories').then(res => {
+      const fetched = res.data || [];
+      setCategories(fetched);
+      setCachedData('categories', fetched);
+    }).catch(() => {});
+
+    // Stream Conversations
+    API.get('/conversations').then(res => {
+      const fetched = res.data || [];
+      setConversations(fetched);
+      setCachedData('conversations', fetched);
+      prefetchRecentConversations(fetched);
+    }).catch(() => {});
+
+    // Stream Campus Notices
+    API.get('/campus/notices').then(res => {
+      const fetched = res.data || [];
+      setNotices(fetched);
+      setCachedData('notices', fetched);
+    }).catch(() => {});
+
+    // Secondary background streams (Statuses, Community, Friends, Orders, Memories)
+    API.get('/campus/statuses').then(res => {
+      const fetched = res.data || [];
+      setStatusGroups(fetched);
+      setCachedData('statusGroups', fetched);
+    }).catch(() => {});
+
+    API.get('/community/users').then(res => {
+      const fetched = res.data || [];
+      setCommunityUsers(fetched);
+      setCampusStudents(fetched);
+      setCachedData('communityUsers', fetched);
+      setCachedData('campusStudents', fetched);
+    }).catch(() => {});
+
+    API.get('/friends/requests/pending').then(res => {
+      const fetched = res.data || [];
+      setPendingRequests(fetched);
+      setCachedData('pendingRequests', fetched);
+    }).catch(() => {});
+
+    API.get('/friends').then(res => {
+      const fetched = res.data || [];
+      setMyFriends(fetched);
+      setCachedData('myFriends', fetched);
+    }).catch(() => {});
+
+    API.get('/orders/my').then(res => {
+      const fetched = res.data || [];
+      setMyOrders(fetched);
+      setCachedData('myOrders', fetched);
+    }).catch(() => {});
+
+    API.get('/ai/memories').then(res => {
+      const fetched = res.data || [];
+      setAiMemories(fetched);
+      setCachedData('aiMemories', fetched);
+    }).catch(() => {});
   };
 
   const fetchNotifications = async () => {
@@ -3999,31 +4029,33 @@ export default function StudentDashboard() {
 
         {/* --- TAB 3: CAMPUS NOTICE BOARD & LOST & FOUND HUB --- */}
         {activeTab === 'campus' && (
-          <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-5 sm:space-y-6">
+            {/* Sleek Top Banner & Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 bg-gradient-to-r from-sky-50/70 via-indigo-50/60 to-purple-50/50 p-4 sm:p-5 rounded-3xl border border-sky-100/80 shadow-2xs">
               <div>
                 <div className="flex items-center space-x-2">
-                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-800 border border-indigo-200">
-                    Campus Utility Hub
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-500 text-white shadow-2xs">
+                    Campus Hub
                   </span>
                   <span className="text-xs text-slate-400">•</span>
-                  <span className="text-xs font-bold text-slate-600 flex items-center space-x-1">
+                  <span className="text-xs font-bold text-slate-700 flex items-center space-x-1">
                     <Building2 className="w-3.5 h-3.5 text-sky-500" />
-                    <span>{universityName}</span>
+                    <span>{universityName || 'Campus'}</span>
                   </span>
                 </div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
                   Campus Notice Board & Lost / Found
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl">
-                  Report misplaced student ID cards, phones, ATM cards, and keys to help fellow students recover their items, or check official SUG & faculty campus announcements.
+                <p className="text-xs text-slate-600 mt-0.5 max-w-xl">
+                  Misplaced student ID card, phone, or keys? Report lost items or claim found property across campus.
                 </p>
               </div>
 
               <div className="flex items-center space-x-2 shrink-0">
                 <button
+                  type="button"
                   onClick={() => setReportModalOpen(true)}
-                  className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 active:scale-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Report Item / Post Notice</span>
@@ -4031,116 +4063,110 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* Campus Isolation Security Banner */}
-            <div className="p-3.5 bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-200 rounded-2xl flex items-start sm:items-center space-x-3 text-xs text-sky-950 shadow-2xs">
-              <div className="w-8 h-8 rounded-xl bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="flex-1">
-                <span className="font-extrabold text-sky-900 block sm:inline">Strict Campus Isolation: </span>
-                <span className="text-slate-700">You are viewing verified notices for <strong>{universityName || 'your university'}</strong> only. Students from other universities cannot access, view, or post to your campus notice board.</span>
-              </div>
+            {/* Interactive Filter Cards (Metrics + Instant Tab Switcher) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+              {[
+                {
+                  id: 'all',
+                  label: 'All Notices',
+                  count: notices.length,
+                  sub: 'Total campus updates',
+                  icon: Bell,
+                  activeClass: 'bg-slate-900 text-white border-slate-900 shadow-md',
+                  inactiveClass: 'bg-white text-slate-700 border-slate-200/90 hover:bg-slate-50'
+                },
+                {
+                  id: 'lost',
+                  label: 'Lost Items',
+                  count: notices.filter(n => n.type === 'lost' && n.status === 'open').length,
+                  sub: 'Looking for owner',
+                  icon: AlertCircle,
+                  activeClass: 'bg-rose-500 text-white border-rose-500 shadow-rose-500/25 shadow-md',
+                  inactiveClass: 'bg-rose-50/60 text-rose-800 border-rose-200/90 hover:bg-rose-100/70'
+                },
+                {
+                  id: 'found',
+                  label: 'Found Items',
+                  count: notices.filter(n => n.type === 'found' && n.status === 'open').length,
+                  sub: 'Claim safe property',
+                  icon: CheckCircle2,
+                  activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-500/25 shadow-md',
+                  inactiveClass: 'bg-emerald-50/60 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/70'
+                },
+                {
+                  id: 'announcement',
+                  label: 'Announcements',
+                  count: notices.filter(n => n.type === 'announcement').length,
+                  sub: 'SUG & Faculty news',
+                  icon: Megaphone,
+                  activeClass: 'bg-sky-600 text-white border-sky-600 shadow-sky-500/25 shadow-md',
+                  inactiveClass: 'bg-sky-50/60 text-sky-800 border-sky-200/90 hover:bg-sky-100/70'
+                }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setNoticeType(item.id)}
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer shadow-2xs flex items-center justify-between ${
+                    noticeType === item.id ? item.activeClass : item.inactiveClass
+                  }`}
+                >
+                  <div className="min-w-0 flex-1 pr-2">
+                    <div className="flex items-center space-x-1.5 mb-0.5">
+                      <item.icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-xs font-extrabold truncate">{item.label}</span>
+                    </div>
+                    <p className={`text-[10px] truncate ${noticeType === item.id ? 'opacity-85' : 'text-slate-500'}`}>{item.sub}</p>
+                  </div>
+                  <span className={`text-sm sm:text-base font-black shrink-0 px-2 py-0.5 rounded-xl ${
+                    noticeType === item.id ? 'bg-white/20 text-white' : 'bg-white/90 border border-slate-200/90 text-slate-800'
+                  }`}>
+                    {item.count}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-                  <Bell className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Notices</span>
-                  <p className="text-lg font-black text-slate-900">{notices.length}</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
-                  <AlertCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-rose-500 block">Lost Items</span>
-                  <p className="text-lg font-black text-rose-700">{notices.filter(n => n.type === 'lost' && n.status === 'open').length} Looking</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-emerald-600 block">Found Items</span>
-                  <p className="text-lg font-black text-emerald-700">{notices.filter(n => n.type === 'found' && n.status === 'open').length} Safe</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
-                  <Megaphone className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-sky-500 block">Announcements</span>
-                  <p className="text-lg font-black text-sky-700">{notices.filter(n => n.type === 'announcement').length} Active</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Filter & Search Bar */}
-            <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-xs space-y-3">
-              {/* Type Switcher */}
-              <div className="flex items-center space-x-2 border-b border-slate-100 pb-3 overflow-x-auto text-xs">
-                {[
-                  { id: 'all', label: 'All Notices', count: notices.length },
-                  { id: 'lost', label: 'Lost Items (Needs Help)', count: notices.filter(n => n.type === 'lost').length },
-                  { id: 'found', label: 'Found Items (Claim Here)', count: notices.filter(n => n.type === 'found').length },
-                  { id: 'announcement', label: 'Campus Announcements', count: notices.filter(n => n.type === 'announcement').length }
-                ].map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setNoticeType(t.id)}
-                    className={`px-3.5 py-2 rounded-xl font-bold transition-all shrink-0 cursor-pointer flex items-center space-x-1.5 ${
-                      noticeType === t.id
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <span>{t.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${noticeType === t.id ? 'bg-white/20 text-white' : 'bg-white text-slate-600'}`}>
-                      {t.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Search & Category Pills */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            {/* Filter, Search & Category Strip */}
+            <div className="bg-white p-3 sm:p-4 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Search notice title, student name, matric number, or campus location..."
+                    placeholder="Search notice title, student matric number, keys, hostel hall..."
                     value={noticeSearch}
                     onChange={(e) => setNoticeSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
                   />
+                  {noticeSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setNoticeSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs">
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
                   {[
-                    { id: 'all', label: 'All Categories' },
-                    { id: 'id_card', label: 'Student ID Cards' },
-                    { id: 'phone_gadget', label: 'Phones & Gadgets' },
+                    { id: 'all', label: 'All' },
+                    { id: 'id_card', label: 'ID Cards' },
+                    { id: 'phone_gadget', label: 'Gadgets' },
                     { id: 'keys', label: 'Keys' },
                     { id: 'wallet_atm', label: 'Wallets & ATMs' },
-                    { id: 'books', label: 'Books & Folders' },
+                    { id: 'books', label: 'Books' },
                     { id: 'announcement', label: 'Announcements' }
                   ].map((cat) => (
                     <button
                       key={cat.id}
+                      type="button"
                       onClick={() => setNoticeCategory(cat.id)}
-                      className={`px-3 py-2 rounded-xl font-bold transition-colors shrink-0 cursor-pointer text-xs ${
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer text-xs ${
                         noticeCategory === cat.id
-                          ? 'bg-slate-900 text-white shadow-xs'
+                          ? 'bg-sky-500 text-white shadow-2xs'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
                     >
@@ -4153,16 +4179,16 @@ export default function StudentDashboard() {
 
             {/* Notices Grid */}
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-                  <Bell className="w-5 h-5 text-indigo-600" />
+              <div className="flex items-center justify-between mb-3 px-1">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center space-x-2">
+                  <Bell className="w-4 h-4 text-sky-500" />
                   <span>Campus Notices ({filteredNotices.length})</span>
                 </h3>
-                <span className="text-xs text-slate-400 font-medium">Real-time reports for {universityName}</span>
+                <span className="text-[11px] text-slate-400 font-medium">Real-time reports for {universityName || 'your university'}</span>
               </div>
 
               {filteredNotices.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
                   {filteredNotices.map((n) => {
                     const isOwner = n.user_id === currentUser?.user_id;
                     const isClaimed = n.status === 'claimed' || n.status === 'resolved';
@@ -4170,43 +4196,57 @@ export default function StudentDashboard() {
                     return (
                       <div
                         key={n.id}
-                        className={`bg-white rounded-3xl border transition-all flex flex-col justify-between overflow-hidden shadow-xs hover:shadow-md ${
+                        className={`bg-white rounded-2xl sm:rounded-3xl border transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-2xs hover:shadow-md ${
                           n.type === 'lost'
                             ? 'border-rose-200 hover:border-rose-300'
                             : n.type === 'found'
                               ? 'border-emerald-200 hover:border-emerald-300'
-                              : 'border-indigo-200 hover:border-indigo-300'
+                              : 'border-sky-200 hover:border-sky-300'
                         }`}
                       >
                         <div>
                           {/* Image preview (if any) */}
                           {n.image_url && (
-                            <div className="h-44 w-full bg-slate-100 relative overflow-hidden">
+                            <div className="h-40 w-full bg-slate-100 relative overflow-hidden group">
                               <SafeImage
                                 src={n.image_url}
                                 alt={n.title}
                                 fallbackType="product"
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                               />
                             </div>
                           )}
 
-                          <div className="p-5">
+                          <div className="p-4 sm:p-5">
                             {/* Tags Header */}
-                            <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center justify-between gap-2 mb-2.5">
                               <span
-                                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center space-x-1 border ${
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center space-x-1.5 border ${
                                   n.type === 'lost'
                                     ? 'bg-rose-50 text-rose-700 border-rose-200'
                                     : n.type === 'found'
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                      : 'bg-sky-50 text-sky-700 border-sky-200'
                                 }`}
                               >
-                                {n.type === 'lost' && <AlertCircle className="w-3 h-3" />}
-                                {n.type === 'found' && <CheckCircle2 className="w-3 h-3" />}
-                                {n.type === 'announcement' && <Megaphone className="w-3 h-3" />}
-                                <span>{n.type === 'lost' ? 'Lost Item' : n.type === 'found' ? 'Found Item' : 'Announcement'}</span>
+                                {n.type === 'lost' && (
+                                  <>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                    <span>Lost Item</span>
+                                  </>
+                                )}
+                                {n.type === 'found' && (
+                                  <>
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Found Item</span>
+                                  </>
+                                )}
+                                {n.type === 'announcement' && (
+                                  <>
+                                    <Megaphone className="w-3 h-3 text-sky-600" />
+                                    <span>Announcement</span>
+                                  </>
+                                )}
                               </span>
 
                               <div className="flex items-center space-x-1.5 relative">
@@ -4224,7 +4264,8 @@ export default function StudentDashboard() {
                                   type="button"
                                   onClick={() => setActiveNoticeMenuId(activeNoticeMenuId === n.id ? null : n.id)}
                                   className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                                  title="Notice settings"
+                                  title="Notice options"
+                                  aria-label="Notice options"
                                 >
                                   <MoreVertical className="w-3.5 h-3.5" />
                                 </button>
@@ -4294,17 +4335,6 @@ export default function StudentDashboard() {
                                           <span>View Reporter</span>
                                         </button>
                                       )}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActiveNoticeMenuId(null);
-                                          setToast({ text: 'Notice reported for moderator review.', type: 'info' });
-                                        }}
-                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2 transition-colors cursor-pointer"
-                                      >
-                                        <Flag className="w-3.5 h-3.5 text-slate-400" />
-                                        <span>Report Notice</span>
-                                      </button>
                                     </div>
                                   </>
                                 )}
@@ -4312,57 +4342,57 @@ export default function StudentDashboard() {
                             </div>
 
                             {/* Title & Description */}
-                            <h4 className="font-extrabold text-base text-slate-900 leading-snug mb-2">
+                            <h4 className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug mb-1.5">
                               {n.title}
                             </h4>
 
-                            <p className="text-xs text-slate-600 leading-relaxed mb-4 line-clamp-3">
+                            <p className="text-xs text-slate-600 leading-relaxed mb-3 line-clamp-2">
                               {n.description}
                             </p>
 
-                            {/* Meta items: Location and Date */}
-                            <div className="space-y-1.5 text-xs text-slate-500 bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4">
+                            {/* Location & Date Badge Row */}
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 mb-3.5">
                               {n.location && (
-                                <div className="flex items-center space-x-2">
-                                  <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                                  <span className="font-semibold text-slate-800 truncate">{n.location}</span>
-                                </div>
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-700 max-w-[200px] truncate">
+                                  <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
+                                  <span className="truncate">{n.location}</span>
+                                </span>
                               )}
                               {n.date_lost_or_found && (
-                                <div className="flex items-center space-x-2">
-                                  <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-600">
+                                  <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span>{n.date_lost_or_found}</span>
-                                </div>
+                                </span>
                               )}
                             </div>
 
                             {/* Reporter Info */}
-                            <div className="flex items-center space-x-2.5 pt-2 border-t border-slate-100">
+                            <div className="flex items-center space-x-2 pt-2.5 border-t border-slate-100">
                               {n.author_avatar ? (
-                                <SafeImage src={n.author_avatar} alt={n.author_name} fallbackType="avatar" className="w-7 h-7 rounded-full object-cover" />
+                                <SafeImage src={n.author_avatar} alt={n.author_name} fallbackType="avatar" className="w-6 h-6 rounded-full object-cover" />
                               ) : (
-                                <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-xs">
+                                <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-[10px]">
                                   {n.author_name?.charAt(0) || 'U'}
                                 </div>
                               )}
-                              <div className="overflow-hidden">
-                                <span className="text-xs font-bold text-slate-800 block truncate">{n.author_name}</span>
-                                <span className="text-[10px] text-slate-400 block truncate">{n.author_department || n.author_dept || 'Student'}</span>
+                              <div className="overflow-hidden flex items-center space-x-1.5">
+                                <span className="text-xs font-bold text-slate-800 truncate">{n.author_name}</span>
+                                <span className="text-[10px] text-slate-400">•</span>
+                                <span className="text-[10px] text-slate-400 truncate">{n.author_department || n.author_dept || 'Student'}</span>
                               </div>
                             </div>
                           </div>
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="p-5 pt-0 space-y-2">
-                          {/* Owner Controls */}
+                        <div className="p-4 sm:p-5 pt-0 space-y-2">
                           {isOwner ? (
                             <div className="flex items-center space-x-2">
                               {!isClaimed && (
                                 <button
                                   type="button"
                                   onClick={() => handleResolveNotice(n.id)}
-                                  className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                                  className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>Mark Claimed</span>
@@ -4371,26 +4401,27 @@ export default function StudentDashboard() {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteNotice(n.id)}
-                                className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-colors cursor-pointer"
+                                className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-colors cursor-pointer"
                                 title="Delete notice"
+                                aria-label="Delete notice"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           ) : (
-                            <div className="space-y-2">
-                              {/* WhatsApp Inquire / Claim Button */}
+                            <div className="space-y-1.5">
+                              {/* Direct WhatsApp Reporter */}
                               {n.contact_phone && (
                                 <a
                                   href={`https://wa.me/${n.contact_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                                    `Hello ${n.author_name}, I saw your post on CampusLink Notice Board regarding "${n.title}" at ${universityName}. I would like to inquire/claim.`
+                                    `Hello ${n.author_name}, I saw your notice for "${n.title}" at ${universityName} on CampusLink. I would like to inquire/claim.`
                                   )}`}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-2 shadow-xs"
+                                  className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
                                 >
-                                  <MessageCircle className="w-4 h-4" />
-                                  <span>WhatsApp Reporter</span>
+                                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Message on WhatsApp</span>
                                 </a>
                               )}
 
@@ -4406,7 +4437,7 @@ export default function StudentDashboard() {
                                   </a>
                                 )}
 
-                                {/* CampusLink Chat */}
+                                {/* CampusLink In-App Chat */}
                                 <button
                                   type="button"
                                   onClick={() => handleStartChatWithStudent({
@@ -4416,9 +4447,9 @@ export default function StudentDashboard() {
                                     department: n.author_department,
                                     profile_picture_url: n.author_avatar
                                   })}
-                                  className="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
+                                  className="flex-1 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
                                 >
-                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <MessageCircle className="w-3.5 h-3.5" />
                                   <span>Chat</span>
                                 </button>
                               </div>
@@ -4430,70 +4461,71 @@ export default function StudentDashboard() {
                   })}
                 </div>
               ) : (
-                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-10">
-                  <Bell className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <h4 className="text-base font-bold text-slate-800">No notices matched your filter</h4>
-                  <p className="text-xs text-slate-500 mt-1">Try changing category or report a new lost/found item.</p>
+                <div className="py-16 text-center bg-white rounded-3xl border border-slate-200 p-8 shadow-2xs">
+                  <Bell className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-slate-800">No notices match your filter</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">Try switching categories or report a new lost/found item.</p>
                   <button
+                    type="button"
                     onClick={() => setReportModalOpen(true)}
-                    className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors"
+                    className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors"
                   >
-                    + Post First Notice
+                    + Post Notice
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Campus Security & Recovery Tips Card */}
-            <div className="p-6 bg-gradient-to-r from-indigo-50 via-sky-50 to-blue-50 rounded-3xl border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700">Safety & Verification Protocol</span>
-                <h4 className="font-bold text-sm text-slate-900">Found an item or claiming your lost property?</h4>
-                <p className="text-xs text-slate-600 max-w-xl">
-                  Always arrange handovers in public, well-lit campus areas such as the library quad, security post, or faculty lounge. When claiming, please provide proof of ownership (e.g. matric card, unlock code, or matching serial number).
+            {/* Campus Security & Recovery Protocol Tips */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-sky-50/80 via-blue-50/60 to-indigo-50/60 rounded-3xl border border-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-sky-700">Security & Safe Recovery Protocol</span>
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Found an item or claiming lost property?</h4>
+                <p className="text-[11px] text-slate-600 max-w-xl">
+                  Always arrange handovers in public, well-lit campus areas (library quad, faculty security desk). Verify ownership before releasing items.
                 </p>
               </div>
               <button
+                type="button"
                 onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
+                className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
               >
                 + Report an Item
               </button>
             </div>
-
           </div>
         )}
 
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
-            {/* Instagram-Style Campus Stories Rail */}
+            {/* Compact Campus Stories Rail (Shifted Up & Space-Optimized for Chats) */}
             {!selectedPartner && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs shrink-0">
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <span className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <Camera className="w-3.5 h-3.5 text-sky-500" />
+              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 px-3 py-2 sm:px-4 sm:py-2.5 shadow-2xs shrink-0 mb-2">
+                <div className="flex items-center justify-between mb-1.5 px-0.5">
+                  <span className="text-[11px] sm:text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                    <Camera className="w-3 h-3 text-sky-500" />
                     <span>Campus Stories</span>
                   </span>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
                     <button
                       type="button"
                       onClick={() => setStatusPrivacyModalOpen(true)}
-                      className="text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
+                      className="text-[10px] sm:text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
                     >
                       Privacy
                     </button>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-3.5 overflow-x-auto pb-1.5 scrollbar-none momentum-scroll snap-x snap-mandatory">
+                <div className="flex items-center space-x-2.5 sm:space-x-3 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
                   {/* 1. My Story (Your Story Bubble) */}
                   {(() => {
                     const selfGroup = statusGroups.find(g => g.is_self);
                     const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
                     return (
-                      <div className="flex flex-col items-center shrink-0 cursor-pointer group snap-start min-tap-target">
+                      <div className="flex flex-col items-center shrink-0 cursor-pointer group snap-start">
                         <div
                           onClick={() => {
                             if (hasMyStory) {
@@ -4503,7 +4535,7 @@ export default function StudentDashboard() {
                               setCreateStatusModalOpen(true);
                             }
                           }}
-                          className={`relative w-14 h-14 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 active:scale-95 ${
+                          className={`relative w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 active:scale-95 ${
                             hasMyStory
                               ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                               : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
@@ -4518,7 +4550,7 @@ export default function StudentDashboard() {
                                 className="w-full h-full rounded-full object-cover"
                               />
                             ) : (
-                              <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-sm">
+                              <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-xs">
                                 {currentUser?.full_name?.charAt(0) || 'U'}
                               </div>
                             )}
@@ -4529,22 +4561,19 @@ export default function StudentDashboard() {
                               e.stopPropagation();
                               setCreateStatusModalOpen(true);
                             }}
-                            className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-600 hover:bg-blue-700 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90 cursor-pointer"
+                            className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90 cursor-pointer"
                             title="Add to story"
                             aria-label="Add to story"
                           >
-                            <Plus className="w-3 h-3 stroke-[3]" />
+                            <Plus className="w-2.5 h-2.5 stroke-[3]" />
                           </button>
                         </div>
-                        <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[64px] text-center">Your Story</span>
-                        <span className="text-[9px] text-slate-400">
-                          {hasMyStory ? `${selfGroup.items.length} drop${selfGroup.items.length > 1 ? 's' : ''}` : 'Add story'}
-                        </span>
+                        <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[54px] text-center">Your Story</span>
                       </div>
                     );
                   })()}
 
-                  {/* 2. Peer Campus Stories (CampusLink Blue & White signature rings, faded when viewed) */}
+                  {/* 2. Peer Campus Stories */}
                   {statusGroups
                     .filter(g => !g.is_self)
                     .map((group) => {
@@ -4560,10 +4589,10 @@ export default function StudentDashboard() {
                               itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
                             });
                           }}
-                          className="flex flex-col items-center shrink-0 cursor-pointer group snap-start min-tap-target"
+                          className="flex flex-col items-center shrink-0 cursor-pointer group snap-start"
                         >
                           <div
-                            className={`w-14 h-14 rounded-full p-0.5 transition-transform group-hover:scale-105 active:scale-95 flex items-center justify-center ${
+                            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 transition-transform group-hover:scale-105 active:scale-95 flex items-center justify-center ${
                               isUnviewed
                                 ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
                                 : 'bg-slate-200 border border-slate-300 opacity-60'
@@ -4584,11 +4613,8 @@ export default function StudentDashboard() {
                               )}
                             </div>
                           </div>
-                          <span className="text-[11px] font-bold text-slate-800 mt-1.5 truncate max-w-[64px] text-center">
+                          <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[54px] text-center">
                             {group.user_name.split(' ')[0]}
-                          </span>
-                          <span className={`text-[9px] font-semibold ${isUnviewed ? 'text-sky-600' : 'text-slate-400'}`}>
-                            {isUnviewed ? 'New story' : 'Viewed'}
                           </span>
                         </div>
                       );
@@ -6661,7 +6687,7 @@ export default function StudentDashboard() {
                   />
                 </div>
 
-                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
                   <button
                     type="button"
                     onClick={() => setEditProfileModalOpen(false)}
@@ -6744,7 +6770,7 @@ export default function StudentDashboard() {
                   />
                 </div>
 
-                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                <div className="sticky bottom-0 bg-white/95 backdrop-blur-xs flex items-center justify-end space-x-2 pt-3 pb-1 border-t border-slate-100 z-10 -mx-1 px-1">
                   <button
                     type="button"
                     onClick={() => setChangePasswordModalOpen(false)}
@@ -6754,10 +6780,10 @@ export default function StudentDashboard() {
                   </button>
                   <button
                     type="submit"
-                    disabled={savingPassword}
+                    disabled={changingPassword}
                     className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs disabled:opacity-50"
                   >
-                    {savingPassword ? 'Saving...' : 'Update Password'}
+                    {changingPassword ? 'Updating...' : 'Update Password'}
                   </button>
                 </div>
               </form>
@@ -7213,34 +7239,125 @@ export default function StudentDashboard() {
               >
                 <X className="w-5 h-5" />
               </button>
-              <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Order {orderModalItem.name}</h3>
-              <p className="text-xs text-slate-500 mb-4">Vendor: {orderModalItem.vendor_name}</p>
-
-              <form onSubmit={handlePlaceOrder} className="space-y-4 text-xs">
-                <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl">
-                  <span className="font-bold text-slate-700">Item Price:</span>
-                  <span className="font-black text-sky-700 text-sm">₦{Number(orderModalItem.price).toLocaleString()}</span>
+              <div className="flex items-center space-x-2.5 mb-3">
+                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                  <ShoppingBag className="w-4 h-4" />
                 </div>
-
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Quantity</label>
-                  <input type="number" min="1" max="10" value={orderQuantity} onChange={(e) => setOrderQuantity(parseInt(e.target.value) || 1)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800" />
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">Order & Contact Vendor</h3>
+                  <p className="text-[11px] text-slate-500">Direct campus transaction & pickup</p>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Delivery Hostel & Room Number</label>
-                  <input type="text" required placeholder="e.g. Moremi Hall Room B12" value={orderDeliveryLocation} onChange={(e) => setOrderDeliveryLocation(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800" />
+              {/* Product Preview Card */}
+              <div className="flex items-center space-x-3.5 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl mb-4">
+                {orderModalItem.image_url ? (
+                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-200 shrink-0 border border-slate-200">
+                    <SafeImage
+                      src={orderModalItem.image_url}
+                      alt={orderModalItem.name}
+                      fallbackType="product"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-14 h-14 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-extrabold text-sm text-slate-900 truncate">{orderModalItem.name}</h4>
+                  <div className="flex items-center space-x-2 mt-0.5">
+                    <span className="font-black text-sky-600 text-sm">₦{Number(orderModalItem.price).toLocaleString()}</span>
+                    <span className="text-[10px] text-slate-400">•</span>
+                    <span className="text-[11px] text-slate-600 truncate font-semibold">{orderModalItem.vendor_name || 'Campus Vendor'}</span>
+                  </div>
+                  {(orderModalItem.vendor_location || orderModalItem.location) && (
+                    <div className="flex items-center space-x-1 mt-1 text-[10px] text-slate-500 truncate">
+                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span className="truncate">{orderModalItem.vendor_location || orderModalItem.location}</span>
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between p-3.5 bg-sky-50 rounded-2xl text-sky-900">
-                  <span className="font-bold">Total Amount:</span>
-                  <span className="font-black text-base">₦{Number(orderModalItem.price * orderQuantity).toLocaleString()}</span>
-                </div>
+              <p className="text-xs text-slate-600 mb-4 leading-relaxed bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl">
+                Reach out to the vendor to confirm availability, ask questions, or arrange payment and hostel delivery.
+              </p>
 
-                <button type="submit" className="min-tap-target w-full py-3 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all">
-                  Confirm Order & Request Room Delivery
+              {/* Direct Actions */}
+              <div className="space-y-2.5">
+                {/* 1. Chat with Vendor In-App */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const itemToChat = orderModalItem;
+                    setOrderModalItem(null);
+                    handleStartVendorChat(itemToChat);
+                  }}
+                  className="w-full py-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Chat with Vendor In-App</span>
                 </button>
-              </form>
+
+                {/* 2. Call Vendor Direct (Registered Phone) */}
+                {orderModalItem.vendor_phone ? (
+                  <div className="space-y-2">
+                    <a
+                      href={`tel:${orderModalItem.vendor_phone}`}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                    >
+                      <Phone className="w-4 h-4" />
+                      <span>Call Vendor ({orderModalItem.vendor_phone})</span>
+                    </a>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(orderModalItem.vendor_phone);
+                            setToast({ text: `Copied ${orderModalItem.vendor_phone} to clipboard!`, type: 'success' });
+                          } else {
+                            setToast({ text: `Phone: ${orderModalItem.vendor_phone}`, type: 'info' });
+                          }
+                        }}
+                        className="py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-semibold text-[11px] rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Copy Phone</span>
+                      </button>
+
+                      <a
+                        href={`https://wa.me/${orderModalItem.vendor_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                          `Hello ${orderModalItem.vendor_name || 'Vendor'}, I found your listing for "${orderModalItem.name}" (₦${Number(orderModalItem.price).toLocaleString()}) on CampusLink. Is it available for purchase/delivery?`
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="py-2.5 bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-800 font-semibold text-[11px] rounded-xl border border-emerald-200 transition-all flex items-center justify-center space-x-1.5"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Vendor hasn't added a direct phone number yet. Use <strong>Chat with Vendor In-App</strong> above to message them instantly!
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setOrderModalItem(null)}
+                  className="w-full py-2.5 text-slate-500 hover:text-slate-700 text-xs font-semibold cursor-pointer transition-colors text-center"
+                >
+                  Close
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
@@ -8374,12 +8491,12 @@ export default function StudentDashboard() {
         onConfirm={handleConfirmSendChatMedia}
       />
 
-      {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Anchored Dock with Native Safe Areas & Tactile Tap Feedback) --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-2 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
+      {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Anchored Dock with Native Safe Areas & Refined Tactile Feedback) --- */}
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-1.5 py-1 safe-nav-bottom shadow-lg ${isAnyModalOpen || (selectedPartner && activeTab === 'messages') ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
         {/* 1. Home (Feed & Reels) */}
         <button
           onClick={() => setActiveTab('reels')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'reels'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
@@ -8387,18 +8504,18 @@ export default function StudentDashboard() {
           aria-label="Home and Feed"
         >
           <div className="relative flex items-center justify-center">
-            <Home className={`w-5 h-5 transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Home className={`w-[19px] h-[19px] transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Home</span>
+          <span className="text-[9.5px] tracking-tight mt-0.5">Home</span>
           {activeTab === 'reels' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* 2. Unified Market & Services */}
         <button
           onClick={() => { setActiveTab('marketplace'); }}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'marketplace'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
@@ -8406,18 +8523,18 @@ export default function StudentDashboard() {
           aria-label="Market and Services"
         >
           <div className="relative flex items-center justify-center">
-            <ShoppingBag className={`w-5 h-5 transition-transform ${activeTab === 'marketplace' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <ShoppingBag className={`w-[19px] h-[19px] transition-transform ${activeTab === 'marketplace' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Market</span>
+          <span className="text-[9.5px] tracking-tight mt-0.5">Market</span>
           {activeTab === 'marketplace' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* 3. Campus Notices & Directory */}
         <button
           onClick={() => setActiveTab('campus')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'campus'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
@@ -8425,18 +8542,18 @@ export default function StudentDashboard() {
           aria-label="Campus Notices"
         >
           <div className="relative flex items-center justify-center">
-            <Bell className={`w-5 h-5 transition-transform ${activeTab === 'campus' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Bell className={`w-[19px] h-[19px] transition-transform ${activeTab === 'campus' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Campus</span>
+          <span className="text-[9.5px] tracking-tight mt-0.5">Campus</span>
           {activeTab === 'campus' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* 4. Chats & Friends */}
         <button
           onClick={() => setActiveTab('messages')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'messages'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
@@ -8444,23 +8561,23 @@ export default function StudentDashboard() {
           aria-label="Messages and Friends"
         >
           <div className="relative flex items-center justify-center">
-            <MessageSquare className={`w-5 h-5 transition-transform ${activeTab === 'messages' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <MessageSquare className={`w-[19px] h-[19px] transition-transform ${activeTab === 'messages' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
             {(totalUnreadChatCount > 0 || (pendingRequests || []).length > 0) && (
-              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white animate-bounce">
+              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-0.5 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
                 {totalUnreadChatCount > 0 ? totalUnreadChatCount : (pendingRequests || []).length}
               </span>
             )}
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Chats</span>
+          <span className="text-[9.5px] tracking-tight mt-0.5">Chats</span>
           {activeTab === 'messages' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
         {/* 5. Settings & Profile */}
         <button
           onClick={() => setActiveTab('profile')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
             activeTab === 'profile'
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
@@ -8468,11 +8585,11 @@ export default function StudentDashboard() {
           aria-label="Settings and Profile"
         >
           <div className="relative flex items-center justify-center">
-            <Settings className={`w-5 h-5 transition-transform ${activeTab === 'profile' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Settings className={`w-[19px] h-[19px] transition-transform ${activeTab === 'profile' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
+          <span className="text-[9.5px] tracking-tight mt-0.5">Settings</span>
           {activeTab === 'profile' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
       </nav>
