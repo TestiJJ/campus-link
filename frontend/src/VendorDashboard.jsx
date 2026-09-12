@@ -6,7 +6,7 @@ import {
   Store, Plus, Trash2, MessageSquare, Phone,
   Mail, ShieldCheck, AlertCircle, LogOut, Send,
   Tag, Clock, MapPin, X, Upload, CheckCircle2,
-  Package, Wrench, Video, ShoppingCart, Star, Eye, Camera, Check,
+  Home, Package, Wrench, Video, ShoppingCart, Star, Eye, Camera, Check,
   Heart, MessageCircle, UserPlus, Users, UserCheck, UserX, Search,
   Share2, DollarSign, Bell, Sparkles, AlertTriangle, ExternalLink,
   RefreshCw, Settings, Building2, ChevronRight, ChevronLeft, Copy, CheckCheck,
@@ -199,15 +199,20 @@ export function getInitialVendorTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (tabParam && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tabParam)) {
+    if (tabParam === 'home') return 'reels';
+    if (tabParam === 'services') return 'inventory';
+    const validTabs = ['reels', 'friends', 'messages', 'inventory', 'orders', 'hub', 'settings', 'verification'];
+    if (tabParam && validTabs.includes(tabParam)) {
       return tabParam;
     }
     const saved = localStorage.getItem('campuslink_vendor_tab');
-    if (saved && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(saved)) {
+    if (saved === 'home') return 'reels';
+    if (saved === 'services') return 'inventory';
+    if (saved && validTabs.includes(saved)) {
       return saved;
     }
   } catch {}
-  return 'inventory';
+  return 'reels';
 }
 
 export default function VendorDashboard() {
@@ -223,6 +228,14 @@ export default function VendorDashboard() {
   const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
   const [isStoreLoading, setIsStoreLoading] = useState(() => !getCachedData('store', null));
   const [activeTab, setActiveTab] = useState(getInitialVendorTab);
+  const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
+  const [catalogType, setCatalogType] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tab') === 'services' ? 'services' : 'products';
+  }); // 'products' | 'services'
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [catalogSearchOpen, setCatalogSearchOpen] = useState(false);
+  const [friendsTabFilter, setFriendsTabFilter] = useState('all'); // 'all' (requests) | 'friends' | 'find'
   
   // New Vendor Profile Completion Prompt State
   const [showNewVendorModal, setShowNewVendorModal] = useState(() => {
@@ -443,6 +456,27 @@ export default function VendorDashboard() {
     });
   }, [conversations, communityUsers, myFriends, chatSearchQuery, user?.user_id, user?.id]);
 
+  // Catalog Search Filtering for Products & Services
+  const displayedProducts = useMemo(() => {
+    const q = catalogSearchQuery.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q) ||
+      (p.category_name || '').toLowerCase().includes(q)
+    );
+  }, [products, catalogSearchQuery]);
+
+  const displayedServices = useMemo(() => {
+    const q = catalogSearchQuery.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter(s =>
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.description || '').toLowerCase().includes(q) ||
+      (s.location || '').toLowerCase().includes(q)
+    );
+  }, [services, catalogSearchQuery]);
+
   // Push Notification States
   const [pushPermission, setPushPermission] = useState('default'); // 'default'|'granted'|'denied'
   const [pushLoading, setPushLoading] = useState(false);
@@ -508,7 +542,12 @@ export default function VendorDashboard() {
       try {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab && ['inventory', 'services', 'orders', 'messages', 'reels', 'hub', 'settings', 'verification'].includes(tab)) {
+        if (tab === 'services') {
+          setCatalogType('services');
+          setActiveTab('inventory');
+        } else if (tab === 'home') {
+          setActiveTab('reels');
+        } else if (tab && ['inventory', 'services', 'orders', 'messages', 'reels', 'friends', 'hub', 'settings', 'verification'].includes(tab)) {
           setActiveTab(tab);
         }
       } catch {}
@@ -2731,17 +2770,26 @@ export default function VendorDashboard() {
       {/* --- DESKTOP SIDEBAR (Visible md and up) --- */}
       <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs h-full overflow-y-auto">
         <div>
-          <Link to="/" className="flex items-center space-x-2.5 mb-6">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-sm text-white shadow-md shadow-sky-500/20">
+          <button
+            type="button"
+            onClick={() => setActiveTab('reels')}
+            className="flex items-center space-x-2.5 mb-6 cursor-pointer text-left group"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center font-black text-sm text-white shadow-xs group-hover:scale-105 transition-transform">
               CL
             </div>
             <div>
-              <span className="font-extrabold text-base tracking-tight text-slate-900 block leading-tight">
-                CAMPUS<span className="text-sky-600">VENDOR</span>
-              </span>
-              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">Merchant Portal</span>
+              <div className="flex items-baseline space-x-1">
+                <span className="text-base font-black tracking-tight text-slate-900 block leading-tight">
+                  Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
+                  Merchant
+                </span>
+              </div>
+              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">Vendor Portal</span>
             </div>
-          </Link>
+          </button>
 
           {/* Business Badge & Operational Status */}
           <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 mb-6">
@@ -2780,32 +2828,34 @@ export default function VendorDashboard() {
           </div>
 
           <nav className="space-y-1 text-xs font-semibold">
+            {/* 1. Home & Drops */}
+            <button
+              onClick={() => setActiveTab('reels')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Home className="w-4 h-4" />
+              <span>Home & Feed</span>
+            </button>
+
+            {/* 2. Store Catalog & Services (Unified) */}
             <button
               onClick={() => setActiveTab('inventory')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'inventory' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'inventory' || activeTab === 'services' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Package className="w-4 h-4" />
-              <span>Products Catalog</span>
-              <span className="ml-auto text-[10px] font-bold">{products.length}</span>
+              <Store className="w-4 h-4" />
+              <span>Store & Services</span>
+              <span className="ml-auto text-[10px] font-bold">{products.length + services.length}</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('services')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'services' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Wrench className="w-4 h-4" />
-              <span>Campus Services</span>
-              <span className="ml-auto text-[10px] font-bold">{services.length}</span>
-            </button>
-
+            {/* 3. Customer Orders */}
             <button
               onClick={() => setActiveTab('orders')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'orders' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'orders' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <ShoppingCart className="w-4 h-4" />
@@ -2817,59 +2867,69 @@ export default function VendorDashboard() {
               )}
             </button>
 
+            {/* 4. Customer Inquiries */}
             <button
               onClick={() => setActiveTab('messages')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Chats & Stories</span>
-              {(totalUnreadChatCount > 0 || pendingRequests.length > 0) && (
+              <span>Customer Inquiries</span>
+              {totalUnreadChatCount > 0 && (
                 <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs animate-pulse">
-                  {totalUnreadChatCount > 0 ? totalUnreadChatCount : pendingRequests.length}
+                  {totalUnreadChatCount}
                 </span>
               )}
             </button>
 
+            {/* 5. Campus Friends & Network */}
             <button
-              onClick={() => setActiveTab('reels')}
+              onClick={() => setActiveTab('friends')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'friends' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Video className="w-4 h-4" />
-              <span>Campus Reels & Drops</span>
+              <Users className="w-4 h-4" />
+              <span>Campus Network</span>
+              {pendingRequests.length > 0 && (
+                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs">
+                  {pendingRequests.length}
+                </span>
+              )}
             </button>
 
+            {/* 6. Business Hub */}
             <button
               onClick={() => setActiveTab('hub')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'hub' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'hub' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Store className="w-4 h-4" />
+              <Building2 className="w-4 h-4" />
               <span>Sales & Business Hub</span>
             </button>
 
+            {/* 7. Settings & Profile */}
             <button
               onClick={() => setActiveTab('settings')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'settings' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'settings' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <Settings className="w-4 h-4" />
               <span>Profile & Settings</span>
             </button>
 
+            {/* 8. ID Verification */}
             <button
               onClick={() => setActiveTab('verification')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'verification' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                activeTab === 'verification' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>ID & Business Verification</span>
+              <span>ID & Verification</span>
             </button>
           </nav>
         </div>
@@ -2886,49 +2946,116 @@ export default function VendorDashboard() {
         </div>
       </aside>
 
-      {/* --- MOBILE TOP HEADER (Sticky, Compact, Responsive & Install App) --- */}
-      <header className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 px-3 sm:px-4 py-2 items-center justify-between shadow-2xs gap-2 w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
-        <div className="flex items-center space-x-2 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-md shadow-sky-500/20 shrink-0">
-            CL
+      {/* Main Content Area */}
+      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+        
+        {/* --- BESPOKE CAMPUS HEADER & MODERN CAPSULE NAVIGATION --- */}
+        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+          {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
+          {activeTab === 'reels' && (
+            <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setActiveTab('reels')}
+                className="flex items-center space-x-2 text-left cursor-pointer group"
+              >
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-xs tracking-tight shadow-xs group-hover:scale-105 transition-transform">
+                  CL
+                </div>
+                <div className="flex items-baseline space-x-1.5">
+                  <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
+                    Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
+                  </span>
+                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200/60">
+                    Merchant
+                  </span>
+                  {(vendorStore?.university_abbr || vendorStore?.university_name) && (
+                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
+                      🎓 {(vendorStore?.university_abbr || vendorStore?.university_name).split(' ')[0]}
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              <div className="flex items-center space-x-2">
+                <div className="hidden xs:block">
+                  <InstallAppButton variant="header" />
+                </div>
+
+                {/* Profile / Menu Drawer Button */}
+                <button
+                  type="button"
+                  onClick={() => setMenuDrawerOpen(true)}
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs overflow-hidden border border-slate-200/70 p-0.5"
+                  title="Menu & Settings"
+                  aria-label="Menu"
+                >
+                  {user?.profile_picture_url || vendorStore?.logo ? (
+                    <SafeImage
+                      src={user?.profile_picture_url || vendorStore?.logo}
+                      alt="Menu"
+                      fallbackType="avatar"
+                      className="w-full h-full object-cover rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-full h-full rounded-lg bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-xs">
+                      {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, Friends, Chats, Store, Orders, Settings) */}
+          <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
+            <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
+              {[
+                { id: 'reels', icon: Home, label: 'Home' },
+                { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+                { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
+                { id: 'inventory', icon: Store, label: 'Store' },
+                { id: 'orders', icon: ShoppingCart, label: 'Orders', badge: pendingOrdersCount },
+                { id: 'settings', icon: Settings, label: 'Settings' }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id || (tab.id === 'settings' && activeTab === 'hub') || (tab.id === 'inventory' && activeTab === 'services');
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      localStorage.setItem('campuslink_vendor_tab', tab.id);
+                    }}
+                    className={`flex-1 py-1.5 sm:py-2 flex items-center justify-center space-x-1.5 rounded-xl transition-all cursor-pointer relative ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-xs font-bold'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-white/60 font-medium'
+                    }`}
+                    title={tab.label}
+                    aria-label={tab.label}
+                  >
+                    <div className="relative">
+                      <Icon className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                      {tab.badge > 0 && (
+                        <span className={`absolute -top-1.5 -right-2 text-white text-[9px] font-black min-w-[15px] h-3.5 px-0.5 rounded-full flex items-center justify-center ring-2 ring-white shadow-xs ${isActive ? 'bg-rose-500' : 'bg-rose-600'}`}>
+                          {tab.badge > 15 ? '15+' : tab.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[11px] hidden lg:inline tracking-tight ${isActive ? 'font-bold text-white' : 'text-slate-600'}`}>
+                      {tab.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="min-w-0">
-            <span className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-900 block leading-tight truncate">
-              CAMPUS<span className="text-sky-600">VENDOR</span>
-            </span>
-            <span className="text-[9px] font-bold text-slate-500 block truncate max-w-[100px] sm:max-w-[130px]">
-              {vendorStore?.business_name || 'My Store'}
-            </span>
-          </div>
         </div>
 
-        {/* Campus Origin Badge (Auto-scales on mobile) */}
-        <div className="hidden min-[400px]:flex items-center space-x-1 px-2.5 py-1 bg-sky-50 border border-sky-200 rounded-full text-[10px] font-bold text-sky-700 shadow-2xs shrink-0 max-w-[120px]">
-          <MapPin className="w-3 h-3 text-sky-600 shrink-0" />
-          <span className="truncate">{vendorStore?.university_abbr || vendorStore?.university_name || 'Campus'}</span>
-        </div>
-
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <InstallAppButton variant="header" />
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`p-1.5 rounded-xl cursor-pointer transition-colors ${activeTab === 'settings' ? 'bg-sky-50 text-sky-600 font-bold' : 'text-slate-600 hover:bg-slate-100'}`}
-            title="Store Settings & Profile"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleLogout}
-            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
-            title="Logout"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      {/* --- MAIN CONTENT AREA --- */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 pb-28 md:pb-8'}`}>
+        {/* Main Content Body */}
+        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
         
         {/* Live Store Announcement Banner (Always visible if configured) */}
         {storeBroadcast && (
@@ -2984,158 +3111,216 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 1: PRODUCTS INVENTORY --- */}
+        {/* --- MERGED TAB: PRODUCTS & SERVICES CATALOG --- */}
         {/* ========================================================================= */}
-        {activeTab === 'inventory' && (
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        {(activeTab === 'inventory' || activeTab === 'services') && (
+          <div className="space-y-4 sm:space-y-6">
+            {/* Catalog Top Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  Products & Catalog
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Store Catalog & Services
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Manage food packs, sneakers, stationery & gadget accessories.
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  Manage food packs, sneakers, gadget accessories, and student services on campus.
                 </p>
               </div>
 
-              <button
-                disabled={!isVerified}
-                onClick={handleOpenAddProduct}
-                title={!isVerified ? 'Complete ID verification first' : ''}
-                className="px-5 py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-md shadow-sky-500/20 flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Product</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  disabled={!isVerified}
+                  onClick={catalogType === 'products' ? handleOpenAddProduct : () => setShowServiceModal(true)}
+                  title={!isVerified ? 'Complete ID verification first' : ''}
+                  className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold shadow-md shadow-sky-500/20 flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{catalogType === 'products' ? 'Add Product' : 'Add Service'}</span>
+                </button>
+              </div>
             </div>
 
-            {products.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-                {products.map((item) => (
-                  <div key={item.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
-                    <div>
-                      <div className="h-44 w-full rounded-2xl overflow-hidden bg-slate-100 mb-4 relative">
-                        <SafeImage src={item.image} alt={item.name} fallbackType="product" className="w-full h-full object-cover" />
-                        <span className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-[10px] font-bold text-sky-700 shadow-xs flex items-center space-x-1">
-                          <MapPin className="w-3 h-3 text-sky-600" />
-                          <span>{item.university_abbr || item.university_name || vendorStore?.university_abbr || 'Campus'}</span>
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-lg font-black text-sky-700">₦{Number(item.price).toLocaleString()}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Qty: {item.quantity}</span>
-                      </div>
-                      <h4 className="font-bold text-sm text-slate-900">{item.name}</h4>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
-                    </div>
+            {/* Segmented Filter Pills & Search Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-white p-2 sm:p-2.5 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-2xs">
+              <div className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogType('products');
+                    setActiveTab('inventory');
+                  }}
+                  className={`px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                    catalogType === 'products'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Products ({products.length})</span>
+                </button>
 
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-emerald-600 flex items-center space-x-1">
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>In Stock</span>
-                      </span>
-                      <div className="flex items-center space-x-1">
-                        <button
-                          onClick={() => handleOpenEditProduct(item)}
-                          className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-colors cursor-pointer"
-                          title="Edit product"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(item.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          title="Delete product"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogType('services');
+                    setActiveTab('inventory');
+                  }}
+                  className={`px-3 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                    catalogType === 'services'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  <span>Services ({services.length})</span>
+                </button>
               </div>
-            ) : (
-              <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300 p-8 sm:p-10">
-                <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <h4 className="text-base font-bold text-slate-800">Your store catalog is empty</h4>
-                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  {isVerified ? 'Add your products to start selling to students on campus.' : 'Your store will be ready to list products once your ID or business document is approved by campus admins.'}
-                </p>
-                {isVerified && (
+
+              {/* Search input */}
+              <div className="relative flex-1 sm:max-w-xs">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder={catalogType === 'products' ? 'Filter products by name or tag...' : 'Filter services by name or location...'}
+                  value={catalogSearchQuery}
+                  onChange={(e) => setCatalogSearchQuery(e.target.value)}
+                  className="w-full pl-8.5 pr-7 py-1.5 sm:py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 rounded-xl sm:rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
+                />
+                {catalogSearchQuery && (
                   <button
-                    onClick={handleOpenAddProduct}
-                    className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
+                    type="button"
+                    onClick={() => setCatalogSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
                   >
-                    + Add Your First Product
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
-            )}
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* --- TAB 2: SERVICES --- */}
-        {/* ========================================================================= */}
-        {activeTab === 'services' && (
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  Campus Student Services
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Laundry, photography, tech repairs, tutoring & styling services.
-                </p>
-              </div>
-
-              <button
-                disabled={!isVerified}
-                onClick={() => setShowServiceModal(true)}
-                className="px-5 py-2.5 rounded-full bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold shadow-md shadow-sky-500/20 flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Service</span>
-              </button>
             </div>
 
-            {services.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
-                {services.map((svc) => (
-                  <div key={svc.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between">
-                    <div>
-                      <div className="h-40 w-full rounded-2xl overflow-hidden bg-slate-100 mb-4">
-                        <SafeImage src={svc.image} alt={svc.name} fallbackType="product" className="w-full h-full object-cover" />
+            {/* Products Grid */}
+            {catalogType === 'products' && (
+              displayedProducts.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                  {displayedProducts.map((item) => (
+                    <div key={item.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between hover:border-sky-200 hover:shadow-md transition-all">
+                      <div>
+                        <div className="h-44 w-full rounded-2xl overflow-hidden bg-slate-100 mb-3.5 relative">
+                          <SafeImage src={item.image} alt={item.name} fallbackType="product" className="w-full h-full object-cover" />
+                          <span className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-[10px] font-bold text-sky-700 shadow-xs flex items-center space-x-1">
+                            <MapPin className="w-3 h-3 text-sky-600" />
+                            <span>{item.university_abbr || item.university_name || vendorStore?.university_abbr || 'Campus'}</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-lg font-black text-sky-700">₦{Number(item.price).toLocaleString()}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Qty: {item.quantity}</span>
+                        </div>
+                        <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{item.name}</h4>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
                       </div>
-                      <span className="text-xs text-sky-600 font-bold block mb-1">Starting from ₦{Number(svc.price).toLocaleString()}</span>
-                      <h4 className="font-bold text-sm text-slate-900">{svc.name}</h4>
-                      <p className="text-xs text-slate-500 mt-1">{svc.description}</p>
-                    </div>
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400 flex items-center space-x-1">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        <span>{svc.location || 'On Campus'}</span>
-                      </span>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Active</span>
-                        <button
-                          onClick={() => handleDeleteService(svc.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Delete Service"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-emerald-600 flex items-center space-x-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>In Stock</span>
+                        </span>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => handleOpenEditProduct(item)}
+                            className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-colors cursor-pointer"
+                            title="Edit product"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(item.id)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                            title="Delete product"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300 p-8 sm:p-10">
-                <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <h4 className="text-base font-bold text-slate-800">No services listed yet</h4>
-                <p className="text-xs text-slate-500 mt-1">Offer laundry pickup, phone screen repair or photography options.</p>
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-16 sm:py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300 p-8 sm:p-10">
+                  <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h4 className="text-base font-bold text-slate-800">
+                    {catalogSearchQuery ? `No products match "${catalogSearchQuery}"` : 'Your store catalog is empty'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {catalogSearchQuery
+                      ? 'Try different search keywords or clear the search filter.'
+                      : isVerified
+                      ? 'Add your products to start selling to students on campus.'
+                      : 'Your store will be ready to list products once your ID or business document is approved by campus admins.'}
+                  </p>
+                  {isVerified && !catalogSearchQuery && (
+                    <button
+                      onClick={handleOpenAddProduct}
+                      className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
+                    >
+                      + Add Your First Product
+                    </button>
+                  )}
+                </div>
+              )
+            )}
+
+            {/* Services Grid */}
+            {catalogType === 'services' && (
+              displayedServices.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                  {displayedServices.map((svc) => (
+                    <div key={svc.id} className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col justify-between hover:border-sky-200 hover:shadow-md transition-all">
+                      <div>
+                        <div className="h-40 w-full rounded-2xl overflow-hidden bg-slate-100 mb-3.5">
+                          <SafeImage src={svc.image} alt={svc.name} fallbackType="product" className="w-full h-full object-cover" />
+                        </div>
+                        <span className="text-xs text-sky-600 font-bold block mb-1">Starting from ₦{Number(svc.price).toLocaleString()}</span>
+                        <h4 className="font-bold text-sm text-slate-900 line-clamp-1">{svc.name}</h4>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{svc.description}</p>
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400 flex items-center space-x-1">
+                          <MapPin className="w-3 h-3 text-slate-400" />
+                          <span>{svc.location || 'On Campus'}</span>
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Active</span>
+                          <button
+                            onClick={() => handleDeleteService(svc.id)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Delete Service"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-16 sm:py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300 p-8 sm:p-10">
+                  <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h4 className="text-base font-bold text-slate-800">
+                    {catalogSearchQuery ? `No services match "${catalogSearchQuery}"` : 'No services listed yet'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {catalogSearchQuery ? 'Try another keyword or clear the search query.' : 'Offer laundry pickup, phone screen repair, photography or tutoring options.'}
+                  </p>
+                  {isVerified && !catalogSearchQuery && (
+                    <button
+                      onClick={() => setShowServiceModal(true)}
+                      className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
+                    >
+                      + Add Your First Service
+                    </button>
+                  )}
+                </div>
+              )
             )}
           </div>
         )}
@@ -3337,79 +3522,60 @@ export default function VendorDashboard() {
         )}
 
         {/* ========================================================================= */}
-        {/* --- TAB 4: CHATS & CAMPUS NETWORK (INQUIRIES + STORIES + FRIENDS) --- */}
+        {/* --- TAB 3: CUSTOMER CHATS & INQUIRIES --- */}
         {/* ========================================================================= */}
         {activeTab === 'messages' && (
           <div className="flex-1 flex flex-col overflow-hidden min-h-0">
             
-            {/* Header & Subtabs */}
-            <div className={`flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  Customer Inquiries & Network
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500">
-                  Chat with student buyers, manage orders, and connect with peers.
-                </p>
-              </div>
-
-              {/* Subtabs Pill Switcher */}
-              <div className="flex items-center space-x-1.5 bg-white p-1 rounded-2xl border border-slate-200 shadow-2xs self-start sm:self-auto overflow-x-auto max-w-full">
-                <button
-                  onClick={() => setMessageSubtab('chats')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
-                    messageSubtab === 'chats' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span>Customer Inquiries</span>
+            {/* Header */}
+            <div className={`p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0 ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold shrink-0">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <div className="flex items-center space-x-2">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Customer Inquiries</h2>
+                  {conversations.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
+                      {conversations.length}
+                    </span>
+                  )}
                   {totalUnreadChatCount > 0 && (
-                    <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black shadow-xs animate-pulse">
-                      {totalUnreadChatCount}
+                    <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
+                      {totalUnreadChatCount} new
                     </span>
                   )}
-                </button>
-
-                <button
-                  onClick={() => setMessageSubtab('friends')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
-                    messageSubtab === 'friends' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Find Students & Vendors</span>
-                </button>
-
-                <button
-                  onClick={() => setMessageSubtab('requests')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 relative ${
-                    messageSubtab === 'requests' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Requests</span>
-                  {pendingRequests.length > 0 && (
-                    <span className="bg-rose-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
-                      {pendingRequests.length}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setMessageSubtab('my_friends')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
-                    messageSubtab === 'my_friends' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  <span>Friends ({friendsList.length})</span>
-                </button>
+                </div>
               </div>
+
+              {selectedPartner && (
+                <div className="flex items-center space-x-2 text-xs">
+                  {selectedPartner.is_ai ? (
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-800">CampusLink AI Copilot</span>
+                      <button
+                        type="button"
+                        onClick={handleClearAiChat}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-semibold rounded-xl text-[11px] cursor-pointer transition-colors"
+                        title="Clear conversation"
+                      >
+                        Clear Chat
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-1.5">
+                      <span className="font-bold text-slate-800">{selectedPartner.partner_name}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
+                        {selectedPartner.role === 'vendor' ? 'Merchant' : 'Student'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* --- SUBTAB A: ACTIVE INQUIRIES & CHAT INTERFACE --- */}
-            {messageSubtab === 'chats' && (
-              <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs flex-1 min-h-0 ${selectedPartner ? 'rounded-2xl md:rounded-3xl' : 'rounded-3xl'}`}>
+            {/* Active Inquiries & Chat Interface */}
+            <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs flex-1 min-h-0 ${selectedPartner ? 'rounded-2xl md:rounded-3xl' : 'rounded-3xl'}`}>
                 
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
@@ -4568,38 +4734,258 @@ export default function VendorDashboard() {
                   )}
                 </div>
               </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* --- DEDICATED TAB: CAMPUS NETWORK & FRIENDS --- */}
+        {/* ========================================================================= */}
+        {activeTab === 'friends' && (
+          <div className="space-y-4 sm:space-y-6">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                  Campus Network & Friends
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+                  Connect with returning student buyers, fellow campus merchants & creative peers.
+                </p>
+              </div>
+
+              {/* Subtabs Filter Pills */}
+              <div className="flex items-center space-x-1.5 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-2xs self-start sm:self-auto overflow-x-auto max-w-full">
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                    friendsTabFilter === 'all'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Requests</span>
+                  {pendingRequests.length > 0 && (
+                    <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${
+                      friendsTabFilter === 'all' ? 'bg-white text-sky-600' : 'bg-rose-500 text-white animate-pulse'
+                    }`}>
+                      {pendingRequests.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('friends')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                    friendsTabFilter === 'friends'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Your Friends ({friendsList.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('find')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                    friendsTabFilter === 'find'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Find Peers</span>
+                </button>
+              </div>
+            </div>
+
+            {/* View 1: Friend Requests */}
+            {friendsTabFilter === 'all' && (
+              <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
+                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Incoming Friend Requests</h3>
+                    <p className="text-xs text-slate-500">Students and merchants who requested to connect with your store network.</p>
+                  </div>
+                  {pendingRequests.length > 0 && (
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                      {pendingRequests.length} Pending
+                    </span>
+                  )}
+                </div>
+
+                {pendingRequests.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    {pendingRequests.map((req) => (
+                      <div key={req.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
+                        <div
+                          onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
+                          className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                            {req.sender_name?.charAt(0) || 'U'}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">{req.sender_name}</h4>
+                            <p className="text-[10px] text-slate-500 truncate">{req.sender_department || 'Campus Student'}</p>
+                            <span className="text-[9px] text-slate-400 block truncate">{req.sender_hostel || 'Hostel Resident'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleAcceptFriendRequest(req.id)}
+                            className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeclineFriendRequest(req.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
+                            title="Decline"
+                          >
+                            <UserX className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-14 text-center text-xs text-slate-400 space-y-2">
+                    <UserCheck className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="font-semibold text-slate-600">No pending friend requests right now.</p>
+                    <p className="text-slate-400">When students or peers send you requests, they will show up here.</p>
+                  </div>
+                )}
+              </div>
             )}
 
-            {/* --- SUBTAB B: FIND STUDENTS & VENDORS --- */}
-            {messageSubtab === 'friends' && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+            {/* View 2: Connected Friends */}
+            {friendsTabFilter === 'friends' && (
+              <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
+                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Connected Campus Friends</h3>
+                    <p className="text-xs text-slate-500">Your network of student buyers, loyal patrons & business peers.</p>
+                  </div>
+                  <span className="text-xs font-bold bg-sky-50 text-sky-700 px-3 py-1 rounded-full border border-sky-200">
+                    {friendsList.length} Connected
+                  </span>
+                </div>
+
+                {friendsList.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {friendsList.map((f) => {
+                      const fid = f.user_id || f.id;
+                      return (
+                        <div key={fid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-emerald-200 transition-all">
+                          <div
+                            onClick={() => handleOpenProfile(fid)}
+                            className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
+                          >
+                            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center shrink-0 overflow-hidden">
+                              {f.profile_picture_url ? (
+                                <SafeImage src={f.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
+                              ) : (
+                                f.full_name?.charAt(0) || 'F'
+                              )}
+                            </div>
+                            <div className="overflow-hidden min-w-0">
+                              <h4 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700 transition-colors">{f.full_name}</h4>
+                              <p className="text-[10px] text-slate-500 truncate">{f.department || (f.role === 'vendor' ? 'Vendor' : 'Student')}</p>
+                              <span className="text-[9px] text-emerald-600 font-bold flex items-center space-x-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Connected</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
+                                setActiveTab('messages');
+                                handleSelectPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
+                              }}
+                              className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
+                            >
+                              <MessageSquare className="w-3 h-3" />
+                              <span>Chat</span>
+                              {getUnreadCountForUser(fid) > 0 && (
+                                <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
+                                  {getUnreadCountForUser(fid)}
+                                </span>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFriend(fid)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
+                              title="Unfriend"
+                            >
+                              <UserX className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-14 text-center text-xs text-slate-400 space-y-2">
+                    <Users className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="font-semibold text-slate-600">You haven't connected with any campus friends yet.</p>
+                    <button
+                      type="button"
+                      onClick={() => setFriendsTabFilter('find')}
+                      className="mt-2 text-sky-600 font-bold hover:underline cursor-pointer"
+                    >
+                      Find and connect with students on campus now →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* View 3: Campus Directory (Find Peers) */}
+            {friendsTabFilter === 'find' && (
+              <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                   <div>
-                    <h3 className="font-bold text-base text-slate-900">Campus Community Directory</h3>
-                    <p className="text-xs text-slate-500">Connect with fellow student customers, campus creatives & verified merchants.</p>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Campus Directory</h3>
+                    <p className="text-xs text-slate-500">Discover and network with students, campus creators & fellow merchants.</p>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl">
                     <button
+                      type="button"
                       onClick={() => setCommunityRoleFilter('all')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer ${
-                        communityRoleFilter === 'all' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600'
+                      className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        communityRoleFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       All
                     </button>
                     <button
+                      type="button"
                       onClick={() => setCommunityRoleFilter('student')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer ${
-                        communityRoleFilter === 'student' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600'
+                      className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        communityRoleFilter === 'student' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       Students
                     </button>
                     <button
+                      type="button"
                       onClick={() => setCommunityRoleFilter('vendor')}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer ${
-                        communityRoleFilter === 'vendor' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600'
+                      className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                        communityRoleFilter === 'vendor' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       Vendors
@@ -4609,19 +4995,28 @@ export default function VendorDashboard() {
 
                 {/* Search Bar */}
                 <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="Search by name, department, hostel or business name..."
                     value={communitySearch}
                     onChange={(e) => setCommunitySearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 focus:outline-none focus:border-sky-500"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 rounded-2xl text-xs text-slate-800 focus:outline-none transition-all"
                   />
+                  {communitySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setCommunitySearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Directory Grid */}
                 {filteredCommunity.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[520px] overflow-y-auto pr-1">
                     {filteredCommunity.map((commUser) => {
                       const uid = commUser.user_id || commUser.id;
                       const isFriend = commUser.friendship_status === 'friends';
@@ -4629,10 +5024,10 @@ export default function VendorDashboard() {
                       const isReceived = commUser.friendship_status === 'request_received';
 
                       return (
-                        <div key={uid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between space-x-3">
+                        <div key={uid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
                           <div
                             onClick={() => handleOpenProfile(uid)}
-                            className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1"
+                            className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
                             title="Click to view profile"
                           >
                             <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm overflow-hidden group-hover:ring-2 group-hover:ring-sky-500 transition-all">
@@ -4642,7 +5037,7 @@ export default function VendorDashboard() {
                                 commUser.full_name?.charAt(0) || 'C'
                               )}
                             </div>
-                            <div className="overflow-hidden">
+                            <div className="overflow-hidden min-w-0">
                               <h4 className="text-xs font-bold text-slate-900 truncate group-hover:text-sky-600 transition-colors">
                                 {commUser.full_name}
                               </h4>
@@ -4657,8 +5052,9 @@ export default function VendorDashboard() {
 
                           <div className="shrink-0 flex items-center space-x-1.5">
                             <button
+                              type="button"
                               onClick={() => handleOpenProfile(uid)}
-                              className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-white rounded-xl cursor-pointer"
+                              className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-white rounded-xl cursor-pointer transition-colors"
                               title="View Profile"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -4666,12 +5062,13 @@ export default function VendorDashboard() {
 
                             {isFriend ? (
                               <button
+                                type="button"
                                 onClick={() => {
                                   setSelectedPartner({ partner_id: uid, partner_name: commUser.full_name, role: commUser.role });
-                                  setMessageSubtab('chats');
+                                  setActiveTab('messages');
                                   handleSelectPartner({ partner_id: uid, partner_name: commUser.full_name, role: commUser.role });
                                 }}
-                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1"
+                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
                               >
                                 <MessageSquare className="w-3 h-3" />
                                 <span>Chat</span>
@@ -4687,15 +5084,17 @@ export default function VendorDashboard() {
                               </span>
                             ) : isReceived ? (
                               <button
+                                type="button"
                                 onClick={() => handleAcceptFriendRequest(commUser.request_id)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl cursor-pointer"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
                               >
                                 Accept
                               </button>
                             ) : (
                               <button
+                                type="button"
                                 onClick={() => handleSendFriendRequest(uid)}
-                                className="px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 text-sky-700 text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1"
+                                className="px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 text-sky-700 text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
                               >
                                 <UserPlus className="w-3 h-3" />
                                 <span>Add</span>
@@ -4713,144 +5112,6 @@ export default function VendorDashboard() {
                 )}
               </div>
             )}
-
-            {/* --- SUBTAB C: INCOMING FRIEND REQUESTS --- */}
-            {messageSubtab === 'requests' && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-                <div className="border-b border-slate-100 pb-3">
-                  <h3 className="font-bold text-base text-slate-900">Incoming Friend Requests</h3>
-                  <p className="text-xs text-slate-500">Students and vendors who want to connect with your store network.</p>
-                </div>
-
-                {pendingRequests.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {pendingRequests.map((req) => (
-                      <div key={req.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3">
-                        <div
-                          onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
-                          className="flex items-center space-x-3 overflow-hidden cursor-pointer group"
-                        >
-                          <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                            {req.sender_name?.charAt(0) || 'U'}
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors">{req.sender_name}</h4>
-                            <p className="text-[10px] text-slate-500">{req.sender_department || 'Campus Student'}</p>
-                            <span className="text-[9px] text-slate-400">{req.sender_hostel || 'Hostel Resident'}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center space-x-2 shrink-0">
-                          <button
-                            onClick={() => handleAcceptFriendRequest(req.id)}
-                            className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer"
-                          >
-                            Accept
-                          </button>
-                          <button
-                            onClick={() => handleDeclineFriendRequest(req.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
-                            title="Decline"
-                          >
-                            <UserX className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="py-12 text-center text-xs text-slate-400 space-y-2">
-                    <UserCheck className="w-8 h-8 mx-auto text-slate-300" />
-                    <p>No pending friend requests right now.</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* --- SUBTAB D: MY FRIENDS NETWORK --- */}
-            {messageSubtab === 'my_friends' && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-                <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-base text-slate-900">My Campus Network</h3>
-                    <p className="text-xs text-slate-500">Connected friends, returning student buyers and campus partners.</p>
-                  </div>
-                  <span className="text-xs font-bold bg-sky-50 text-sky-700 px-3 py-1 rounded-full">
-                    {friendsList.length} Connected
-                  </span>
-                </div>
-
-                {friendsList.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                    {friendsList.map((f) => {
-                      const fid = f.user_id || f.id;
-                      return (
-                        <div key={fid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3">
-                          <div
-                            onClick={() => handleOpenProfile(fid)}
-                            className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1"
-                          >
-                            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center shrink-0 overflow-hidden">
-                              {f.profile_picture_url ? (
-                                <SafeImage src={f.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
-                              ) : (
-                                f.full_name?.charAt(0) || 'F'
-                              )}
-                            </div>
-                            <div className="overflow-hidden">
-                              <h4 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700 transition-colors">{f.full_name}</h4>
-                              <p className="text-[10px] text-slate-500 truncate">{f.department || (f.role === 'vendor' ? 'Vendor' : 'Student')}</p>
-                              <span className="text-[9px] text-emerald-600 font-bold flex items-center space-x-1">
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>Connected</span>
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-1.5 shrink-0">
-                            <button
-                              onClick={() => {
-                                setSelectedPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
-                                setMessageSubtab('chats');
-                                handleSelectPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
-                              }}
-                              className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1"
-                            >
-                              <MessageSquare className="w-3 h-3" />
-                              <span>Chat</span>
-                              {getUnreadCountForUser(fid) > 0 && (
-                                <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
-                                  {getUnreadCountForUser(fid)}
-                                </span>
-                              )}
-                            </button>
-                            <button
-                              onClick={() => handleRemoveFriend(fid)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl cursor-pointer"
-                              title="Unfriend"
-                            >
-                              <UserX className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="py-12 text-center text-xs text-slate-400 space-y-2">
-                    <Users className="w-8 h-8 mx-auto text-slate-300" />
-                    <p>You have not added any campus friends yet.</p>
-                    <button
-                      onClick={() => setMessageSubtab('friends')}
-                      className="text-sky-600 font-bold hover:underline cursor-pointer"
-                    >
-                      Find students and vendors now
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
           </div>
         )}
 
@@ -5032,138 +5293,45 @@ export default function VendorDashboard() {
               </div>
             </div>
 
-            {/* Post Creator Card */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-4 shadow-xs">
-              <div className="flex items-center space-x-3 mb-3">
-                {user?.profile_picture_url || vendorStore?.logo ? (
-                  <SafeImage
-                    src={user?.profile_picture_url || vendorStore?.logo}
-                    alt="Store"
-                    fallbackType="avatar"
-                    className="w-9 h-9 rounded-full object-cover border border-sky-200 shrink-0"
-                  />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
-                    {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <span className="font-bold text-xs text-slate-900 block truncate">
-                    {vendorStore?.business_name || user?.full_name}
-                  </span>
-                  <span className="text-[10px] text-slate-400 truncate block">
-                    Share promo drops, new stock & food specials with students across campus
-                  </span>
-                </div>
-              </div>
-
-              <form onSubmit={handleCreateReel} className="space-y-3">
-                <input
-                  type="text"
-                  value={reelForm.title}
-                  onChange={(e) => setReelForm(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Drop Title (e.g. Fresh Shawarma Ready / 20% Off Sneakers)..."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
-                />
-
-                <textarea
-                  rows={2}
-                  value={reelForm.description}
-                  onChange={(e) => setReelForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Describe your promo, pricing, menu, opening hours or delivery details..."
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed"
-                />
-
-                {reelMediaPreview && (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
-                    {reelMediaFile?.type?.startsWith('video') ? (
-                      <video src={reelMediaPreview} controls className="max-h-56 w-full object-contain" />
-                    ) : (
-                      <SafeImage src={reelMediaPreview} alt="Preview" fallbackType="product" className="max-h-56 w-full object-contain" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => { setReelMediaFile(null); setReelMediaPreview(null); }}
-                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
-
-                {/* Location Tags - quick selection */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Tag:</span>
-                  <button
-                    type="button"
-                    onClick={handleDetectGpsLocation}
-                    disabled={detectingGps}
-                    className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0"
-                  >
-                    <Navigation className={`w-3 h-3 text-sky-600 ${detectingGps ? 'animate-spin' : ''}`} />
-                    <span>{detectingGps ? 'Locating...' : 'GPS'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelForm(prev => ({ ...prev, location: `📍 ${vendorStore?.location || 'Store Stall'}` }))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
-                  >
-                    🏪 Stall
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelForm(prev => ({ ...prev, location: '📍 SUB Food Court' }))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
-                  >
-                    🍔 Food Court
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReelForm(prev => ({ ...prev, location: '📍 Hostels Delivery' }))}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0"
-                  >
-                    🛏️ Hostels
-                  </button>
-                </div>
-
-                {/* Toolbar + Submit */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <input
-                      ref={reelFileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      onChange={handleReelFileSelect}
-                      className="hidden"
+            {/* Campus Drop Composer (Clean single bar matching StudentDashboard) */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-2.5 sm:p-3 shadow-xs">
+              <div className="flex items-center space-x-3">
+                <div
+                  onClick={() => handleOpenProfile(user?.user_id || user?.id)}
+                  className="relative cursor-pointer shrink-0"
+                  title="Store Profile"
+                >
+                  {user?.profile_picture_url || vendorStore?.logo ? (
+                    <SafeImage
+                      src={user?.profile_picture_url || vendorStore?.logo}
+                      alt="Store"
+                      fallbackType="avatar"
+                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
                     />
-                    <button
-                      type="button"
-                      onClick={() => reelFileInputRef.current?.click()}
-                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-600 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0"
-                    >
-                      <Camera className="w-4 h-4 text-sky-500" />
-                      <span className="hidden xs:inline sm:inline">{reelMediaFile ? 'Change Media' : 'Photo / Video'}</span>
-                    </button>
-                    <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
-                      <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                      <input
-                        type="text"
-                        value={reelForm.location}
-                        onChange={(e) => setReelForm(prev => ({ ...prev, location: e.target.value }))}
-                        placeholder="Location tag (e.g. SUB Food Court)"
-                        className="bg-transparent border-none text-xs text-slate-800 focus:outline-none min-w-0 w-full"
-                      />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                      {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
                     </div>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || (!reelMediaFile && !reelForm.description.trim() && !reelForm.title.trim())}
-                    className="px-4 py-2 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                  >
-                    {isSubmitting ? 'Posting...' : 'Post Drop'}
-                  </button>
+                  )}
+                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
                 </div>
-              </form>
+
+                <div
+                  onClick={() => setShowReelModal(true)}
+                  className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
+                >
+                  <span className="truncate">Share a promo drop or store update...</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowReelModal(true)}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  title="Add promo photo or video drop"
+                >
+                  <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
+                </button>
+              </div>
             </div>
 
             {/* Reels Feed Stream */}
@@ -6610,6 +6778,7 @@ export default function VendorDashboard() {
           </div>
         )}
 
+        </div>
       </main>
 
       {/* --- NEW VENDOR WELCOME & STORE COMPLETION PROMPT MODAL --- */}
@@ -6701,109 +6870,51 @@ export default function VendorDashboard() {
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR --- */}
+      {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
       {/* ========================================================================= */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
         <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
-          {/* Tab 1: Products */}
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'inventory' ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <Package className={`w-5 h-5 shrink-0 ${activeTab === 'inventory' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Products</span>
-            {activeTab === 'inventory' && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab 2: Services */}
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'services' ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <Wrench className={`w-5 h-5 shrink-0 ${activeTab === 'services' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Services</span>
-            {activeTab === 'services' && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab 3: Orders */}
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'orders' ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <div className="relative">
-              <ShoppingCart className={`w-5 h-5 shrink-0 ${activeTab === 'orders' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-              {pendingOrdersCount > 0 && (
-                <span className="absolute -top-1 -right-1.5 bg-amber-500 text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center">
-                  {pendingOrdersCount}
+          {[
+            { id: 'reels', icon: Home, label: 'Home' },
+            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
+            { id: 'inventory', icon: Store, label: 'Store' },
+            { id: 'orders', icon: ShoppingCart, label: 'Orders', badge: pendingOrdersCount },
+            { id: 'settings', icon: Settings, label: 'Settings' }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id || (tab.id === 'settings' && activeTab === 'hub') || (tab.id === 'inventory' && activeTab === 'services');
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  localStorage.setItem('campuslink_vendor_tab', tab.id);
+                }}
+                className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
+                  isActive ? 'text-sky-600 font-bold' : 'text-slate-500 hover:text-slate-900 font-medium'
+                }`}
+                title={tab.label}
+                aria-label={tab.label}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                  {tab.badge > 0 && (
+                    <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center ring-1 ring-white">
+                      {tab.badge > 15 ? '15+' : tab.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">
+                  {tab.label}
                 </span>
-              )}
-            </div>
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Orders</span>
-            {activeTab === 'orders' && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab 4: Chats & Stories */}
-          <button
-            onClick={() => setActiveTab('messages')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'messages' && !selectedPartner?.is_ai ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <div className="relative">
-              <MessageSquare className={`w-5 h-5 shrink-0 ${activeTab === 'messages' && !selectedPartner?.is_ai ? 'stroke-[2.5]' : 'stroke-2'}`} />
-              {(totalUnreadChatCount > 0 || pendingRequests.length > 0) && (
-                <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-1 rounded-full flex items-center justify-center shadow-xs animate-pulse">
-                  {totalUnreadChatCount > 0 ? totalUnreadChatCount : pendingRequests.length}
-                </span>
-              )}
-            </div>
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Chats</span>
-            {activeTab === 'messages' && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab 5: Reels */}
-          <button
-            onClick={() => setActiveTab('reels')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'reels' ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <Video className={`w-5 h-5 shrink-0 ${activeTab === 'reels' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Reels</span>
-            {activeTab === 'reels' && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
-
-          {/* Tab 6: Store Settings & Operations Hub */}
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
-              activeTab === 'settings' || activeTab === 'hub' ? 'text-sky-600 font-black' : 'text-slate-500 hover:text-slate-900 font-medium'
-            }`}
-          >
-            <div className="relative">
-              <Settings className={`w-5 h-5 shrink-0 ${activeTab === 'settings' || activeTab === 'hub' ? 'stroke-[2.5]' : 'stroke-2'}`} />
-            </div>
-            <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">Settings</span>
-            {(activeTab === 'settings' || activeTab === 'hub') && (
-              <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
-            )}
-          </button>
+                {isActive && (
+                  <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </nav>
 
@@ -7669,6 +7780,261 @@ export default function VendorDashboard() {
         }}
         onConfirm={handleConfirmSendChatMedia}
       />
+
+      {/* ========================================================================= */}
+      {/* --- SLIDE-OVER MENU DRAWER MODAL (MATCHING STUDENT DASHBOARD) --- */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {menuDrawerOpen && (
+          <div className="fixed inset-0 z-50 overflow-hidden">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMenuDrawerOpen(false)}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-xs"
+            />
+
+            {/* Slide-over Drawer (From Right) */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+              className="absolute inset-y-0 right-0 max-w-sm w-full bg-slate-50 shadow-2xl flex flex-col border-l border-slate-200 z-10"
+            >
+              {/* Drawer Top Header */}
+              <div className="p-4 bg-white border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xl font-black text-slate-900 tracking-tight">Merchant Menu</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                    Vendor
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMenuDrawerOpen(false)}
+                  className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+                  aria-label="Close menu"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Store Profile Card */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleOpenProfile(user?.user_id || user?.id);
+                    setMenuDrawerOpen(false);
+                  }}
+                  className="w-full p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:bg-slate-50/80 transition-all flex items-center space-x-3 text-left cursor-pointer group"
+                >
+                  <div className="relative shrink-0">
+                    {user?.profile_picture_url || vendorStore?.logo ? (
+                      <SafeImage
+                        src={user?.profile_picture_url || vendorStore?.logo}
+                        alt="Store"
+                        fallbackType="avatar"
+                        className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-base">
+                        {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center space-x-1.5">
+                      <h4 className="font-extrabold text-sm text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+                        {vendorStore?.business_name || user?.full_name || 'Campus Store'}
+                      </h4>
+                      {isVerified && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">
+                      {vendorStore?.location || user?.university_name || 'Campus Vendor Store'}
+                    </p>
+                    <span className="inline-flex items-center text-[10px] font-bold text-sky-600 mt-0.5">
+                      View Store Profile →
+                    </span>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" />
+                </button>
+
+                {/* Quick Navigation Shortcuts */}
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 px-1 mb-2">Shortcuts</h4>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {[
+                      {
+                        title: 'Feed & Drops',
+                        desc: 'Campus moments',
+                        icon: Home,
+                        color: 'text-blue-600 bg-blue-50',
+                        tab: 'reels'
+                      },
+                      {
+                        title: 'Friends',
+                        desc: `${pendingRequests.length} pending`,
+                        icon: Users,
+                        color: 'text-sky-600 bg-sky-50',
+                        tab: 'friends'
+                      },
+                      {
+                        title: 'Store Catalog',
+                        desc: `${products.length} products`,
+                        icon: Store,
+                        color: 'text-amber-600 bg-amber-50',
+                        tab: 'inventory'
+                      },
+                      {
+                        title: 'Orders',
+                        desc: `${pendingOrdersCount} pending`,
+                        icon: ShoppingCart,
+                        color: 'text-emerald-600 bg-emerald-50',
+                        tab: 'orders'
+                      },
+                      {
+                        title: 'Chats',
+                        desc: `${totalUnreadChatCount} unread`,
+                        icon: MessageSquare,
+                        color: 'text-indigo-600 bg-indigo-50',
+                        tab: 'messages'
+                      },
+                      {
+                        title: 'Settings',
+                        desc: 'Store details',
+                        icon: Settings,
+                        color: 'text-slate-600 bg-slate-100',
+                        tab: 'settings'
+                      }
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.title}
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(item.tab);
+                            setMenuDrawerOpen(false);
+                          }}
+                          className="p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:bg-slate-50 transition-all flex flex-col items-start text-left cursor-pointer group"
+                        >
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${item.color}`}>
+                            <Icon className="w-5 h-5 stroke-[2.2]" />
+                          </div>
+                          <span className="text-xs font-black text-slate-900 group-hover:text-blue-600 transition-colors">
+                            {item.title}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-semibold truncate w-full">
+                            {item.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* More Settings & Utilities List */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden divide-y divide-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('verification');
+                      setMenuDrawerOpen(false);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">ID & Business Verification</span>
+                        <span className="text-[10px] text-slate-400">{isVerified ? 'Verified Merchant' : 'Action Required'}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('settings');
+                      setMenuDrawerOpen(false);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                        <Settings className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Store Preferences & Bank Info</span>
+                        <span className="text-[10px] text-slate-400">Payment, delivery & stall hours</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+
+                  {/* Notification Sounds Toggle */}
+                  <div className="w-full p-3.5 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+                        <Volume2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Notification Chimes</span>
+                        <span className="text-[10px] text-slate-400">{soundEnabled ? 'Enabled' : 'Muted'}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !soundEnabled;
+                        setSoundEnabled(next);
+                        try { localStorage.setItem('cl_sound_enabled', String(next)); } catch (_) {}
+                        showToast(next ? 'Sound alerts enabled' : 'Sound alerts muted', 'info');
+                      }}
+                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        soundEnabled ? 'bg-sky-500' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span className={`block w-4 h-4 rounded-full bg-white shadow-xs transition-transform transform ${
+                        soundEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Install App Button if PWA available */}
+                <div className="p-1">
+                  <InstallAppButton variant="full" />
+                </div>
+
+                {/* Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuDrawerOpen(false);
+                    handleLogout();
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center space-x-2 transition-colors cursor-pointer border border-rose-200/60"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Log Out</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* --- FLOATING NOTIFICATION / FEEDBACK TOAST --- */}
       <AnimatePresence>
