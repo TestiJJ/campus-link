@@ -1712,6 +1712,8 @@ export default function VendorDashboard() {
     fetchAiMessages();
   };
 
+  const handleSelectAiCopilot = handleSelectAiChat;
+
   const handleSendAiMessage = async (customPrompt = null) => {
     const textToSend = (typeof customPrompt === 'string' ? customPrompt : newMsgText).trim();
     if (!textToSend || isAiTyping) return;
