@@ -464,25 +464,6 @@ export default function StudentDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState('all'); // 'all' | 'social' | 'orders'
 
-  // Determine if any modal is currently open to hide the mobile bottom navigation bar
-  const isAnyModalOpen = Boolean(
-    editProfileModalOpen ||
-    changePasswordModalOpen ||
-    orderModalItem ||
-    reportModalOpen ||
-    createStatusModalOpen ||
-    statusPrivacyModalOpen ||
-    statusViewersModalOpen ||
-    memoryModalOpen ||
-    profileModalOpen ||
-    activeStatusViewer ||
-    showNewUserModal ||
-    showMediaEditor ||
-    videoRecorderOpen ||
-    audioRecorderOpen ||
-    notificationsOpen
-  );
-
   // Native Phone Push Notifications State
   const [pushState, setPushState] = useState(() => getNotificationPermissionState());
   const [pushLoading, setPushLoading] = useState(false);
@@ -3177,6 +3158,23 @@ export default function StudentDashboard() {
 
     return matchesSearch && matchesType && matchesCat;
   });
+
+  // Determine if any modal is currently open to hide the mobile bottom navigation bar
+  const isAnyModalOpen = Boolean(
+    editProfileModalOpen ||
+    changePasswordModalOpen ||
+    orderModalItem ||
+    reportModalOpen ||
+    createStatusModalOpen ||
+    statusPrivacyModalOpen ||
+    statusViewersModalOpen ||
+    memoryModalOpen ||
+    profileModalOpen ||
+    activeStatusViewer ||
+    showNewUserModal ||
+    showMediaEditor ||
+    notificationsOpen
+  );
 
   return (
     <div className="h-dvh-screen max-h-dvh-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
