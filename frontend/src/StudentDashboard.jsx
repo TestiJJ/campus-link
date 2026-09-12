@@ -2481,14 +2481,38 @@ export default function StudentDashboard() {
 
   // Auto-record status view when activeStatusViewer changes
   useEffect(() => {
-    if (activeStatusViewer && statusGroups[activeStatusViewer.userIdx]) {
-      const group = statusGroups[activeStatusViewer.userIdx];
-      const item = group.items[activeStatusViewer.itemIdx];
-      if (item && !group.is_self) {
-        API.post(`/campus/statuses/${item.id}/view`).catch(() => {});
-      }
+    if (!activeStatusViewer || !statusGroups[activeStatusViewer.userIdx]) return;
+    const targetGroup = statusGroups[activeStatusViewer.userIdx];
+    const item = targetGroup.items?.[activeStatusViewer.itemIdx];
+    if (item && !targetGroup.is_self) {
+      const targetUserId = targetGroup.user_id;
+      const targetItemId = item.id;
+
+      // 1. Optimistic update in local state so viewed state reflects immediately
+      setStatusGroups(prev => {
+        const idx = prev.findIndex(g => g.user_id === targetUserId);
+        if (idx === -1) return prev;
+        const next = [...prev];
+        const g = { ...next[idx] };
+        if (g.items) {
+          const nextItems = g.items.map(it => 
+            it.id === targetItemId ? { ...it, is_viewed: true } : it
+          );
+          g.items = nextItems;
+          g.has_unviewed = nextItems.some(it => !it.is_viewed);
+          g.all_viewed = !g.has_unviewed;
+          next[idx] = g;
+          try {
+            setCachedData('statusGroups', next);
+          } catch {}
+        }
+        return next;
+      });
+
+      // 2. Persist view to backend
+      API.post(`/campus/statuses/${targetItemId}/view`).catch(() => {});
     }
-  }, [activeStatusViewer, statusGroups]);
+  }, [activeStatusViewer]);
 
   // --- FRIEND REQUEST ACTIONS (INSTANT 0ms OPTIMISTIC UPDATES) ---
 
@@ -3309,10 +3333,10 @@ export default function StudentDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
         
         {/* --- FACEBOOK LITE STYLE TOP HEADER & TABS BAR --- */}
-        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 shadow-2xs w-full mb-3 sm:mb-4 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
           {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
           {activeTab === 'reels' && (
             <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
@@ -3409,6 +3433,9 @@ export default function StudentDashboard() {
             })}
           </div>
         </div>
+
+        {/* Main Content Body */}
+        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-8'}`}>
 
 
         {/* Toast Alert */}
@@ -3779,18 +3806,21 @@ export default function StudentDashboard() {
                     const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
                     const firstItem = group.items?.[0];
                     const bgUrl = firstItem?.media_url || group.user_avatar;
+                    const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
 
                     return (
                       <div
                         key={group.user_id}
                         onClick={() => {
-                          const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
+                          const firstUnviewed = group.items?.findIndex(it => !it.is_viewed) ?? -1;
                           setActiveStatusViewer({
                             userIdx: origIdx !== -1 ? origIdx : 0,
                             itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
                           });
                         }}
-                        className="w-24 sm:w-28 h-40 sm:h-44 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-transform active:scale-95 bg-slate-900"
+                        className={`w-24 sm:w-28 h-40 sm:h-44 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-all active:scale-95 ${
+                          isUnviewed ? 'bg-slate-900 ring-2 ring-blue-500/90 ring-offset-1 ring-offset-white' : 'bg-slate-800 opacity-80'
+                        }`}
                       >
                         {bgUrl ? (
                           <SafeImage
@@ -3805,9 +3835,24 @@ export default function StudentDashboard() {
                           </div>
                         )}
 
-                        {/* Top Left Badge (like '1' in user screenshot) */}
-                        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-blue-600 text-white font-black text-[10px] flex items-center justify-center border-2 border-white shadow-xs">
-                          {group.items?.length || 1}
+                        {/* Top Left Author Avatar (Active Blue Ring if Unviewed, Muted if Viewed) */}
+                        <div className={`absolute top-2 left-2 w-8 h-8 rounded-full p-0.5 shadow-md flex items-center justify-center ${
+                          isUnviewed ? 'bg-blue-600 ring-2 ring-blue-400 ring-offset-1 ring-offset-black/50' : 'bg-slate-400/80 ring-1 ring-white/60'
+                        }`}>
+                          <div className="w-full h-full rounded-full overflow-hidden bg-white">
+                            {group.user_avatar ? (
+                              <SafeImage
+                                src={group.user_avatar}
+                                alt={group.user_name}
+                                fallbackType="avatar"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                                {group.user_name?.charAt(0)}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* Dark bottom gradient overlay */}
@@ -4925,131 +4970,6 @@ export default function StudentDashboard() {
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
-            {/* Compact Campus Stories Rail (Shifted Up & Space-Optimized for Chats) */}
-            {!selectedPartner && (
-              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 px-3 py-2 sm:px-4 sm:py-2.5 shadow-2xs shrink-0 mb-2">
-                <div className="flex items-center justify-between mb-1.5 px-0.5">
-                  <span className="text-[11px] sm:text-xs font-bold text-slate-800 flex items-center space-x-1.5">
-                    <Camera className="w-3 h-3 text-sky-500" />
-                    <span>Campus Stories</span>
-                  </span>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
-                    <button
-                      type="button"
-                      onClick={() => setStatusPrivacyModalOpen(true)}
-                      className="text-[10px] sm:text-[11px] text-slate-500 hover:text-sky-600 font-semibold cursor-pointer hidden sm:inline"
-                    >
-                      Privacy
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-2.5 sm:space-x-3 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
-                  {/* 1. My Story (Your Story Bubble) */}
-                  {(() => {
-                    const selfGroup = statusGroups.find(g => g.is_self);
-                    const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
-                    return (
-                      <div className="flex flex-col items-center shrink-0 cursor-pointer group snap-start">
-                        <div
-                          onClick={() => {
-                            if (hasMyStory) {
-                              const selfIdx = statusGroups.findIndex(g => g.is_self);
-                              setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
-                            } else {
-                              setCreateStatusModalOpen(true);
-                            }
-                          }}
-                          className={`relative w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 active:scale-95 ${
-                            hasMyStory
-                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
-                              : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
-                          }`}
-                        >
-                          <div className="w-full h-full rounded-full bg-white p-0.5 overflow-hidden flex items-center justify-center">
-                            {currentUser?.profile_picture_url ? (
-                              <SafeImage
-                                src={currentUser.profile_picture_url}
-                                alt="Your Story"
-                                fallbackType="avatar"
-                                className="w-full h-full rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-xs">
-                                {currentUser?.full_name?.charAt(0) || 'U'}
-                              </div>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCreateStatusModalOpen(true);
-                            }}
-                            className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90 cursor-pointer"
-                            title="Add to story"
-                            aria-label="Add to story"
-                          >
-                            <Plus className="w-2.5 h-2.5 stroke-[3]" />
-                          </button>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[54px] text-center">Your Story</span>
-                      </div>
-                    );
-                  })()}
-
-                  {/* 2. Peer Campus Stories */}
-                  {statusGroups
-                    .filter(g => !g.is_self)
-                    .map((group) => {
-                      const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
-                      const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
-                      return (
-                        <div
-                          key={group.user_id}
-                          onClick={() => {
-                            const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
-                            setActiveStatusViewer({
-                              userIdx: origIdx !== -1 ? origIdx : 0,
-                              itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                            });
-                          }}
-                          className="flex flex-col items-center shrink-0 cursor-pointer group snap-start"
-                        >
-                          <div
-                            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full p-0.5 transition-transform group-hover:scale-105 active:scale-95 flex items-center justify-center ${
-                              isUnviewed
-                                ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
-                                : 'bg-slate-200 border border-slate-300 opacity-60'
-                            }`}
-                          >
-                            <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
-                              {group.user_avatar ? (
-                                <SafeImage
-                                  src={group.user_avatar}
-                                  alt={group.user_name}
-                                  fallbackType="avatar"
-                                  className="w-full h-full rounded-full object-cover"
-                                />
-                              ) : (
-                                <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
-                                  {group.user_name.charAt(0)}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[54px] text-center">
-                            {group.user_name.split(' ')[0]}
-                          </span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-
-
             {/* Chat Box Container */}
             <div className={`flex flex-col overflow-hidden flex-1 min-h-0 bg-white ${selectedPartner && messageSubtab === 'chats' ? 'rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'rounded-3xl border border-slate-200 shadow-xs'}`}>
               
@@ -6952,6 +6872,8 @@ export default function StudentDashboard() {
             </div>
           </div>
         )}
+
+        </div> {/* End of Main Content Body */}
 
       {/* --- MODAL: EDIT PROFILE INFORMATION (Fully iOS Safari Optimized) --- */}
       <AnimatePresence>
