@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ShoppingBag, Video, Navigation, MessageSquare, User,
+  ShoppingBag, Video, Home, Navigation, MessageSquare, User,
   LogOut, Search, Heart, Plus, ShieldCheck,
   Phone, MapPin, Send, Utensils, CheckCircle2,
   Clock, AlertCircle, Sparkles, X, Camera,
@@ -213,6 +213,7 @@ export function getInitialStudentTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
+    if (tabParam === 'home') return 'reels';
     if (tabParam && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tabParam)) {
       return tabParam;
     }
@@ -221,7 +222,7 @@ export function getInitialStudentTab() {
       return saved;
     }
   } catch {}
-  return 'marketplace';
+  return 'reels';
 }
 
 export default function StudentDashboard() {
@@ -448,6 +449,8 @@ export default function StudentDashboard() {
   });
   const avatarInputRef = useRef(null);
   const [profileSubtab, setProfileSubtab] = useState('profile'); // 'profile' | 'security' | 'notifications' | 'about'
+  const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     try {
       return localStorage.getItem('cl_sound_enabled') !== 'false';
@@ -3011,6 +3014,7 @@ export default function StudentDashboard() {
       setCurrentUser(updated);
       localStorage.setItem('user', JSON.stringify(updated));
       setToast({ text: 'Profile information updated successfully!', type: 'success' });
+      setEditProfileModalOpen(false);
       setProfileForm(prev => ({
         ...prev,
         full_name: updated.full_name || '',
@@ -3051,6 +3055,7 @@ export default function StudentDashboard() {
       });
       setToast({ text: res.data.message || 'Password changed successfully!', type: 'success' });
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+      setChangePasswordModalOpen(false);
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to change password.');
     } finally {
@@ -3193,36 +3198,29 @@ export default function StudentDashboard() {
           </div>
 
           <nav className="space-y-1.5 text-xs font-semibold">
-            <button
-              onClick={() => { setActiveTab('marketplace'); setMarketType('products'); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'marketplace' && marketType === 'products' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Campus Marketplace</span>
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('marketplace'); setMarketType('services'); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'marketplace' && marketType === 'services' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Wrench className="w-4 h-4" />
-              <span>Campus Services</span>
-            </button>
-
+            {/* 1. Home (Reels & Feed) */}
             <button
               onClick={() => setActiveTab('reels')}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <Video className="w-4 h-4" />
-              <span>Campus Reels</span>
+              <Home className="w-4 h-4" />
+              <span>Home & Feed</span>
             </button>
 
+            {/* 2. Unified Market & Services */}
+            <button
+              onClick={() => { setActiveTab('marketplace'); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'marketplace' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4" />
+              <span>Market & Services</span>
+            </button>
+
+            {/* 3. Campus Notices & Directory */}
             <button
               onClick={() => setActiveTab('campus')}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
@@ -3230,9 +3228,10 @@ export default function StudentDashboard() {
               }`}
             >
               <Bell className="w-4 h-4" />
-              <span>Notices & Lost/Found</span>
+              <span>Notices & Directory</span>
             </button>
 
+            {/* 4. Messages & Friends */}
             <button
               onClick={() => setActiveTab('messages')}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer relative ${
@@ -3248,14 +3247,15 @@ export default function StudentDashboard() {
               )}
             </button>
 
+            {/* 5. Settings & Profile */}
             <button
               onClick={() => setActiveTab('profile')}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'profile' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              <User className="w-4 h-4" />
-              <span>Profile & Settings</span>
+              <Settings className="w-4 h-4" />
+              <span>Settings & Profile</span>
             </button>
           </nav>
         </div>
@@ -3411,33 +3411,42 @@ export default function StudentDashboard() {
         {/* --- TAB 1: CAMPUS MARKETPLACE (JUMIA STYLE) --- */}
         {activeTab === 'marketplace' && (
           <div>
-            {/* Header & Sub-Switch */}
+            {/* Header & Unified Switcher */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  Campus Marketplace
+                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+                  <span>Campus Market & Services</span>
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Shop verified campus vendor products, meal packs & essential student services.
+                  Shop verified campus vendor goods, meals & hire trusted student service providers.
                 </p>
               </div>
 
-              <div className="flex bg-slate-100 p-1 rounded-xl self-start sm:self-center border border-slate-200">
+              {/* High-visibility segmented pill toggle */}
+              <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-inner w-full sm:w-auto">
                 <button
+                  type="button"
                   onClick={() => setMarketType('products')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    marketType === 'products' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  className={`flex-1 sm:flex-none flex items-center justify-center space-x-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    marketType === 'products'
+                      ? 'bg-white text-sky-600 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Products ({products.length})
+                  <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+                  <span>Products ({products.length})</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setMarketType('services')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    marketType === 'services' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  className={`flex-1 sm:flex-none flex items-center justify-center space-x-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    marketType === 'services'
+                      ? 'bg-white text-sky-600 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Services ({services.length})
+                  <Wrench className="w-3.5 h-3.5 shrink-0" />
+                  <span>Services ({services.length})</span>
                 </button>
               </div>
             </div>
@@ -3601,17 +3610,18 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* --- TAB 2: CAMPUS REELS --- */}
+        {/* --- TAB 2: CAMPUS HOME & FEED (REELS, PHOTOS, STORIES) --- */}
         {activeTab === 'reels' && (
           <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
-                  Campus Reels & Feed
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate flex items-center space-x-2">
+                  <Home className="w-6 h-6 text-sky-500 shrink-0 inline md:hidden" />
+                  <span>Campus Home & Feed</span>
                 </h1>
                 <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                  Watch student video drops, campus clips, and share updates across campus.
+                  Stories, student video drops, photo moments & campus pulse across {universityName}.
                 </p>
               </div>
               <button
@@ -3699,9 +3709,9 @@ export default function StudentDashboard() {
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <input ref={reelFileInputRef} type="file" accept="image/*,video/*" onChange={handleReelFileSelect} className="hidden" />
                     <button type="button" onClick={() => reelFileInputRef.current?.click()}
-                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-600 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
+                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-700 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
                       <Camera className="w-4 h-4 text-sky-500" />
-                      <span className="hidden xs:inline sm:inline">{reelFile ? 'Change' : 'Photo/Video'}</span>
+                      <span>{reelFile ? (reelFile.type?.startsWith('video') ? 'Change Video' : 'Change Photo') : 'Photo / Video Drop'}</span>
                     </button>
                     <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
                       <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
@@ -6229,464 +6239,526 @@ export default function StudentDashboard() {
         </div>
       )}
 
-        {/* --- TAB 5: PROFILE & SETTINGS (MODERN SOCIAL MEDIA LAYOUT) --- */}
+        {/* --- TAB 5: PROFILE & SETTINGS (MODERN SOCIAL / IOS GROUPED EXPERIENCE) --- */}
         {activeTab === 'profile' && (
-          <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6">
+          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6 pb-12">
+            {/* Header Title */}
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Student Settings & Profile</h1>
-              <p className="text-xs sm:text-sm text-slate-500 mt-1">Manage your campus identity, hostel delivery location, and account security.</p>
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Settings & Profile</h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Manage your student identity, hostel location, notifications & security.</p>
             </div>
 
-            {/* Social Media Segmented Subtab Navigation */}
-            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none border-b border-slate-200">
-              {[
-                { id: 'profile', label: 'Profile & Identity', icon: User },
-                { id: 'security', label: 'Account & Security', icon: Lock },
-                { id: 'notifications', label: 'Notifications & Sounds', icon: Bell },
-                { id: 'about', label: 'About & App', icon: Sliders }
-              ].map(tab => {
-                const Icon = tab.icon;
-                const isActive = profileSubtab === tab.id;
-                return (
+            {/* 1. HERO PROFILE CARD */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-7 shadow-xs relative overflow-hidden">
+              {/* Subtle background gradient glow */}
+              <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl from-sky-400/10 via-blue-500/5 to-transparent rounded-bl-full pointer-events-none" />
+
+              <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left space-y-4 sm:space-y-0 sm:space-x-5">
+                {/* Avatar with Camera Overlay */}
+                <div className="relative group shrink-0">
+                  {currentUser?.profile_picture_url ? (
+                    <SafeImage
+                      src={currentUser.profile_picture_url}
+                      alt={currentUser.full_name}
+                      fallbackType="avatar"
+                      className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl object-cover border-2 border-sky-500 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-tr from-sky-500 via-blue-600 to-indigo-600 text-white font-black text-3xl flex items-center justify-center shadow-md">
+                      {currentUser?.full_name?.charAt(0) || 'S'}
+                    </div>
+                  )}
+
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarSelect}
+                    className="hidden"
+                  />
                   <button
-                    key={tab.id}
                     type="button"
-                    onClick={() => setProfileSubtab(tab.id)}
-                    className={`px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center space-x-2 shrink-0 cursor-pointer ${
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                    className="absolute -bottom-1.5 -right-1.5 p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110 active:scale-95"
+                    title="Change Profile Photo"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Profile Details */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-center sm:justify-start flex-wrap gap-2">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 truncate">{currentUser?.full_name}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 flex items-center space-x-1 shrink-0">
+                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Verified Student</span>
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-500 mt-1 break-all sm:break-normal">
+                    {currentUser?.email} {currentUser?.phone_number && `• ${currentUser.phone_number}`}
+                  </p>
+
+                  {/* Campus Badges */}
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 mt-2.5">
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold flex items-center space-x-1">
+                      <GraduationCap className="w-3 h-3 text-slate-500" />
+                      <span>{currentUser?.department || 'Department not set'}</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold">
+                      {currentUser?.level || '100L'}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[11px] font-semibold flex items-center space-x-1">
+                      <MapPin className="w-3 h-3 text-slate-500" />
+                      <span className="truncate max-w-[160px]">{currentUser?.hostel || 'Hostel not set'}</span>
+                    </span>
+                  </div>
+
+                  {currentUser?.bio && (
+                    <p className="text-xs text-slate-600 mt-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
+                      "{currentUser.bio}"
+                    </p>
+                  )}
+
+                  {/* Edit Profile Action Button */}
+                  <div className="mt-4 flex items-center justify-center sm:justify-start space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditProfileModalOpen(true)}
+                      className="px-4 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChangePasswordModalOpen(true)}
+                      className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Password</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Student Community Stats Strip */}
+              <div className="grid grid-cols-3 gap-2 mt-6 pt-5 border-t border-slate-100 text-center">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('messages'); setMessageSubtab('my_friends'); }}
+                  className="p-2.5 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
+                >
+                  <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(myFriends || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Friends</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('messages'); setMessageSubtab('requests'); }}
+                  className="p-2.5 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
+                >
+                  <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(pendingRequests || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Requests</span>
+                </button>
+                <div className="p-2.5 rounded-2xl">
+                  <p className="text-base sm:text-lg font-black text-slate-900">{(myOrders || []).length}</p>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-tight">Orders</span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. GROUPED SETTINGS: PREFERENCES & SOUNDS */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+              <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Preferences & Alerts</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {/* Push Notifications Row */}
+                <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                      <Bell className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Phone Push Notifications</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">Instant alerts for new chats, orders & friend requests.</p>
+                    </div>
+                  </div>
+                  <div>
+                    {pushState === 'granted' ? (
+                      <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-1 shrink-0">
+                        <Check className="w-3 h-3" />
+                        <span>Active</span>
+                      </span>
+                    ) : pushState === 'denied' ? (
+                      <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200 flex items-center space-x-1 shrink-0">
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Blocked</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleEnablePush}
+                        disabled={pushLoading}
+                        className="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        {pushLoading ? 'Enabling...' : 'Enable'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* In-App Sounds Toggle */}
+                <div className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                      <Volume2 className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">In-App Audio Chimes</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">Gentle sounds on incoming messages and updates.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !soundEnabled;
+                      setSoundEnabled(next);
+                      try { localStorage.setItem('cl_sound_enabled', String(next)); } catch (_) {}
+                      setToast({ text: next ? 'In-app audio sounds enabled' : 'In-app audio sounds muted', type: 'info' });
+                    }}
+                    className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
+                      soundEnabled ? 'bg-sky-500' : 'bg-slate-300'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-sky-400' : 'text-slate-400'}`} />
-                    <span>{tab.label}</span>
+                    <span
+                      className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-xs ${
+                        soundEnabled ? 'left-6.5' : 'left-0.5'
+                      }`}
+                    />
                   </button>
-                );
-              })}
+                </div>
+              </div>
             </div>
 
-            {/* 1. SUBTAB: PROFILE & IDENTITY */}
-            {profileSubtab === 'profile' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Profile Photo & Summary Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center space-y-4 sm:space-y-0 sm:space-x-5 pb-5 border-b border-slate-100">
-                    <div className="relative self-start group shrink-0">
-                      {currentUser?.profile_picture_url ? (
-                        <SafeImage
-                          src={currentUser.profile_picture_url}
-                          alt={currentUser.full_name}
-                          fallbackType="avatar"
-                          className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-sky-500 shadow-md"
-                        />
-                      ) : (
-                        <div className="w-18 h-18 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black text-2xl sm:text-3xl flex items-center justify-center shadow-md">
-                          {currentUser?.full_name?.charAt(0) || 'S'}
-                        </div>
-                      )}
-
-                      {/* Hidden File Input */}
-                      <input
-                        ref={avatarInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleAvatarSelect}
-                        className="hidden"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        disabled={uploadingAvatar}
-                        className="absolute -bottom-2 -right-2 p-1.5 sm:p-2 bg-sky-500 hover:bg-sky-600 text-white rounded-xl shadow-md cursor-pointer transition-transform group-hover:scale-110"
-                        title="Change Profile Picture"
-                      >
-                        <Camera className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center flex-wrap gap-2">
-                        <h3 className="text-lg sm:text-xl font-bold text-slate-900 truncate max-w-full">{currentUser?.full_name}</h3>
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 flex items-center space-x-1 shrink-0">
-                          <ShieldCheck className="w-3 h-3 text-sky-600" />
-                          <span>Verified Student</span>
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-0.5 break-all sm:break-normal">{currentUser?.email} {currentUser?.phone_number && `• ${currentUser.phone_number}`}</p>
-                      <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 italic">
-                        "{currentUser?.bio || 'Add a short bio below to introduce yourself to your campus community.'}"
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Student Academic & Location Quick Badges */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-xs">
-                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Institution</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{universityName}</p>
-                    </div>
-                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Department</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{currentUser?.department || 'Not set'}</p>
-                    </div>
-                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Level</span>
-                      <p className="font-bold text-slate-800 mt-1">{currentUser?.level || '100L'}</p>
-                    </div>
-                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Hostel Room</span>
-                      <p className="font-bold text-slate-800 mt-1 truncate">{currentUser?.hostel || 'Not set'}</p>
-                    </div>
-                  </div>
-
-                  {/* Student Community Stats */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => { setActiveTab('messages'); setMessageSubtab('my_friends'); }}
-                      className="p-3.5 rounded-2xl bg-sky-50/70 hover:bg-sky-100/70 border border-sky-100 text-left transition-colors cursor-pointer"
-                    >
-                      <span className="text-[10px] uppercase font-bold text-sky-600 block">Connected Friends</span>
-                      <p className="font-black text-sky-900 text-sm mt-0.5">{(myFriends || []).length} Connected Peers</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setActiveTab('messages'); setMessageSubtab('requests'); }}
-                      className="p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition-colors cursor-pointer"
-                    >
-                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Friend Requests</span>
-                      <p className="font-black text-slate-800 text-sm mt-0.5">{(pendingRequests || []).length} Incoming</p>
-                    </button>
-                    <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-100">
-                      <span className="text-[10px] uppercase font-bold text-sky-600 block">Campus Marketplace</span>
-                      <p className="font-black text-sky-900 text-sm mt-0.5">{(myOrders || []).length} Completed Orders</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Edit Profile Form */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex items-center space-x-2">
-                    <Edit3 className="w-5 h-5 text-sky-600" />
-                    <h3 className="text-base font-bold text-slate-900">Edit Profile Information</h3>
-                  </div>
-                  <p className="text-xs text-slate-500">Keep your academic details and hostel room number current so vendors can deliver accurately.</p>
-
-                  <form onSubmit={handleUpdateProfile} className="space-y-4 text-xs">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Full Name</label>
-                        <input
-                          type="text"
-                          required
-                          value={profileForm.full_name}
-                          onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Phone Number</label>
-                        <input
-                          type="tel"
-                          placeholder="e.g. +2348012345678"
-                          value={profileForm.phone_number}
-                          onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Department</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Computer Science"
-                          value={profileForm.department}
-                          onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Academic Level</label>
-                        <select
-                          value={profileForm.level}
-                          onChange={(e) => setProfileForm({ ...profileForm, level: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        >
-                          <option value="">Select Level</option>
-                          <option value="100L">100 Level</option>
-                          <option value="200L">200 Level</option>
-                          <option value="300L">300 Level</option>
-                          <option value="400L">400 Level</option>
-                          <option value="500L">500 Level</option>
-                          <option value="Postgraduate">Postgraduate</option>
-                        </select>
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel / Campus Delivery Location</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Queen Amina Hall, Room B12"
-                          value={profileForm.hostel}
-                          onChange={(e) => setProfileForm({ ...profileForm, hostel: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">About / Bio</label>
-                        <textarea
-                          rows={2}
-                          placeholder="Tell campus peers what you do, what you buy or sell..."
-                          value={profileForm.bio}
-                          onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-2">
-                      <button
-                        type="submit"
-                        disabled={savingProfile}
-                        className="w-full sm:w-auto px-6 py-2.5 sm:py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {savingProfile ? 'Saving Changes...' : 'Save Profile Changes'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+            {/* 3. GROUPED SETTINGS: ACCOUNT & LOCATION */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+              <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Account Details</span>
               </div>
-            )}
-
-            {/* 2. SUBTAB: ACCOUNT & SECURITY */}
-            {profileSubtab === 'security' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Account Credentials Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900">Student Account Credentials</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
-                    <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Student Email</span>
-                      <p className="font-bold text-slate-900 mt-1 truncate">{currentUser?.email}</p>
+              <div className="divide-y divide-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(true)}
+                  className="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                      <User className="w-5 h-5" />
                     </div>
-                    <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-slate-50 border border-slate-100">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Verified Status</span>
-                      <p className="font-bold text-emerald-600 mt-1 flex items-center space-x-1">
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Active Campus Student</span>
-                      </p>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Personal & Academic Profile</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">{currentUser?.department || 'Department'} • {currentUser?.level || '100L'}</p>
                     </div>
                   </div>
-                </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </button>
 
-                {/* Change Password Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex items-center space-x-2">
-                    <Lock className="w-5 h-5 text-sky-600" />
-                    <h3 className="text-base font-bold text-slate-900">Change Password</h3>
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(true)}
+                  className="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                      <MapPin className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Hostel & Delivery Location</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">{currentUser?.hostel || 'Tap to set hostel delivery spot'}</p>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500">Ensure your student account is using a secure password (minimum 6 characters).</p>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </button>
 
-                  <form onSubmit={handleChangePassword} className="space-y-4 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="Enter current password"
-                        value={passwordForm.current_password}
-                        onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
-                        className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                      />
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordModalOpen(true)}
+                  className="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                      <Lock className="w-5 h-5" />
                     </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Minimum 6 characters"
-                          value={passwordForm.new_password}
-                          onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
-                        <input
-                          type="password"
-                          required
-                          placeholder="Re-enter new password"
-                          value={passwordForm.confirm_password}
-                          onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
-                          className="w-full p-2.5 sm:p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
-                        />
-                      </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-900">Account Security & Password</h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5 truncate">Update your account login password.</p>
                     </div>
-
-                    <div className="flex justify-end pt-2">
-                      <button
-                        type="submit"
-                        disabled={changingPassword}
-                        className="w-full sm:w-auto px-6 py-2.5 sm:py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {changingPassword ? 'Updating Password...' : 'Update Password'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </button>
               </div>
-            )}
+            </div>
 
-            {/* 3. SUBTAB: NOTIFICATIONS & SOUNDS */}
-            {profileSubtab === 'notifications' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Push Notifications Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-5 shadow-xs">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
-                      <Bell className="w-5 h-5 text-sky-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-slate-900">Phone Push Notifications</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">Receive instant order updates, chat replies, and notices directly on your device.</p>
-                    </div>
-                  </div>
-
-                  {!isPushSupported() ? (
-                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-start space-x-3 text-xs text-amber-800">
-                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                      <p>Push notifications are not supported by this browser. Open CampusLink in Chrome or Edge on Android / iOS.</p>
-                    </div>
-                  ) : pushState === 'denied' ? (
-                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-1">
-                      <p className="font-bold flex items-center space-x-1.5"><AlertCircle className="w-4 h-4" /><span>Notifications blocked in browser settings</span></p>
-                      <p>To enable: click the lock icon in your address bar → Site Settings → Notifications → Allow.</p>
-                    </div>
-                  ) : pushState === 'granted' ? (
-                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center space-x-3">
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                      <div>
-                        <p className="text-xs font-bold text-emerald-800">Push notifications are active</p>
-                        <p className="text-[11px] text-emerald-600 mt-0.5">You'll receive alerts for messages, friend requests, and order statuses.</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="p-4 rounded-2xl bg-sky-50 border border-sky-100 text-xs text-sky-800 space-y-1.5">
-                        <p className="font-bold">🔔 What you'll get notified about:</p>
-                        <ul className="space-y-1 list-disc list-inside text-sky-700">
-                          <li>Instant chat replies from friends & campus sellers</li>
-                          <li>Order delivery & pickup notifications</li>
-                          <li>Campus notices & emergency alerts</li>
-                        </ul>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={pushLoading}
-                        onClick={handleEnablePush}
-                        className="w-full py-3 px-4 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-md shadow-sky-500/20"
-                      >
-                        <Bell className="w-4 h-4" />
-                        <span>{pushLoading ? 'Enabling...' : 'Enable Phone Notifications'}</span>
-                      </button>
-                    </div>
-                  )}
-                  {pushMessage && (
-                    <p className="text-xs text-center font-semibold text-slate-700">{pushMessage}</p>
-                  )}
-                </div>
-
-                {/* In-App Sound Alerts Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0">
-                        <Volume2 className="w-5 h-5 text-sky-600" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">In-App Audio Sounds</h4>
-                        <p className="text-xs text-slate-500">Play pleasant audio chimes on incoming messages and notifications.</p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = !soundEnabled;
-                        setSoundEnabled(next);
-                        try { localStorage.setItem('cl_sound_enabled', String(next)); } catch (_) {}
-                        setToast({ text: next ? 'In-app audio sounds enabled' : 'In-app audio sounds muted', type: 'info' });
-                      }}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                        soundEnabled ? 'bg-sky-500' : 'bg-slate-300'
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-transform shadow-xs ${
-                          soundEnabled ? 'left-6.5' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
+            {/* 4. GROUPED SETTINGS: APP & UPDATES */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+              <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">App & Downloads</span>
               </div>
-            )}
-
-            {/* 4. SUBTAB: ABOUT & APP */}
-            {profileSubtab === 'about' && (
-              <div className="space-y-4 sm:space-y-6">
-                {/* Dedicated App Installation & Update Card */}
+              <div className="p-4 sm:p-5 space-y-4">
                 <InstallAppButton variant="settings" showInstalled={true} />
 
-                {/* Guidelines Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 shadow-xs">
-                  <h3 className="text-base font-bold text-slate-900">CampusLink Student Network</h3>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    CampusLink is designed exclusively for verified students and authorized merchants to trade safely, connect with classmates, find lost items, and share campus drops.
-                  </p>
-                </div>
-
-                {/* App Information Card */}
-                <div className="bg-white border border-slate-200 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 space-y-3 shadow-xs">
-                  <h4 className="text-sm font-bold text-slate-900">Application Details</h4>
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
-                    <span className="text-slate-500">Version</span>
-                    <span className="font-mono font-bold text-slate-800">2.4.2 (Campus Release)</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs py-2 border-b border-slate-100">
-                    <span className="text-slate-500">Connected Campus</span>
-                    <span className="font-bold text-sky-700">{universityName}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs py-2">
-                    <span className="text-slate-500">Platform</span>
-                    <span className="font-bold text-slate-800">Progressive Web App (PWA)</span>
-                  </div>
-                </div>
-
-                {/* Logout Card */}
-                <div className="bg-white border border-rose-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 flex items-center justify-between shadow-xs">
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900">Sign Out of CampusLink</h4>
-                    <p className="text-xs text-slate-500 mt-0.5">End your student session on this browser.</p>
+                    <span className="font-bold text-slate-800">CampusLink Version</span>
+                    <span className="text-slate-500 block text-[11px]">v2.4.2 • {universityName}</span>
                   </div>
                   <button
                     type="button"
-                    onClick={handleLogout}
-                    className="px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1.5"
+                    onClick={() => {
+                      try {
+                        const keysToRemove = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                          const k = localStorage.key(i);
+                          if (k && k.startsWith('cl_cache_')) keysToRemove.push(k);
+                        }
+                        keysToRemove.forEach(k => localStorage.removeItem(k));
+                        setToast({ text: 'Temporary cache cleared! Reloading...', type: 'info' });
+                        setTimeout(() => window.location.reload(), 600);
+                      } catch (_) {
+                        window.location.reload();
+                      }
+                    }}
+                    className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold transition-colors cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4" />
-                    <span>Log Out</span>
+                    Clear Cache & Sync
                   </button>
                 </div>
               </div>
-            )}
+            </div>
 
+            {/* 5. SIGN OUT BUTTON */}
+            <div className="bg-white rounded-3xl border border-rose-100 p-4 sm:p-5 shadow-xs flex items-center justify-between gap-4">
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900">Sign Out of CampusLink</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">End your student session on this browser.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs transition-colors cursor-pointer flex items-center space-x-1.5 shrink-0"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Log Out</span>
+              </button>
+            </div>
           </div>
         )}
+
+      {/* --- MODAL: EDIT PROFILE INFORMATION --- */}
+      <AnimatePresence>
+        {editProfileModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-7 max-h-[90vh] overflow-y-auto space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <Edit3 className="w-5 h-5 text-sky-600" />
+                  <h3 className="text-base font-bold text-slate-900">Edit Student Profile</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditProfileModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateProfile} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={profileForm.full_name}
+                    onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="e.g. +2348012345678"
+                      value={profileForm.phone_number}
+                      onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Academic Level</label>
+                    <select
+                      value={profileForm.level}
+                      onChange={(e) => setProfileForm({ ...profileForm, level: e.target.value })}
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                    >
+                      <option value="">Select Level</option>
+                      <option value="100L">100 Level</option>
+                      <option value="200L">200 Level</option>
+                      <option value="300L">300 Level</option>
+                      <option value="400L">400 Level</option>
+                      <option value="500L">500 Level</option>
+                      <option value="Postgraduate">Postgraduate</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Department</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Computer Science / Biochemistry"
+                    value={profileForm.department}
+                    onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel Room / Campus Delivery Location</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Queen Amina Hall, Room B12"
+                    value={profileForm.hostel}
+                    onChange={(e) => setProfileForm({ ...profileForm, hostel: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">About / Bio</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Introduce yourself to campus peers..."
+                    value={profileForm.bio}
+                    onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setEditProfileModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {savingProfile ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- MODAL: CHANGE PASSWORD --- */}
+      <AnimatePresence>
+        {changePasswordModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl border border-slate-200 shadow-2xl p-5 sm:p-7 space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center space-x-2">
+                  <Lock className="w-5 h-5 text-sky-600" />
+                  <h3 className="text-base font-bold text-slate-900">Change Account Password</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChangePasswordModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Current Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter current password"
+                    value={passwordForm.current_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">New Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Minimum 6 characters"
+                    value={passwordForm.new_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Confirm New Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Re-enter new password"
+                    value={passwordForm.confirm_password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-xs sm:text-sm"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setChangePasswordModalOpen(false)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={changingPassword}
+                    className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {changingPassword ? 'Updating...' : 'Update Password'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       </main>
 
@@ -8298,45 +8370,7 @@ export default function StudentDashboard() {
 
       {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Anchored Dock with Native Safe Areas & Tactile Tap Feedback) --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-2 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
-        {/* Market */}
-        <button
-          onClick={() => { setActiveTab('marketplace'); setMarketType('products'); }}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'marketplace' && marketType === 'products'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Marketplace"
-        >
-          <div className="relative flex items-center justify-center">
-            <ShoppingBag className={`w-5 h-5 transition-transform ${activeTab === 'marketplace' && marketType === 'products' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Market</span>
-          {activeTab === 'marketplace' && marketType === 'products' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Services */}
-        <button
-          onClick={() => { setActiveTab('marketplace'); setMarketType('services'); }}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'marketplace' && marketType === 'services'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Campus Services"
-        >
-          <div className="relative flex items-center justify-center">
-            <Wrench className={`w-5 h-5 transition-transform ${activeTab === 'marketplace' && marketType === 'services' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
-          </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Services</span>
-          {activeTab === 'marketplace' && marketType === 'services' && (
-            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* Reels */}
+        {/* 1. Home (Feed & Reels) */}
         <button
           onClick={() => setActiveTab('reels')}
           className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
@@ -8344,18 +8378,37 @@ export default function StudentDashboard() {
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
-          aria-label="Campus Reels"
+          aria-label="Home and Feed"
         >
           <div className="relative flex items-center justify-center">
-            <Video className={`w-5 h-5 transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Home className={`w-5 h-5 transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Reels</span>
+          <span className="text-[10px] tracking-tight mt-0.5">Home</span>
           {activeTab === 'reels' && (
             <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
-        {/* Notices & Lost/Found */}
+        {/* 2. Unified Market & Services */}
+        <button
+          onClick={() => { setActiveTab('marketplace'); }}
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+            activeTab === 'marketplace'
+              ? 'text-sky-600 font-extrabold'
+              : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+          aria-label="Market and Services"
+        >
+          <div className="relative flex items-center justify-center">
+            <ShoppingBag className={`w-5 h-5 transition-transform ${activeTab === 'marketplace' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+          </div>
+          <span className="text-[10px] tracking-tight mt-0.5">Market</span>
+          {activeTab === 'marketplace' && (
+            <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
+          )}
+        </button>
+
+        {/* 3. Campus Notices & Directory */}
         <button
           onClick={() => setActiveTab('campus')}
           className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
@@ -8368,13 +8421,13 @@ export default function StudentDashboard() {
           <div className="relative flex items-center justify-center">
             <Bell className={`w-5 h-5 transition-transform ${activeTab === 'campus' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Notices</span>
+          <span className="text-[10px] tracking-tight mt-0.5">Campus</span>
           {activeTab === 'campus' && (
             <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
 
-        {/* Chats & Friends */}
+        {/* 4. Chats & Friends */}
         <button
           onClick={() => setActiveTab('messages')}
           className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
@@ -8398,7 +8451,7 @@ export default function StudentDashboard() {
           )}
         </button>
 
-        {/* Profile & Settings */}
+        {/* 5. Settings & Profile */}
         <button
           onClick={() => setActiveTab('profile')}
           className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
@@ -8406,12 +8459,12 @@ export default function StudentDashboard() {
               ? 'text-sky-600 font-extrabold'
               : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
-          aria-label="Profile and Settings"
+          aria-label="Settings and Profile"
         >
           <div className="relative flex items-center justify-center">
-            <User className={`w-5 h-5 transition-transform ${activeTab === 'profile' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Settings className={`w-5 h-5 transition-transform ${activeTab === 'profile' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Profile</span>
+          <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
           {activeTab === 'profile' && (
             <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}

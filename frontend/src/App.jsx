@@ -250,10 +250,12 @@ export default function App() {
                 {/* Fast-Navigation Direct URLs & Aliases */}
                 <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
                 <Route path="/vendor" element={<PrivateRoute><VendorRedirect /></PrivateRoute>} />
+                <Route path="/home" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
                 <Route path="/feed" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
                 <Route path="/reels" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
                 <Route path="/market" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
                 <Route path="/marketplace" element={<PrivateRoute><TabRedirect tab="marketplace" /></PrivateRoute>} />
+                <Route path="/services" element={<PrivateRoute><TabRedirect tab="marketplace" subtab="services" /></PrivateRoute>} />
                 <Route path="/campus" element={<PrivateRoute><TabRedirect tab="campus" /></PrivateRoute>} />
                 <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
                 <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
