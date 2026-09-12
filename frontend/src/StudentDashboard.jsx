@@ -3643,268 +3643,104 @@ export default function StudentDashboard() {
 
         {/* --- TAB 2: CAMPUS HOME & FEED (SWEET SOCIAL EXPERIENCE) --- */}
         {activeTab === 'reels' && (
-          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5">
-            {/* Top Campus Stories Rail (Instagram/Facebook Style) */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 px-3.5 py-2.5 shadow-2xs">
-              <div className="flex items-center justify-between mb-2 px-0.5">
-                <span className="text-xs font-black text-slate-900 flex items-center space-x-1.5">
-                  <Camera className="w-3.5 h-3.5 text-sky-500" />
-                  <span>Campus Stories</span>
-                </span>
-                <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
-              </div>
-
-              <div className="flex items-center space-x-3 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
-                {/* 1. Your Story Bubble */}
-                {(() => {
-                  const selfGroup = statusGroups.find(g => g.is_self);
-                  const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
-                  return (
-                    <div className="flex flex-col items-center shrink-0 cursor-pointer group snap-start">
-                      <div
-                        onClick={() => {
-                          if (hasMyStory) {
-                            const selfIdx = statusGroups.findIndex(g => g.is_self);
-                            setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
-                          } else {
-                            setCreateStatusModalOpen(true);
-                          }
-                        }}
-                        className={`relative w-12 h-12 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 active:scale-95 ${
-                          hasMyStory
-                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
-                            : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
-                        }`}
-                      >
-                        <div className="w-full h-full rounded-full bg-white p-0.5 overflow-hidden flex items-center justify-center">
-                          {currentUser?.profile_picture_url ? (
-                            <SafeImage
-                              src={currentUser.profile_picture_url}
-                              alt="Your Story"
-                              fallbackType="avatar"
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-xs">
-                              {currentUser?.full_name?.charAt(0) || 'U'}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCreateStatusModalOpen(true);
-                          }}
-                          className="absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90 cursor-pointer"
-                          title="Add to story"
-                          aria-label="Add to story"
-                        >
-                          <Plus className="w-3 h-3 stroke-[3]" />
-                        </button>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[56px] text-center">Your Story</span>
+          <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-4">
+            {/* Compact Sweet Post Creator Card */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-3.5 shadow-2xs">
+              <form onSubmit={handlePostReelSubmit} className="space-y-2.5">
+                <div className="flex items-start space-x-2.5">
+                  {currentUser?.profile_picture_url ? (
+                    <SafeImage
+                      src={currentUser.profile_picture_url}
+                      alt="You"
+                      fallbackType="avatar"
+                      className="w-8 h-8 rounded-full object-cover border border-sky-200 shrink-0 mt-0.5"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-xs shrink-0 mt-0.5">
+                      {currentUser?.full_name?.charAt(0) || 'U'}
                     </div>
-                  );
-                })()}
+                  )}
 
-                {/* 2. Peer Campus Stories */}
-                {statusGroups
-                  .filter(g => !g.is_self)
-                  .map((group) => {
-                    const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
-                    const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
-                    return (
-                      <div
-                        key={group.user_id}
-                        onClick={() => {
-                          const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
-                          setActiveStatusViewer({
-                            userIdx: origIdx !== -1 ? origIdx : 0,
-                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                          });
-                        }}
-                        className="flex flex-col items-center shrink-0 cursor-pointer group snap-start"
-                      >
-                        <div
-                          className={`w-12 h-12 rounded-full p-0.5 transition-transform group-hover:scale-105 active:scale-95 flex items-center justify-center ${
-                            isUnviewed
-                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
-                              : 'bg-slate-200 border border-slate-300 opacity-60'
-                          }`}
-                        >
-                          <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
-                            {group.user_avatar ? (
-                              <SafeImage
-                                src={group.user_avatar}
-                                alt={group.user_name}
-                                fallbackType="avatar"
-                                className="w-full h-full rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
-                                {group.user_name.charAt(0)}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[56px] text-center">
-                          {group.user_name.split(' ')[0]}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-
-            {/* Header with Segmented Filter Pills */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none pb-0.5">
-                {[
-                  { id: 'all', label: '🌟 All Feed', count: reels.length },
-                  { id: 'media', label: '📸 Photos & Videos', count: reels.filter(r => r.media_url && r.media_type !== 'text').length },
-                  { id: 'text', label: '💬 Campus Gist', count: reels.filter(r => !r.media_url || r.media_type === 'text').length }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setFeedFilter(tab.id)}
-                    className={`px-3 py-1.5 rounded-full font-bold text-xs transition-all shrink-0 cursor-pointer flex items-center space-x-1.5 ${
-                      feedFilter === tab.id
-                        ? 'bg-sky-500 text-white shadow-xs'
-                        : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
-                    }`}
-                  >
-                    <span>{tab.label}</span>
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                      feedFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleManualRefresh(true)}
-                disabled={isRefreshing}
-                className="flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 shrink-0 self-end sm:self-auto"
-                title="Refresh feed"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-                <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
-              </button>
-            </div>
-
-            {/* Sweet Post Creator Card */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3">
-              <div className="flex items-center space-x-3">
-                {currentUser?.profile_picture_url ? (
-                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-10 h-10 rounded-full object-cover border border-sky-200 shrink-0" />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-sm shrink-0">
-                    {currentUser?.full_name?.charAt(0) || 'U'}
+                  <div className="flex-1 min-w-0">
+                    <textarea
+                      rows={2}
+                      value={reelText}
+                      onChange={(e) => setReelText(e.target.value)}
+                      placeholder="Share a moment, drop or gist on campus..."
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed transition-colors"
+                    />
                   </div>
-                )}
-                <div className="min-w-0">
-                  <span className="font-extrabold text-xs text-slate-900 block truncate">{currentUser?.full_name}</span>
-                  <span className="text-[10px] text-slate-400 truncate block">Share moments with {universityName || 'campus peers'}</span>
                 </div>
-              </div>
-
-              <form onSubmit={handlePostReelSubmit} className="space-y-3">
-                <textarea
-                  rows={3}
-                  value={reelText}
-                  onChange={(e) => setReelText(e.target.value)}
-                  placeholder={`What's happening on campus? Share gist, drops, or photos...`}
-                  className="w-full p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed transition-colors"
-                />
 
                 {reelPreview && (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center">
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center">
                     {reelFile?.type?.startsWith('video') ? (
-                      <video src={getMediaUrl(reelPreview)} controls className="max-h-64 w-full object-contain" />
+                      <video src={getMediaUrl(reelPreview)} controls className="max-h-52 w-full object-contain" />
                     ) : (
-                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-64 w-full object-contain" />
+                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-52 w-full object-contain" />
                     )}
                     <button
                       type="button"
                       onClick={() => { setReelFile(null); setReelPreview(null); }}
-                      className="absolute top-2.5 right-2.5 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
+                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
                 )}
 
-                {/* Location Quick Chips */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Tag:</span>
-                  <button type="button" onClick={handleDetectGpsLocation} disabled={detectingGps}
-                    className="px-2.5 py-1 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0">
-                    <Navigation className={`w-3 h-3 text-sky-600 ${detectingGps ? 'animate-spin' : ''}`} />
-                    <span>{detectingGps ? 'Locating...' : 'GPS'}</span>
-                  </button>
-                  <button type="button" onClick={() => setReelLocation(`📍 ${universityName || 'Campus'} Hub`)}
-                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
-                    🏫 Campus
-                  </button>
-                  <button type="button" onClick={() => setReelLocation('📍 Central Library')}
-                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
-                    📚 Library
-                  </button>
-                  <button type="button" onClick={() => setReelLocation('📍 Student Union (SUB)')}
-                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
-                    🏛️ SUB
-                  </button>
-                  <button type="button" onClick={() => setReelLocation('📍 Hostels Quad')}
-                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
-                    🛏️ Hostels
-                  </button>
-                </div>
-
-                {/* Toolbar + Submit */}
-                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                {/* Bottom Bar: Photo/Video + Location + Post Button */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                  <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none flex-1 min-w-0">
                     <input ref={reelFileInputRef} type="file" accept="image/*,video/*" onChange={handleReelFileSelect} className="hidden" />
-                    <button type="button" onClick={() => reelFileInputRef.current?.click()}
-                      className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
-                      <Camera className="w-4 h-4 text-sky-600" />
-                      <span>{reelFile ? (reelFile.type?.startsWith('video') ? 'Change Video' : 'Change Photo') : 'Photo / Video Drop'}</span>
+                    <button
+                      type="button"
+                      onClick={() => reelFileInputRef.current?.click()}
+                      className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold transition-colors flex items-center space-x-1 cursor-pointer shrink-0"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-sky-600" />
+                      <span>{reelFile ? 'Change Media' : 'Photo / Video'}</span>
                     </button>
-                    <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
-                      <MapPin className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+
+                    <div className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-lg text-[11px] text-slate-600 min-w-[120px] max-w-[180px] flex-1">
+                      <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
                       <input
                         type="text"
                         value={reelLocation}
                         onChange={(e) => setReelLocation(e.target.value)}
-                        placeholder="Location tag"
-                        className="bg-transparent border-none text-xs text-slate-800 focus:outline-none min-w-0 w-full"
+                        placeholder="Tag place..."
+                        className="bg-transparent border-none text-[11px] text-slate-800 focus:outline-none min-w-0 w-full"
                       />
                     </div>
                   </div>
-                  <button
-                    type="submit"
-                    disabled={reelPosting || (!reelFile && !reelText.trim())}
-                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                  >
-                    {reelPosting ? 'Posting...' : 'Share Post'}
-                  </button>
+
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleManualRefresh(true)}
+                      disabled={isRefreshing}
+                      className="p-1.5 text-slate-400 hover:text-sky-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                      title="Refresh feed"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={reelPosting || (!reelFile && !reelText.trim())}
+                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {reelPosting ? 'Posting...' : 'Share'}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
 
             {/* Reels Feed Stream */}
-            <div className="space-y-4 sm:space-y-5">
+            <div className="space-y-3.5 sm:space-y-4">
               {reels
-                .filter(r => {
-                  if (hiddenPostIds.includes(r.id)) return false;
-                  if (feedFilter === 'media') return Boolean(r.media_url && r.media_type !== 'text');
-                  if (feedFilter === 'text') return !r.media_url || r.media_type === 'text';
-                  return true;
-                })
+                .filter(r => !hiddenPostIds.includes(r.id))
                 .map((reel) => {
                   const isAuthor = (currentUser?.user_id && reel.user_id === currentUser.user_id) ||
                                    (currentUser?.id && reel.user_id === currentUser.id) ||
