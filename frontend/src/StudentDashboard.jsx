@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -3313,82 +3313,72 @@ export default function StudentDashboard() {
         
         {/* --- FACEBOOK LITE STYLE TOP HEADER & TABS BAR --- */}
         <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 shadow-2xs w-full mb-3 sm:mb-4 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
-          {/* Row 1: Brand & Top Utilities */}
-          <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => setActiveTab('reels')}
-              className="text-2xl sm:text-3xl font-black tracking-tighter text-blue-600 hover:opacity-90 transition-opacity cursor-pointer flex items-center space-x-1.5"
-            >
-              <span>campuslink</span>
-            </button>
+          {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
+          {activeTab === 'reels' && (
+            <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setActiveTab('reels')}
+                className="text-2xl sm:text-3xl font-black tracking-tighter text-blue-600 hover:opacity-90 transition-opacity cursor-pointer flex items-center space-x-1.5"
+              >
+                <span>campuslink</span>
+              </button>
 
-            <div className="flex items-center space-x-2">
-              <div className="hidden xs:block">
-                <InstallAppButton variant="header" />
+              <div className="flex items-center space-x-2">
+                <div className="hidden xs:block">
+                  <InstallAppButton variant="header" />
+                </div>
+
+                {/* Quick Create '+' */}
+                <button
+                  type="button"
+                  onClick={() => setQuickPostModalOpen(true)}
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                  title="Create post or story"
+                  aria-label="Create post or story"
+                >
+                  <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+                </button>
+
+                {/* Search '🔍' */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeTab !== 'marketplace') {
+                      setActiveTab('marketplace');
+                    }
+                    setMarketSearchOpen(prev => !prev);
+                  }}
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                  title="Search campus"
+                  aria-label="Search campus"
+                >
+                  <Search className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+                </button>
+
+                {/* Menu '☰' (leads to settings & drawer) */}
+                <button
+                  type="button"
+                  onClick={() => setMenuDrawerOpen(true)}
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                  title="Menu & Settings"
+                  aria-label="Menu"
+                >
+                  <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+                </button>
               </div>
-
-              {/* In-App Refresh */}
-              <button
-                type="button"
-                onClick={() => handleManualRefresh(true)}
-                disabled={isRefreshing}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                title="Refresh feed & chats"
-                aria-label="Refresh"
-              >
-                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
-              </button>
-
-              {/* Quick Create '+' */}
-              <button
-                type="button"
-                onClick={() => setQuickPostModalOpen(true)}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                title="Create post or story"
-                aria-label="Create post or story"
-              >
-                <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
-              </button>
-
-              {/* Search '🔍' */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (activeTab !== 'marketplace') {
-                    setActiveTab('marketplace');
-                  }
-                  setMarketSearchOpen(prev => !prev);
-                }}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                title="Search campus"
-                aria-label="Search campus"
-              >
-                <Search className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
-              </button>
-
-              {/* Menu '☰' */}
-              <button
-                type="button"
-                onClick={() => setMenuDrawerOpen(true)}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                title="Menu"
-                aria-label="Menu"
-              >
-                <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
-              </button>
             </div>
-          </div>
+          )}
 
-          {/* Row 2: The 6 Facebook Lite Top Tabs */}
-          <div className="flex items-center justify-between border-t border-slate-100 px-1 sm:px-4">
+          {/* Row 2: The 6 Top Tabs (Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
+          <div className={`flex items-center justify-between px-1 sm:px-4 ${activeTab === 'reels' ? 'border-t border-slate-100' : ''}`}>
             {[
               { id: 'reels', icon: Home, label: 'Home' },
               { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
               { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
-              { id: 'campus', icon: Tv, label: 'Campus', badge: 0 },
+              { id: 'marketplace', icon: Store, label: 'Marketplace' },
               { id: 'notifications', icon: Bell, label: 'Notifications', badge: unreadCount },
-              { id: 'marketplace', icon: Store, label: 'Marketplace' }
+              { id: 'campus', icon: PackageSearch, label: 'Lost & Found' }
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -4142,7 +4132,7 @@ export default function StudentDashboard() {
               </button>
             </div>
 
-            {/* Filter Chips (Screenshot 5) */}
+            {/* Filter Chips: Requests & Your Friends */}
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
               <button
                 type="button"
@@ -4152,7 +4142,7 @@ export default function StudentDashboard() {
                 }`}
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span>{campusStudents.length || 16} active</span>
+                <span>Requests ({pendingRequests.length})</span>
               </button>
 
               <button
@@ -4164,196 +4154,161 @@ export default function StudentDashboard() {
               >
                 Your friends ({myFriends.length})
               </button>
-
-              <button
-                type="button"
-                onClick={() => setFriendsTabFilter('suggestions')}
-                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
-                  friendsTabFilter === 'suggestions' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
-                }`}
-              >
-                Suggestions
-              </button>
             </div>
 
-            {/* Accepted Banner */}
-            {myFriends.length > 0 && (
-              <div className="flex items-center space-x-3 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                {myFriends[0].friend_avatar ? (
-                  <SafeImage
-                    src={myFriends[0].friend_avatar}
-                    alt={myFriends[0].friend_name}
-                    fallbackType="avatar"
-                    className="w-10 h-10 rounded-full object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
-                    {myFriends[0].friend_name?.charAt(0) || 'U'}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-slate-800">
-                    <strong className="font-extrabold text-slate-900">{myFriends[0].friend_name}</strong> accepted your friend request.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Friend Requests Section (Screenshot 5) */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between pt-1">
+            {/* View: Your Friends List */}
+            {friendsTabFilter === 'friends' ? (
+              <div className="space-y-3 pt-1">
                 <h2 className="text-base sm:text-lg font-black text-slate-900">
-                  Friend requests ({pendingRequests.length})
+                  Your Friends ({myFriends.length})
                 </h2>
-                {pendingRequests.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setFriendsTabFilter('requests')}
-                    className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
-                  >
-                    See All
-                  </button>
-                )}
-              </div>
 
-              {pendingRequests.length > 0 ? (
-                <div className="space-y-3">
-                  {pendingRequests.map((req) => (
-                    <div key={req.request_id || req.id} className="flex items-start space-x-3 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
-                      {/* Big Circular Avatar */}
-                      <div
-                        onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
-                        className="cursor-pointer shrink-0"
-                      >
-                        {req.sender_avatar ? (
-                          <SafeImage
-                            src={req.sender_avatar}
-                            alt={req.sender_name}
-                            fallbackType="avatar"
-                            className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border border-slate-200"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-lg flex items-center justify-center">
-                            {req.sender_name?.charAt(0) || 'U'}
+                {myFriends.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {myFriends.map((f) => {
+                      const fid = f.user_id || f.friend_id || f.id;
+                      return (
+                        <div key={f.friendship_id || fid} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs gap-3">
+                          <div
+                            onClick={() => handleViewProfile(fid)}
+                            className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
+                          >
+                            {f.friend_avatar || f.profile_picture_url ? (
+                              <SafeImage
+                                src={f.friend_avatar || f.profile_picture_url}
+                                alt={f.friend_name || f.full_name}
+                                fallbackType="avatar"
+                                className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0">
+                                {(f.friend_name || f.full_name)?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <span className="font-extrabold text-xs sm:text-sm text-slate-900 block truncate">
+                                {f.friend_name || f.full_name}
+                              </span>
+                              <span className="text-[11px] text-slate-500 block truncate">
+                                {f.department || 'Campus Friend'}
+                              </span>
+                            </div>
                           </div>
-                        )}
-                      </div>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
                           <button
                             type="button"
-                            onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
-                            className="font-extrabold text-sm sm:text-base text-slate-900 hover:text-blue-600 transition-colors text-left truncate cursor-pointer"
-                          >
-                            {req.sender_name}
-                          </button>
-                          <span className="text-[11px] text-slate-400 shrink-0 font-medium">
-                            {safeDate(req.created_at, '1 w')}
-                          </span>
-                        </div>
-
-                        {/* Mutual Friends with Mini Overlapping Avatars */}
-                        <div className="flex items-center space-x-1.5 mt-1">
-                          <div className="flex -space-x-1.5 overflow-hidden">
-                            <div className="w-4 h-4 rounded-full bg-blue-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">A</div>
-                            <div className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">T</div>
-                          </div>
-                          <span className="text-xs text-slate-500 font-medium">
-                            {req.mutual_count ? `${req.mutual_count} mutual friends` : 'Campus peer'}
-                          </span>
-                        </div>
-
-                        {/* Confirm & Delete Buttons */}
-                        <div className="flex items-center space-x-2 mt-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
-                            className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
-                            className="flex-1 py-2 px-4 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-4 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
-                  No pending friend requests.
-                </div>
-              )}
-            </div>
-
-            {/* People You May Know / Suggestions */}
-            <div className="space-y-3 pt-2">
-              <h2 className="text-base sm:text-lg font-black text-slate-900">
-                People you may know
-              </h2>
-
-              <div className="space-y-2.5">
-                {campusStudents
-                  .filter(s => s.friendship_status !== 'friends')
-                  .slice(0, 10)
-                  .map((stud) => (
-                    <div key={stud.user_id || stud.id} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs gap-3">
-                      <div
-                        onClick={() => handleViewProfile(stud.user_id || stud.id)}
-                        className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
-                      >
-                        {stud.profile_picture_url ? (
-                          <SafeImage
-                            src={stud.profile_picture_url}
-                            alt={stud.full_name}
-                            fallbackType="avatar"
-                            className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0">
-                            {stud.full_name?.charAt(0) || 'U'}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <span className="font-extrabold text-xs sm:text-sm text-slate-900 block truncate">
-                            {stud.full_name}
-                          </span>
-                          <span className="text-[11px] text-slate-500 block truncate">
-                            {stud.department ? `${stud.department} · ${stud.level || ''}` : stud.university_name || 'Campus Student'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        {stud.friendship_status === 'request_sent' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleCancelOrRemoveFriend(stud.user_id || stud.id)}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                          >
-                            Requested
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleSendFriendRequest(stud.user_id || stud.id)}
+                            onClick={() => {
+                              handleSelectPartner({
+                                partner_id: fid,
+                                partner_name: f.friend_name || f.full_name || 'Campus Friend',
+                                partner_avatar: f.friend_avatar || f.profile_picture_url,
+                                partner_phone: f.phone_number,
+                                department: f.department,
+                                university_name: f.university_name,
+                                is_friend: true
+                              });
+                              setActiveTab('messages');
+                            }}
                             className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1"
                           >
-                            <UserPlus className="w-3.5 h-3.5" />
-                            <span>Add</span>
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Message</span>
                           </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+                    You don't have any added friends yet. Confirm incoming requests to connect!
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              /* View: Friend Requests */
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pt-1">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900">
+                    Friend requests ({pendingRequests.length})
+                  </h2>
+                </div>
+
+                {pendingRequests.length > 0 ? (
+                  <div className="space-y-3">
+                    {pendingRequests.map((req) => (
+                      <div key={req.request_id || req.id} className="flex items-start space-x-3 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+                        {/* Big Circular Avatar */}
+                        <div
+                          onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
+                          className="cursor-pointer shrink-0"
+                        >
+                          {req.sender_avatar ? (
+                            <SafeImage
+                              src={req.sender_avatar}
+                              alt={req.sender_name}
+                              fallbackType="avatar"
+                              className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-lg flex items-center justify-center">
+                              {req.sender_name?.charAt(0) || 'U'}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
+                              className="font-extrabold text-sm sm:text-base text-slate-900 hover:text-blue-600 transition-colors text-left truncate cursor-pointer"
+                            >
+                              {req.sender_name}
+                            </button>
+                            <span className="text-[11px] text-slate-400 shrink-0 font-medium">
+                              {safeDate(req.created_at, '1 w')}
+                            </span>
+                          </div>
+
+                          {/* Mutual Friends with Mini Overlapping Avatars */}
+                          <div className="flex items-center space-x-1.5 mt-1">
+                            <div className="flex -space-x-1.5 overflow-hidden">
+                              <div className="w-4 h-4 rounded-full bg-blue-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">A</div>
+                              <div className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">T</div>
+                            </div>
+                            <span className="text-xs text-slate-500 font-medium">
+                              {req.mutual_count ? `${req.mutual_count} mutual friends` : 'Campus peer'}
+                            </span>
+                          </div>
+
+                          {/* Confirm & Delete Buttons */}
+                          <div className="flex items-center space-x-2 mt-2.5">
+                            <button
+                              type="button"
+                              onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
+                              className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
+                              className="flex-1 py-2 px-4 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+                    No pending friend requests.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -5208,7 +5163,7 @@ export default function StudentDashboard() {
                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder="Search chats or find classmates..."
+                          placeholder="Search chats..."
                           value={chatSearchQuery}
                           onChange={(e) => setChatSearchQuery(e.target.value)}
                           className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100/90 focus:bg-white border border-transparent focus:border-sky-400 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
@@ -5355,77 +5310,15 @@ export default function StudentDashboard() {
                         </div>
                       )}
 
-                      {/* Section: All Campus Peers & Friends (Facebook Messenger Architecture) */}
-                      {availablePeersToChat.length > 0 && (
-                        <div>
-                          <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                            <span>{chatSearchQuery ? 'Matching Campus Members' : 'Campus Peers & Friends'}</span>
-                            <span className="font-bold text-sky-600">({availablePeersToChat.length})</span>
-                          </div>
-                          {availablePeersToChat.map((s) => {
-                            const sid = s.user_id || s.id;
-                            const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(sid);
-                            return (
-                              <button
-                                key={sid}
-                                onClick={() => handleSelectPartner({
-                                  partner_id: sid,
-                                  partner_name: s.full_name || s.name || 'Campus Member',
-                                  partner_avatar: s.profile_picture_url || s.avatar_url,
-                                  partner_role: s.role || (s.is_vendor ? 'Vendor' : 'Student'),
-                                  partner_phone: s.phone_number,
-                                  department: s.department,
-                                  university_name: s.university_name,
-                                  is_friend: s.friendship_status === 'accepted' || s.is_friend || false,
-                                  friendship_status: s.friendship_status || 'none',
-                                  is_online: s.is_online,
-                                  last_seen: s.last_seen
-                                })}
-                                className={`w-full p-3 sm:p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
-                                  isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                }`}
-                              >
-                                <div className="relative shrink-0">
-                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                    {s.profile_picture_url ? (
-                                      <SafeImage src={s.profile_picture_url} alt={s.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
-                                    ) : (
-                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center">
-                                        {s.full_name?.charAt(0) || 'U'}
-                                      </div>
-                                    )}
-                                  </div>
-                                  <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${s.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-slate-900 truncate">{s.full_name}</span>
-                                    <span className="text-[10px] font-medium text-slate-400 shrink-0">
-                                      {s.role || (s.is_vendor ? 'Vendor' : 'Student')}
-                                    </span>
-                                  </div>
-                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                    {s.department || s.university_name || 'Tap to start chatting'}
-                                  </p>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {filteredConversations.length === 0 && availablePeersToChat.length === 0 && (
+                      {filteredConversations.length === 0 && (
                         <div className="p-8 text-center text-xs text-slate-400">
                           <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-slate-600">No matching conversations</p>
-                          <p className="mt-1">Try searching for a different classmate or visit Find Campus Friends.</p>
-                          <button
-                            type="button"
-                            onClick={() => setMessageSubtab('friends')}
-                            className="mt-3 px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded-xl cursor-pointer"
-                          >
-                            Explore Campus Directory
-                          </button>
+                          <p className="font-bold text-slate-600">
+                            {chatSearchQuery ? 'No matching conversations' : 'No active conversations'}
+                          </p>
+                          <p className="mt-1">
+                            {chatSearchQuery ? 'Try checking the name or clearing your search.' : 'Your chats with friends, peers, and campus vendors will appear here.'}
+                          </p>
                         </div>
                       )}
                     </div>
@@ -8123,9 +8016,9 @@ export default function StudentDashboard() {
                         tab: 'notifications'
                       },
                       {
-                        title: 'Campus Hub',
-                        desc: 'Notices & updates',
-                        icon: Tv,
+                        title: 'Lost & Found',
+                        desc: 'Campus notice board',
+                        icon: PackageSearch,
                         color: 'text-purple-600 bg-purple-50',
                         tab: 'campus'
                       }
