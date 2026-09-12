@@ -41,17 +41,39 @@ API.interceptors.request.use(
   }
 );
 
-// Handle 401 Unauthorized — only clear session if the token is truly gone or expired
-// This prevents accidental logouts on temporary network errors
+// Axios retry interceptor for Render cold starts (502, 503, 504, Network Error)
 API.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config;
+    if (!config) return Promise.reject(error);
+
+    // If request failed due to cold start or network error, retry up to 3 times
+    const isColdStartOrNetwork =
+      !error.response ||
+      error.response.status === 502 ||
+      error.response.status === 503 ||
+      error.response.status === 504 ||
+      error.code === 'ERR_NETWORK' ||
+      error.message?.includes('Network Error');
+
+    config.__retryCount = config.__retryCount || 0;
+    const maxRetries = config.method === 'get' ? 3 : 1;
+
+    if (isColdStartOrNetwork && config.__retryCount < maxRetries) {
+      config.__retryCount += 1;
+      const delayMs = Math.min(1000 * Math.pow(2, config.__retryCount), 6000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      return API(config);
+    }
+
     if (error?.response?.status === 401) {
       const token = getAuthToken();
-      // Only redirect to login if there's no token stored (genuine logout / expiry)
-      // If token still exists, it's likely a transient server error — don't log the user out
       if (!token && typeof window !== 'undefined') {
-        const isAlreadyOnAuth = window.location.pathname === '/login' || window.location.pathname === '/signup' || window.location.pathname === '/auth';
+        const isAlreadyOnAuth =
+          window.location.pathname === '/login' ||
+          window.location.pathname === '/signup' ||
+          window.location.pathname === '/auth';
         if (!isAlreadyOnAuth) {
           try {
             localStorage.removeItem('token');
@@ -184,6 +206,10 @@ export const pingBackend = warmUpBackend;
 // Fire immediately on module load — wakes the backend while user reads the page
 if (typeof window !== 'undefined') {
   warmUpBackend();
+  // Keep backend warm every 3 minutes so Render never sleeps while user is active
+  setInterval(() => {
+    warmUpBackend();
+  }, 3 * 60 * 1000);
 }
 
 export const getWsUrl = (path = '') => {
