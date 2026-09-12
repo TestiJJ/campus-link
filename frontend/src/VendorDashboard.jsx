@@ -4914,9 +4914,8 @@ export default function VendorDashboard() {
             {/* Campus Stories Rail (Modern Instagram/Threads Circular Story Rings) */}
             <div className="bg-white rounded-3xl border border-slate-200/80 p-3 sm:p-4 shadow-xs">
               <div className="flex items-center justify-between mb-3 px-1">
-                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Campus Stories</span>
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  Campus Stories
                 </span>
                 <span className="text-[10px] font-bold text-slate-400">24h Drops</span>
               </div>

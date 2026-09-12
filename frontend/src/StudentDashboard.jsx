@@ -3347,8 +3347,8 @@ export default function StudentDashboard() {
                 onClick={() => setActiveTab('reels')}
                 className="flex items-center space-x-2 text-left cursor-pointer group"
               >
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black shadow-xs group-hover:scale-105 transition-transform">
-                  <Sparkles className="w-4 h-4" />
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-xs tracking-tight shadow-xs group-hover:scale-105 transition-transform">
+                  CL
                 </div>
                 <div className="flex items-baseline space-x-1.5">
                   <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
@@ -3392,8 +3392,8 @@ export default function StudentDashboard() {
             </div>
           )}
 
-          {/* Row 2: Modern Segmented Capsule Tabs (Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
-          <div className="px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
+          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
+          <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
               {[
                 { id: 'reels', icon: Home, label: 'Home' },
@@ -3440,7 +3440,7 @@ export default function StudentDashboard() {
         </div>
 
         {/* Main Content Body */}
-        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-8'}`}>
+        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
 
 
         {/* Toast Alert */}
@@ -3481,54 +3481,43 @@ export default function StudentDashboard() {
                 </button>
               </div>
 
-              {/* Action Filter Chips (Screenshot 2) */}
+              {/* Marketplace Mode Chips: Products, Services, Search */}
               <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('profile')}
-                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1.5"
+                  onClick={() => setMarketType('products')}
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                    marketType === 'products'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
                 >
-                  <User className="w-3.5 h-3.5" />
-                  <span>You</span>
+                  Products
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setActiveTab('messages')}
-                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0"
+                  onClick={() => setMarketType('services')}
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                    marketType === 'services'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
                 >
-                  Inbox
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (currentUser?.role === 'vendor') {
-                      navigate('/vendor');
-                    } else {
-                      showToast('Open profile settings to register as a student seller.', 'info');
-                    }
-                  }}
-                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1"
-                >
-                  <Plus className="w-3 h-3 stroke-[3]" />
-                  <span>Sell</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMarketType(marketType === 'products' ? 'services' : 'products')}
-                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1"
-                >
-                  <span>{marketType === 'products' ? 'Services' : 'Products'}</span>
+                  Services
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setMarketSearchOpen(prev => !prev)}
-                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0"
+                  className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                    marketSearchOpen || searchQuery
+                      ? 'bg-sky-50 text-sky-700 border border-sky-200 shadow-2xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
                 >
-                  Search
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search</span>
                 </button>
               </div>
 
@@ -3741,10 +3730,9 @@ export default function StudentDashboard() {
 
                 <div
                   onClick={() => setQuickPostModalOpen(true)}
-                  className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors flex items-center justify-between group"
+                  className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
                 >
                   <span className="truncate">Share a campus drop...</span>
-                  <Sparkles className="w-4 h-4 text-sky-500 shrink-0 group-hover:rotate-12 transition-transform" />
                 </div>
               </div>
             </div>
@@ -3752,9 +3740,8 @@ export default function StudentDashboard() {
             {/* Campus Stories Rail (Modern Instagram/Threads Circular Story Rings) */}
             <div className="bg-white rounded-3xl border border-slate-200/80 p-3 sm:p-4 shadow-xs">
               <div className="flex items-center justify-between mb-3 px-1">
-                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Campus Stories</span>
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  Campus Stories
                 </span>
                 <span className="text-[10px] font-bold text-slate-400">24h Drops</span>
               </div>
@@ -9088,6 +9075,51 @@ export default function StudentDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
+      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+        <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
+          {[
+            { id: 'reels', icon: Home, label: 'Home' },
+            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
+            { id: 'marketplace', icon: Store, label: 'Market' },
+            { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
+            { id: 'campus', icon: PackageSearch, label: 'Lost&Found' }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  localStorage.setItem('campuslink_student_tab', tab.id);
+                }}
+                className={`flex flex-col items-center justify-center py-1 px-0.5 rounded-xl transition-all cursor-pointer relative min-w-0 ${
+                  isActive ? 'text-sky-600 font-bold' : 'text-slate-500 hover:text-slate-900 font-medium'
+                }`}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                  {tab.badge > 0 && (
+                    <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[14px] h-3.5 px-0.5 rounded-full flex items-center justify-center ring-1 ring-white">
+                      {tab.badge > 15 ? '15+' : tab.badge}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[9px] tracking-tight mt-0.5 truncate max-w-full text-center block w-full">
+                  {tab.label}
+                </span>
+                {isActive && (
+                  <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
     </div>
   );
