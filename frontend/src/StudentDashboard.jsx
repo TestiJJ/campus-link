@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -214,11 +214,12 @@ export function getInitialStudentTab() {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam === 'home') return 'reels';
-    if (tabParam && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tabParam)) {
+    const validTabs = ['marketplace', 'reels', 'campus', 'messages', 'profile', 'friends', 'notifications'];
+    if (tabParam && validTabs.includes(tabParam)) {
       return tabParam;
     }
     const saved = localStorage.getItem('campuslink_student_tab');
-    if (saved && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(saved)) {
+    if (saved && validTabs.includes(saved)) {
       return saved;
     }
   } catch {}
@@ -238,6 +239,14 @@ export default function StudentDashboard() {
     }
   });
   const [activeTab, setActiveTab] = useState(getInitialStudentTab);
+
+  // Facebook Lite Nav & Drawer States
+  const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
+  const [quickPostModalOpen, setQuickPostModalOpen] = useState(false);
+  const [friendsTabFilter, setFriendsTabFilter] = useState('all'); // 'all' | 'requests' | 'suggestions'
+  const [marketSearchOpen, setMarketSearchOpen] = useState(false);
+  const [quickMessageText, setQuickMessageText] = useState("Is this still available? 😊");
+  const [sendingQuickMessage, setSendingQuickMessage] = useState(false);
   
   // Marketplace State
   const [marketType, setMarketType] = useState(() => {
@@ -268,7 +277,6 @@ export default function StudentDashboard() {
   const [reelFile, setReelFile] = useState(null);
   const [reelPreview, setReelPreview] = useState(null);
   const [reelPosting, setReelPosting] = useState(false);
-  const [feedFilter, setFeedFilter] = useState('all'); // 'all' | 'media' | 'text'
   const [activeCommentsReelId, setActiveCommentsReelId] = useState(null);
   const [newCommentText, setNewCommentText] = useState('');
   const [replyingToComment, setReplyingToComment] = useState(null);
@@ -3301,132 +3309,116 @@ export default function StudentDashboard() {
       </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-28 md:pb-8'}`}>
+      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-3.5 sm:p-6 lg:p-8 pb-8'}`}>
         
-        {/* Mobile Top Header (Facebook style top bar for small screens) */}
-        <div className={`items-center justify-between pb-3 mb-4 border-b border-slate-200 w-full min-w-0 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'flex md:hidden'}`}>
-          <Link to="/" className="flex items-center space-x-2 shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-xs">
-              CL
-            </div>
-            <span className="font-extrabold text-sm tracking-tight text-slate-900">
-              CAMPUS<span className="text-sky-600">LINK</span>
-            </span>
-          </Link>
-
-          <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-            <div className="hidden xs:block sm:block">
-              <InstallAppButton variant="header" />
-            </div>
-            <span className="hidden sm:inline-block text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-1 rounded-lg truncate max-w-[90px]">
-              {universityName ? universityName.split(' ')[0] : 'Campus'}
-            </span>
-            {/* In-App Manual Refresh Button (Mobile) */}
+        {/* --- FACEBOOK LITE STYLE TOP HEADER & TABS BAR --- */}
+        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 shadow-2xs w-full mb-3 sm:mb-4 ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+          {/* Row 1: Brand & Top Utilities */}
+          <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
             <button
-              onClick={() => handleManualRefresh(true)}
-              disabled={isRefreshing}
-              className={`p-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-sky-600 cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0 ${
-                isRefreshing ? 'text-sky-600 bg-sky-50 border-sky-300' : ''
-              }`}
-              title="Refresh feeds, stories & chats"
+              type="button"
+              onClick={() => setActiveTab('reels')}
+              className="text-2xl sm:text-3xl font-black tracking-tighter text-blue-600 hover:opacity-90 transition-opacity cursor-pointer flex items-center space-x-1.5"
             >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-            </button>
-            <button
-              onClick={() => setNotificationsOpen(true)}
-              className="relative p-2 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-sky-600 cursor-pointer shadow-2xs shrink-0"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('profile')}
-              className="p-1 rounded-xl bg-white border border-slate-200 cursor-pointer shadow-2xs shrink-0"
-              title="Profile & Settings"
-            >
-              {currentUser?.profile_picture_url ? (
-                <SafeImage src={currentUser?.profile_picture_url} alt={currentUser?.full_name} fallbackType="avatar" className="w-7 h-7 rounded-lg object-cover" />
-              ) : (
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-xs">
-                  {currentUser?.full_name?.charAt(0) || 'S'}
-                </div>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Top Header Bar with Live Notification Bell & Student Profile (Desktop/Tablet) */}
-        <header className="hidden md:flex sm:items-center justify-between gap-4 pb-5 mb-6 border-b border-slate-200">
-          <div>
-            <div className="flex items-center space-x-2 text-xs text-slate-500 font-semibold mb-0.5">
-              <GraduationCap className="w-4 h-4 text-sky-600" />
-              <span>{universityName || currentUser?.university_name || 'CampusLink University'}</span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              Hello, {currentUser?.full_name ? currentUser.full_name.split(' ')[0] : 'Student'}! 👋
-            </h2>
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <InstallAppButton variant="header" />
-            {/* In-App Manual Refresh Button (Desktop) */}
-            <button
-              onClick={() => handleManualRefresh(true)}
-              disabled={isRefreshing}
-              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-sky-600 transition-all cursor-pointer shadow-xs active:scale-95 ${
-                isRefreshing ? 'text-sky-600 bg-sky-50 border-sky-300' : ''
-              }`}
-              title="Refresh feeds, stories & chats"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-              <span className="text-xs font-bold hidden sm:inline">
-                {isRefreshing ? 'Syncing...' : 'Refresh'}
-              </span>
+              <span>campuslink</span>
             </button>
 
-            {/* Live Notification Bell with Drawer Trigger */}
-            <div className="relative">
+            <div className="flex items-center space-x-2">
+              <div className="hidden xs:block">
+                <InstallAppButton variant="header" />
+              </div>
+
+              {/* In-App Refresh */}
               <button
-                onClick={() => setNotificationsOpen(true)}
-                className="relative p-2.5 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 hover:text-sky-600 transition-all cursor-pointer shadow-xs flex items-center justify-center"
-                title="Notifications"
+                type="button"
+                onClick={() => handleManualRefresh(true)}
+                disabled={isRefreshing}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                title="Refresh feed & chats"
+                aria-label="Refresh"
               >
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center border-2 border-white shadow-sm animate-pulse">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-blue-600' : ''}`} />
+              </button>
+
+              {/* Quick Create '+' */}
+              <button
+                type="button"
+                onClick={() => setQuickPostModalOpen(true)}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                title="Create post or story"
+                aria-label="Create post or story"
+              >
+                <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+              </button>
+
+              {/* Search '🔍' */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeTab !== 'marketplace') {
+                    setActiveTab('marketplace');
+                  }
+                  setMarketSearchOpen(prev => !prev);
+                }}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                title="Search campus"
+                aria-label="Search campus"
+              >
+                <Search className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+              </button>
+
+              {/* Menu '☰' */}
+              <button
+                type="button"
+                onClick={() => setMenuDrawerOpen(true)}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                title="Menu"
+                aria-label="Menu"
+              >
+                <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
               </button>
             </div>
-
-            {/* Quick Profile Nav Button */}
-            <button
-              onClick={() => setActiveTab('profile')}
-              className="flex items-center space-x-2.5 p-1.5 pr-3.5 rounded-2xl bg-white hover:bg-sky-50/60 border border-slate-200 hover:border-sky-300 transition-all cursor-pointer shadow-xs"
-              title="Edit Profile & Settings"
-            >
-              {currentUser?.profile_picture_url ? (
-                <SafeImage src={currentUser?.profile_picture_url} alt={currentUser?.full_name} fallbackType="avatar" className="w-8 h-8 rounded-xl object-cover border border-slate-200" />
-              ) : (
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-xs">
-                  {currentUser?.full_name?.charAt(0) || 'S'}
-                </div>
-              )}
-              <div className="text-left hidden sm:block">
-                <span className="text-xs font-bold text-slate-800 block leading-tight">
-                  {currentUser?.full_name ? currentUser.full_name.split(' ')[0] : 'Profile'}
-                </span>
-                <span className="text-[10px] text-sky-600 font-semibold">Settings</span>
-              </div>
-            </button>
           </div>
-        </header>
+
+          {/* Row 2: The 6 Facebook Lite Top Tabs */}
+          <div className="flex items-center justify-between border-t border-slate-100 px-1 sm:px-4">
+            {[
+              { id: 'reels', icon: Home, label: 'Home' },
+              { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+              { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
+              { id: 'campus', icon: Tv, label: 'Campus', badge: 0 },
+              { id: 'notifications', icon: Bell, label: 'Notifications', badge: unreadCount },
+              { id: 'marketplace', icon: Store, label: 'Marketplace' }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                    localStorage.setItem('campuslink_student_tab', tab.id);
+                  }}
+                  className={`flex-1 py-2.5 sm:py-3 flex flex-col items-center justify-center relative transition-colors cursor-pointer group ${
+                    isActive ? 'text-blue-600 border-b-[3px] border-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800 border-b-[3px] border-transparent'
+                  }`}
+                  title={tab.label}
+                  aria-label={tab.label}
+                >
+                  <div className="relative">
+                    <Icon className={`w-5 h-5 sm:w-6 sm:h-6 transition-transform group-hover:scale-105 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+                    {tab.badge > 0 && (
+                      <span className="absolute -top-1.5 -right-2.5 bg-rose-600 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                        {tab.badge > 15 ? '15+' : tab.badge}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
 
         {/* Toast Alert */}
@@ -3439,84 +3431,142 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* --- TAB 1: CAMPUS MARKETPLACE (JUMIA STYLE) --- */}
+        {/* --- TAB 1: CAMPUS MARKETPLACE (FACEBOOK LITE STYLE) --- */}
         {activeTab === 'marketplace' && (
           <div>
-            {/* Header & Unified Switcher */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-                  <span>Campus Market & Services</span>
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  Shop verified campus vendor goods, meals & hire trusted student service providers.
-                </p>
-              </div>
+            {/* Facebook Lite Marketplace Header (Screenshot 2) */}
+            <div className="space-y-3 mb-4">
+              <div className="flex items-center justify-between py-1">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('reels')}
+                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Back to home"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Marketplace</h1>
+                </div>
 
-              {/* High-visibility segmented pill toggle */}
-              <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border border-slate-200 shadow-inner w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={() => setMarketType('products')}
-                  className={`flex-1 sm:flex-none flex items-center justify-center space-x-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                    marketType === 'products'
-                      ? 'bg-white text-sky-600 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  onClick={() => setMarketSearchOpen(prev => !prev)}
+                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  title="Search marketplace"
                 >
-                  <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
-                  <span>Products ({products.length})</span>
+                  <Search className="w-5 h-5" />
                 </button>
+              </div>
+
+              {/* Action Filter Chips (Screenshot 2) */}
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
                 <button
                   type="button"
-                  onClick={() => setMarketType('services')}
-                  className={`flex-1 sm:flex-none flex items-center justify-center space-x-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                    marketType === 'services'
-                      ? 'bg-white text-sky-600 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  onClick={() => setActiveTab('profile')}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1.5"
                 >
-                  <Wrench className="w-3.5 h-3.5 shrink-0" />
-                  <span>Services ({services.length})</span>
+                  <User className="w-3.5 h-3.5" />
+                  <span>You</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('messages')}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0"
+                >
+                  Inbox
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (currentUser?.role === 'vendor') {
+                      navigate('/vendor');
+                    } else {
+                      showToast('Open profile settings to register as a student seller.', 'info');
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1"
+                >
+                  <Plus className="w-3 h-3 stroke-[3]" />
+                  <span>Sell</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMarketType(marketType === 'products' ? 'services' : 'products')}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0 flex items-center space-x-1"
+                >
+                  <span>{marketType === 'products' ? 'Services' : 'Products'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMarketSearchOpen(prev => !prev)}
+                  className="px-3.5 py-1.5 rounded-full bg-slate-200/80 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors cursor-pointer shrink-0"
+                >
+                  Search
                 </button>
               </div>
-            </div>
 
-            {/* Search Input & Category Pills */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-xs mb-8 space-y-4">
-              <div className="relative">
-                <Search className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder={`Search ${marketType} by title, vendor, sneakers, food...`}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
-                />
-              </div>
+              {/* Search Bar (Expandable) */}
+              {marketSearchOpen && (
+                <div className="relative pt-1 animate-in fade-in duration-200">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder={`Search ${marketType} on campus...`}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white"
+                    autoFocus
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
 
-              {/* Category Pills */}
-              <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+              {/* Categories Pills */}
+              <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                 <button
                   onClick={() => setSelectedCategory('all')}
-                  className={`px-3.5 py-1.5 rounded-full font-bold transition-all cursor-pointer shrink-0 ${
-                    selectedCategory === 'all' ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 text-xs ${
+                    selectedCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  All Categories
+                  All
                 </button>
                 {categories.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => setSelectedCategory(c.id.toString())}
-                    className={`px-3.5 py-1.5 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
-                      selectedCategory === c.id.toString() ? 'bg-sky-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1 text-xs ${
+                      selectedCategory === c.id.toString() ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
-                    <span className="text-slate-600">{renderCategoryIcon(c.name)}</span>
+                    <span>{renderCategoryIcon(c.name)}</span>
                     <span>{c.name}</span>
                   </button>
                 ))}
+              </div>
+
+              {/* Today's Picks Location Bar (Screenshot 2) */}
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                <span className="font-extrabold text-sm sm:text-base text-slate-900">
+                  Today's picks
+                </span>
+                <span className="text-xs text-blue-600 font-semibold flex items-center space-x-1">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{universityName ? universityName.split(' ')[0] : 'Campus'} · Active</span>
+                </span>
               </div>
             </div>
 
@@ -3644,97 +3694,143 @@ export default function StudentDashboard() {
         {/* --- TAB 2: CAMPUS HOME & FEED (SWEET SOCIAL EXPERIENCE) --- */}
         {activeTab === 'reels' && (
           <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-4">
-            {/* Compact Sweet Post Creator Card */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-3.5 shadow-2xs">
-              <form onSubmit={handlePostReelSubmit} className="space-y-2.5">
-                <div className="flex items-start space-x-2.5">
-                  {currentUser?.profile_picture_url ? (
-                    <SafeImage
-                      src={currentUser.profile_picture_url}
-                      alt="You"
-                      fallbackType="avatar"
-                      className="w-8 h-8 rounded-full object-cover border border-sky-200 shrink-0 mt-0.5"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-xs shrink-0 mt-0.5">
-                      {currentUser?.full_name?.charAt(0) || 'U'}
-                    </div>
-                  )}
-
-                  <div className="flex-1 min-w-0">
-                    <textarea
-                      rows={2}
-                      value={reelText}
-                      onChange={(e) => setReelText(e.target.value)}
-                      placeholder="Share a moment, drop or gist on campus..."
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed transition-colors"
-                    />
-                  </div>
-                </div>
-
-                {reelPreview && (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center">
-                    {reelFile?.type?.startsWith('video') ? (
-                      <video src={getMediaUrl(reelPreview)} controls className="max-h-52 w-full object-contain" />
-                    ) : (
-                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-52 w-full object-contain" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => { setReelFile(null); setReelPreview(null); }}
-                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+            {/* Quick Create Bar (Facebook Lite Style) */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 p-3 flex items-center space-x-2.5 shadow-2xs">
+              <div
+                onClick={() => handleViewProfile(currentUser?.user_id || currentUser?.id)}
+                className="relative cursor-pointer shrink-0"
+              >
+                {currentUser?.profile_picture_url ? (
+                  <SafeImage
+                    src={currentUser.profile_picture_url}
+                    alt="You"
+                    fallbackType="avatar"
+                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                    {currentUser?.full_name?.charAt(0) || 'U'}
                   </div>
                 )}
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
+              </div>
 
-                {/* Bottom Bar: Photo/Video + Location + Post Button */}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
-                  <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none flex-1 min-w-0">
-                    <input ref={reelFileInputRef} type="file" accept="image/*,video/*" onChange={handleReelFileSelect} className="hidden" />
-                    <button
-                      type="button"
-                      onClick={() => reelFileInputRef.current?.click()}
-                      className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold transition-colors flex items-center space-x-1 cursor-pointer shrink-0"
+              <div
+                onClick={() => setQuickPostModalOpen(true)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200/80 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
+              >
+                What's on your mind?
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickPostModalOpen(true);
+                  setTimeout(() => reelFileInputRef.current?.click(), 100);
+                }}
+                className="flex items-center space-x-1 px-2.5 py-2 rounded-xl hover:bg-slate-100 text-slate-700 transition-colors cursor-pointer shrink-0"
+                title="Add photo"
+              >
+                <ImageIcon className="w-5 h-5 text-emerald-500" />
+                <span className="text-xs font-semibold text-slate-700 hidden xs:inline">Photo</span>
+              </button>
+            </div>
+
+            {/* Facebook Lite Card-Style Stories Rail */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 shadow-2xs">
+              <div className="flex items-center space-x-2.5 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
+                {/* 1. Create Story Card */}
+                {(() => {
+                  const selfGroup = statusGroups.find(g => g.is_self);
+                  const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
+                  return (
+                    <div
+                      onClick={() => {
+                        if (hasMyStory) {
+                          const selfIdx = statusGroups.findIndex(g => g.is_self);
+                          setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
+                        } else {
+                          setCreateStatusModalOpen(true);
+                        }
+                      }}
+                      className="w-24 sm:w-28 h-40 sm:h-44 rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-transform active:scale-95"
                     >
-                      <Camera className="w-3.5 h-3.5 text-sky-600" />
-                      <span>{reelFile ? 'Change Media' : 'Photo / Video'}</span>
-                    </button>
-
-                    <div className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-lg text-[11px] text-slate-600 min-w-[120px] max-w-[180px] flex-1">
-                      <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
-                      <input
-                        type="text"
-                        value={reelLocation}
-                        onChange={(e) => setReelLocation(e.target.value)}
-                        placeholder="Tag place..."
-                        className="bg-transparent border-none text-[11px] text-slate-800 focus:outline-none min-w-0 w-full"
-                      />
+                      <div className="h-[70%] w-full overflow-hidden bg-slate-100 relative">
+                        {currentUser?.profile_picture_url ? (
+                          <SafeImage
+                            src={currentUser.profile_picture_url}
+                            alt="Your Story"
+                            fallbackType="avatar"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-lg">
+                            {currentUser?.full_name?.charAt(0) || 'U'}
+                          </div>
+                        )}
+                        {/* Overlapping blue plus icon */}
+                        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center border-2 border-white shadow-xs">
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                        </div>
+                      </div>
+                      <div className="h-[30%] w-full bg-white flex items-end justify-center pb-1.5 pt-3 px-1">
+                        <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate">
+                          {hasMyStory ? 'Your story' : 'Create story'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  );
+                })()}
 
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleManualRefresh(true)}
-                      disabled={isRefreshing}
-                      className="p-1.5 text-slate-400 hover:text-sky-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                      title="Refresh feed"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-                    </button>
+                {/* 2. Peer Campus Story Cards */}
+                {statusGroups
+                  .filter(g => !g.is_self)
+                  .map((group) => {
+                    const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
+                    const firstItem = group.items?.[0];
+                    const bgUrl = firstItem?.media_url || group.user_avatar;
 
-                    <button
-                      type="submit"
-                      disabled={reelPosting || (!reelFile && !reelText.trim())}
-                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      {reelPosting ? 'Posting...' : 'Share'}
-                    </button>
-                  </div>
-                </div>
-              </form>
+                    return (
+                      <div
+                        key={group.user_id}
+                        onClick={() => {
+                          const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
+                          setActiveStatusViewer({
+                            userIdx: origIdx !== -1 ? origIdx : 0,
+                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                          });
+                        }}
+                        className="w-24 sm:w-28 h-40 sm:h-44 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-transform active:scale-95 bg-slate-900"
+                      >
+                        {bgUrl ? (
+                          <SafeImage
+                            src={bgUrl}
+                            alt={group.user_name}
+                            fallbackType="product"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xl">
+                            {group.user_name?.charAt(0)}
+                          </div>
+                        )}
+
+                        {/* Top Left Badge (like '1' in user screenshot) */}
+                        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-blue-600 text-white font-black text-[10px] flex items-center justify-center border-2 border-white shadow-xs">
+                          {group.items?.length || 1}
+                        </div>
+
+                        {/* Dark bottom gradient overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
+
+                        {/* Bottom author name */}
+                        <span className="absolute bottom-2 left-2 right-2 text-[11px] font-bold text-white leading-tight truncate drop-shadow-sm">
+                          {group.user_name}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
 
             {/* Reels Feed Stream */}
@@ -4017,6 +4113,390 @@ export default function StudentDashboard() {
           </div>
         )}
 
+        {/* --- TAB: FRIENDS (FACEBOOK LITE STYLE) --- */}
+        {activeTab === 'friends' && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            {/* Header: < Friends + Search */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('reels')}
+                  className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  title="Back"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Friends</h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('messages');
+                  setMessageSubtab('friends');
+                }}
+                className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                title="Search friends"
+              >
+                <Search className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter Chips (Screenshot 5) */}
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setFriendsTabFilter('all')}
+                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                  friendsTabFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>{campusStudents.length || 16} active</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFriendsTabFilter('friends')}
+                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                  friendsTabFilter === 'friends' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                Your friends ({myFriends.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFriendsTabFilter('suggestions')}
+                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                  friendsTabFilter === 'suggestions' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                Suggestions
+              </button>
+            </div>
+
+            {/* Accepted Banner */}
+            {myFriends.length > 0 && (
+              <div className="flex items-center space-x-3 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                {myFriends[0].friend_avatar ? (
+                  <SafeImage
+                    src={myFriends[0].friend_avatar}
+                    alt={myFriends[0].friend_name}
+                    fallbackType="avatar"
+                    className="w-10 h-10 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
+                    {myFriends[0].friend_name?.charAt(0) || 'U'}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-slate-800">
+                    <strong className="font-extrabold text-slate-900">{myFriends[0].friend_name}</strong> accepted your friend request.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Friend Requests Section (Screenshot 5) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pt-1">
+                <h2 className="text-base sm:text-lg font-black text-slate-900">
+                  Friend requests ({pendingRequests.length})
+                </h2>
+                {pendingRequests.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFriendsTabFilter('requests')}
+                    className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                  >
+                    See All
+                  </button>
+                )}
+              </div>
+
+              {pendingRequests.length > 0 ? (
+                <div className="space-y-3">
+                  {pendingRequests.map((req) => (
+                    <div key={req.request_id || req.id} className="flex items-start space-x-3 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+                      {/* Big Circular Avatar */}
+                      <div
+                        onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
+                        className="cursor-pointer shrink-0"
+                      >
+                        {req.sender_avatar ? (
+                          <SafeImage
+                            src={req.sender_avatar}
+                            alt={req.sender_name}
+                            fallbackType="avatar"
+                            className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border border-slate-200"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-lg flex items-center justify-center">
+                            {req.sender_name?.charAt(0) || 'U'}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
+                            className="font-extrabold text-sm sm:text-base text-slate-900 hover:text-blue-600 transition-colors text-left truncate cursor-pointer"
+                          >
+                            {req.sender_name}
+                          </button>
+                          <span className="text-[11px] text-slate-400 shrink-0 font-medium">
+                            {safeDate(req.created_at, '1 w')}
+                          </span>
+                        </div>
+
+                        {/* Mutual Friends with Mini Overlapping Avatars */}
+                        <div className="flex items-center space-x-1.5 mt-1">
+                          <div className="flex -space-x-1.5 overflow-hidden">
+                            <div className="w-4 h-4 rounded-full bg-blue-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">A</div>
+                            <div className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">T</div>
+                          </div>
+                          <span className="text-xs text-slate-500 font-medium">
+                            {req.mutual_count ? `${req.mutual_count} mutual friends` : 'Campus peer'}
+                          </span>
+                        </div>
+
+                        {/* Confirm & Delete Buttons */}
+                        <div className="flex items-center space-x-2 mt-2.5">
+                          <button
+                            type="button"
+                            onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
+                            className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
+                            className="flex-1 py-2 px-4 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+                  No pending friend requests.
+                </div>
+              )}
+            </div>
+
+            {/* People You May Know / Suggestions */}
+            <div className="space-y-3 pt-2">
+              <h2 className="text-base sm:text-lg font-black text-slate-900">
+                People you may know
+              </h2>
+
+              <div className="space-y-2.5">
+                {campusStudents
+                  .filter(s => s.friendship_status !== 'friends')
+                  .slice(0, 10)
+                  .map((stud) => (
+                    <div key={stud.user_id || stud.id} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs gap-3">
+                      <div
+                        onClick={() => handleViewProfile(stud.user_id || stud.id)}
+                        className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
+                      >
+                        {stud.profile_picture_url ? (
+                          <SafeImage
+                            src={stud.profile_picture_url}
+                            alt={stud.full_name}
+                            fallbackType="avatar"
+                            className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0">
+                            {stud.full_name?.charAt(0) || 'U'}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <span className="font-extrabold text-xs sm:text-sm text-slate-900 block truncate">
+                            {stud.full_name}
+                          </span>
+                          <span className="text-[11px] text-slate-500 block truncate">
+                            {stud.department ? `${stud.department} · ${stud.level || ''}` : stud.university_name || 'Campus Student'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {stud.friendship_status === 'request_sent' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleCancelOrRemoveFriend(stud.user_id || stud.id)}
+                            className="px-3 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                          >
+                            Requested
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSendFriendRequest(stud.user_id || stud.id)}
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1"
+                          >
+                            <UserPlus className="w-3.5 h-3.5" />
+                            <span>Add</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- TAB: NOTIFICATIONS (FACEBOOK LITE STYLE) --- */}
+        {activeTab === 'notifications' && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            {/* Header: < Notifications + Mark Read + Search */}
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('reels')}
+                  className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  title="Back"
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Notifications</h1>
+              </div>
+
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={handleMarkAllNotificationsRead}
+                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  title="Mark all as read"
+                >
+                  <CheckCheck className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                  title="Search notifications"
+                >
+                  <Search className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Notifications List Grouped into New and Earlier */}
+            {(() => {
+              const unreadNotifs = notifications.filter(n => !n.is_read);
+              const earlierNotifs = notifications.filter(n => n.is_read);
+
+              const renderNotifItem = (notif) => {
+                const t = (notif.notification_type || notif.type || '').toLowerCase();
+                let badgeColor = 'bg-blue-600';
+                let BadgeIcon = MessageCircle;
+                if (t.includes('like') || t.includes('heart')) {
+                  badgeColor = 'bg-rose-500';
+                  BadgeIcon = Heart;
+                } else if (t.includes('friend') || t.includes('connect')) {
+                  badgeColor = 'bg-blue-600';
+                  BadgeIcon = Users;
+                } else if (t.includes('order') || t.includes('product') || t.includes('service')) {
+                  badgeColor = 'bg-amber-500';
+                  BadgeIcon = ShoppingBag;
+                } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
+                  badgeColor = 'bg-indigo-600';
+                  BadgeIcon = Megaphone;
+                }
+
+                return (
+                  <div
+                    key={notif.id}
+                    onClick={() => handleNotificationClick(notif)}
+                    className={`flex items-start space-x-3 p-3 rounded-2xl transition-colors cursor-pointer ${
+                      !notif.is_read ? 'bg-blue-50/80 hover:bg-blue-100/70' : 'bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    {/* User Avatar with Micro Action Badge */}
+                    <div className="relative shrink-0">
+                      {notif.actor_avatar || notif.sender_avatar ? (
+                        <SafeImage
+                          src={notif.actor_avatar || notif.sender_avatar}
+                          alt="Avatar"
+                          fallbackType="avatar"
+                          className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                          {(notif.actor_name || notif.title || 'U').charAt(0)}
+                        </div>
+                      )}
+                      <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full ${badgeColor} text-white flex items-center justify-center border-2 border-white shadow-xs`}>
+                        <BadgeIcon className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0 text-xs">
+                      <p className="text-slate-800 leading-snug">
+                        <strong className="font-extrabold text-slate-900">{notif.actor_name || notif.title || 'Campus Link'}</strong>{' '}
+                        {notif.message || notif.content || notif.body || 'sent an update'}
+                      </p>
+                      <span className="text-[11px] text-slate-400 mt-1 block font-medium">
+                        {safeTime(notif.created_at, 'Recently')}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                      className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              };
+
+              return (
+                <div className="space-y-4">
+                  {unreadNotifs.length > 0 && (
+                    <div className="space-y-1.5">
+                      <h3 className="text-sm font-black text-slate-900 px-1">New</h3>
+                      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs divide-y divide-slate-100 overflow-hidden">
+                        {unreadNotifs.map(renderNotifItem)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <h3 className="text-sm font-black text-slate-900 px-1">
+                      {unreadNotifs.length > 0 ? 'Earlier' : 'Notifications'}
+                    </h3>
+                    {earlierNotifs.length > 0 ? (
+                      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs divide-y divide-slate-100 overflow-hidden">
+                        {earlierNotifs.map(renderNotifItem)}
+                      </div>
+                    ) : unreadNotifs.length === 0 ? (
+                      <div className="py-16 text-center bg-white rounded-2xl border border-slate-200 text-slate-400 text-xs">
+                        <Bell className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                        No notifications right now.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {/* --- TAB 3: CAMPUS NOTICE BOARD & LOST & FOUND HUB --- */}
         {activeTab === 'campus' && (
@@ -7208,99 +7688,151 @@ export default function StudentDashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- ORDER / HOSTEL DELIVERY MODAL (Mobile Bottom Sheet Drawer) --- */}
+      {/* --- MARKETPLACE PRODUCT DETAIL MODAL (Screenshot 3 / Facebook Lite Style) --- */}
       <AnimatePresence>
         {orderModalItem && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 30 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 sm:p-8 shadow-2xl relative border-t sm:border border-slate-200 safe-drawer-bottom sm:pb-8"
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl relative border-t sm:border border-slate-200 safe-drawer-bottom max-h-[92vh] overflow-y-auto"
             >
               {/* Mobile Drawer Drag Handle */}
-              <div className="sm:hidden -mt-2 mb-2 flex justify-center">
+              <div className="sm:hidden -mt-1 mb-2 flex justify-center">
                 <div className="drawer-handle" />
               </div>
 
+              {/* Close Button */}
               <button
+                type="button"
                 onClick={() => setOrderModalItem(null)}
-                className="min-tap-target-sm absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1.5"
-                aria-label="Close modal"
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors z-10"
+                aria-label="Close"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
-              <div className="flex items-center space-x-2.5 mb-3">
-                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">Order & Contact Vendor</h3>
-                  <p className="text-[11px] text-slate-500">Direct campus transaction & pickup</p>
-                </div>
-              </div>
 
-              {/* Product Preview Card */}
-              <div className="flex items-center space-x-3.5 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl mb-4">
+              {/* Product Image Banner */}
+              <div className="w-full h-56 sm:h-64 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 mb-4 relative">
                 {orderModalItem.image_url ? (
-                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-200 shrink-0 border border-slate-200">
-                    <SafeImage
-                      src={orderModalItem.image_url}
-                      alt={orderModalItem.name}
-                      fallbackType="product"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
+                  <SafeImage
+                    src={orderModalItem.image_url}
+                    alt={orderModalItem.name}
+                    fallbackType="product"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  <div className="w-14 h-14 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
-                    <ShoppingBag className="w-6 h-6" />
+                  <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+                    <Store className="w-12 h-12 stroke-[1.5] mb-2 text-slate-300" />
+                    <span className="text-xs font-semibold">No product image preview</span>
                   </div>
                 )}
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-extrabold text-sm text-slate-900 truncate">{orderModalItem.name}</h4>
-                  <div className="flex items-center space-x-2 mt-0.5">
-                    <span className="font-black text-sky-600 text-sm">₦{Number(orderModalItem.price).toLocaleString()}</span>
-                    <span className="text-[10px] text-slate-400">•</span>
-                    <span className="text-[11px] text-slate-600 truncate font-semibold">{orderModalItem.vendor_name || 'Campus Vendor'}</span>
-                  </div>
-                  {(orderModalItem.vendor_location || orderModalItem.location) && (
-                    <div className="flex items-center space-x-1 mt-1 text-[10px] text-slate-500 truncate">
-                      <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span className="truncate">{orderModalItem.vendor_location || orderModalItem.location}</span>
-                    </div>
-                  )}
+                <span className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold">
+                  {orderModalItem.category_name || 'Marketplace Item'}
+                </span>
+              </div>
+
+              {/* Price & Title */}
+              <div className="mb-4">
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  ₦{Number(orderModalItem.price).toLocaleString()}
+                </div>
+                <h3 className="text-base font-bold text-slate-800 mt-0.5 leading-snug">
+                  {orderModalItem.name}
+                </h3>
+                <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1">
+                  <span>Listed in {orderModalItem.location || orderModalItem.vendor_location || 'Campus'}</span>
+                  <span>•</span>
+                  <span>Direct Campus Sale</span>
                 </div>
               </div>
 
-              <p className="text-xs text-slate-600 mb-4 leading-relaxed bg-blue-50/60 border border-blue-100 p-2.5 rounded-xl">
-                Reach out to the vendor to confirm availability, ask questions, or arrange payment and hostel delivery.
-              </p>
+              {/* --- FACEBOOK LITE "SEND SELLER A MESSAGE" BOX (Screenshot 3) --- */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl mb-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs font-black text-slate-800">Send seller a message</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={quickMessageText}
+                    onChange={(e) => setQuickMessageText(e.target.value)}
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 shadow-2xs"
+                    placeholder="Is this still available?"
+                  />
+                  <button
+                    type="button"
+                    disabled={sendingQuickMessage}
+                    onClick={() => {
+                      const item = orderModalItem;
+                      const msg = quickMessageText;
+                      setOrderModalItem(null);
+                      handleStartVendorChat(item);
+                      setNewMsgText(`Hi! I'm interested in "${item.name}": ${msg}`);
+                      setToast({ text: `Message queued for ${item.vendor_name || 'seller'}!`, type: 'success' });
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
 
-              {/* Direct Actions */}
-              <div className="space-y-2.5">
-                {/* 1. Chat with Vendor In-App */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const itemToChat = orderModalItem;
-                    setOrderModalItem(null);
-                    handleStartVendorChat(itemToChat);
-                  }}
-                  className="w-full py-3 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  <span>Chat with Vendor In-App</span>
-                </button>
+              {/* Seller Information Box */}
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl mb-4">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-2.5">Seller Information</h4>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 font-black flex items-center justify-center text-sm shrink-0 border border-blue-100">
+                      {orderModalItem.vendor_name?.charAt(0) || 'V'}
+                    </div>
+                    <div className="min-w-0">
+                      <h5 className="font-extrabold text-xs text-slate-900 truncate">
+                        {orderModalItem.vendor_name || 'Campus Merchant'}
+                      </h5>
+                      <div className="flex items-center space-x-1 text-[11px] text-emerald-600 font-semibold">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Verified Campus Seller</span>
+                      </div>
+                    </div>
+                  </div>
 
-                {/* 2. Call Vendor Direct (Registered Phone) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const itemToChat = orderModalItem;
+                      setOrderModalItem(null);
+                      handleStartVendorChat(itemToChat);
+                    }}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                  >
+                    Chat
+                  </button>
+                </div>
+              </div>
+
+              {/* Description */}
+              {orderModalItem.description && (
+                <div className="mb-4">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1">Description</h4>
+                  <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    {orderModalItem.description}
+                  </p>
+                </div>
+              )}
+
+              {/* Direct Actions: Call, WhatsApp, Copy Phone */}
+              <div className="space-y-2">
                 {orderModalItem.vendor_phone ? (
                   <div className="space-y-2">
                     <a
                       href={`tel:${orderModalItem.vendor_phone}`}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
                     >
                       <Phone className="w-4 h-4" />
-                      <span>Call Vendor ({orderModalItem.vendor_phone})</span>
+                      <span>Call Seller ({orderModalItem.vendor_phone})</span>
                     </a>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -7314,7 +7846,7 @@ export default function StudentDashboard() {
                             setToast({ text: `Phone: ${orderModalItem.vendor_phone}`, type: 'info' });
                           }
                         }}
-                        className="py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-semibold text-[11px] rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                        className="py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-semibold text-[11px] rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5 text-slate-500" />
                         <span>Copy Phone</span>
@@ -7326,25 +7858,19 @@ export default function StudentDashboard() {
                         )}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="py-2.5 bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-800 font-semibold text-[11px] rounded-xl border border-emerald-200 transition-all flex items-center justify-center space-x-1.5"
+                        className="py-2 bg-emerald-50 hover:bg-emerald-100 active:scale-95 text-emerald-800 font-semibold text-[11px] rounded-xl border border-emerald-200 transition-all flex items-center justify-center space-x-1.5"
                       >
                         <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
                         <span>WhatsApp</span>
                       </a>
                     </div>
                   </div>
-                ) : (
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
-                    <p className="text-[11px] text-slate-500 font-medium">
-                      Vendor hasn't added a direct phone number yet. Use <strong>Chat with Vendor In-App</strong> above to message them instantly!
-                    </p>
-                  </div>
-                )}
+                ) : null}
 
                 <button
                   type="button"
                   onClick={() => setOrderModalItem(null)}
-                  className="w-full py-2.5 text-slate-500 hover:text-slate-700 text-xs font-semibold cursor-pointer transition-colors text-center"
+                  className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-semibold cursor-pointer transition-colors text-center"
                 >
                   Close
                 </button>
@@ -7353,6 +7879,358 @@ export default function StudentDashboard() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* --- FACEBOOK LITE STYLE QUICK CREATE POST MODAL --- */}
+      <AnimatePresence>
+        {quickPostModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl relative border border-slate-100 flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <h3 className="text-base font-black text-slate-900">Create Post</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickPostModalOpen(false);
+                    setReelFile(null);
+                    setReelPreview(null);
+                  }}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Author Row */}
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="relative">
+                  <SafeImage
+                    src={currentUser?.avatar_url || currentUser?.profile_pic}
+                    alt={currentUser?.full_name || 'User'}
+                    fallbackType="avatar"
+                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                  />
+                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900">{currentUser?.full_name || 'Campus Student'}</h4>
+                  <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-600 mt-0.5">
+                    <span>👥 Public · Campus Feed</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Text Area */}
+              <div className="flex-1 min-h-[120px] mb-3 overflow-y-auto">
+                <textarea
+                  value={reelText}
+                  onChange={(e) => setReelText(e.target.value)}
+                  placeholder="What's on your mind? Share campus updates, gist, or questions..."
+                  className="w-full h-28 text-sm text-slate-800 placeholder:text-slate-400 border-0 focus:ring-0 resize-none p-0 focus:outline-none"
+                  autoFocus
+                />
+
+                {/* Media Preview if attached */}
+                {reelPreview && (
+                  <div className="relative mt-2 rounded-2xl overflow-hidden border border-slate-200 max-h-48 bg-slate-950 flex items-center justify-center">
+                    {reelFile?.type.startsWith('video') ? (
+                      <video src={reelPreview} controls className="max-h-48 w-full object-contain" />
+                    ) : (
+                      <img src={reelPreview} alt="Preview" className="max-h-48 w-full object-contain" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReelFile(null);
+                        setReelPreview(null);
+                      }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center cursor-pointer transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Add to Post Toolbar */}
+              <div className="p-3 border border-slate-200 rounded-2xl mb-4 flex items-center justify-between bg-slate-50/50">
+                <span className="text-xs font-bold text-slate-700">Add to your post</span>
+                <div className="flex items-center space-x-1.5">
+                  <label className="w-8 h-8 rounded-full hover:bg-slate-200/80 text-emerald-600 flex items-center justify-center cursor-pointer transition-colors" title="Photo/Video">
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={handleReelFileSelect}
+                      className="hidden"
+                    />
+                    <ImageIcon className="w-5 h-5" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const loc = prompt('Enter campus location or venue (e.g. Faculty of Science, Main Gate, Moremi Hall):', reelLocation || '');
+                      if (loc !== null) setReelLocation(loc.trim());
+                    }}
+                    className={`w-8 h-8 rounded-full hover:bg-slate-200/80 flex items-center justify-center cursor-pointer transition-colors ${reelLocation ? 'text-blue-600' : 'text-rose-500'}`}
+                    title="Tag Location"
+                  >
+                    <MapPin className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {reelLocation && (
+                <div className="flex items-center justify-between text-[11px] font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl mb-3">
+                  <span className="truncate">📍 {reelLocation}</span>
+                  <button type="button" onClick={() => setReelLocation('')} className="text-blue-400 hover:text-blue-700 ml-2">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Submit Post Button */}
+              <button
+                type="button"
+                disabled={reelPosting || (!reelFile && !reelText.trim())}
+                onClick={async (e) => {
+                  await handlePostReelSubmit(e);
+                  setQuickPostModalOpen(false);
+                }}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                {reelPosting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Sharing to Campus...</span>
+                  </>
+                ) : (
+                  <span>Post</span>
+                )}
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- FACEBOOK LITE STYLE HAMBURGER MENU DRAWER --- */}
+      <AnimatePresence>
+        {menuDrawerOpen && (
+          <div className="fixed inset-0 z-50 overflow-hidden">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMenuDrawerOpen(false)}
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-xs cursor-pointer"
+            />
+
+            {/* Slide-over Drawer (From Right) */}
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 26, stiffness: 280 }}
+              className="absolute inset-y-0 right-0 max-w-sm w-full bg-slate-50 shadow-2xl flex flex-col border-l border-slate-200 z-10"
+            >
+              {/* Drawer Top Header */}
+              <div className="p-4 bg-white border-b border-slate-200 flex items-center justify-between">
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Menu</h3>
+                <button
+                  type="button"
+                  onClick={() => setMenuDrawerOpen(false)}
+                  className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {/* Profile Card */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('profile');
+                    setMenuDrawerOpen(false);
+                  }}
+                  className="w-full p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:bg-slate-50/80 transition-all flex items-center space-x-3 text-left cursor-pointer group"
+                >
+                  <div className="relative">
+                    <SafeImage
+                      src={currentUser?.avatar_url || currentUser?.profile_pic}
+                      alt={currentUser?.full_name}
+                      fallbackType="avatar"
+                      className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                    />
+                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-extrabold text-sm text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+                      {currentUser?.full_name || 'Campus Student'}
+                    </h4>
+                    <p className="text-xs text-slate-500 truncate">
+                      {currentUser?.department ? `${currentUser.department} • Level ${currentUser?.level || '100'}` : 'View your profile'}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors" />
+                </button>
+
+                {/* Shortcuts Section */}
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 px-1 mb-2">Shortcuts</h4>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    {[
+                      {
+                        title: 'Feed & Stories',
+                        desc: 'Campus moments',
+                        icon: Home,
+                        color: 'text-blue-600 bg-blue-50',
+                        tab: 'reels'
+                      },
+                      {
+                        title: 'Friends',
+                        desc: `${pendingRequests.length} pending`,
+                        icon: Users,
+                        color: 'text-sky-600 bg-sky-50',
+                        tab: 'friends'
+                      },
+                      {
+                        title: 'Marketplace',
+                        desc: 'Buy & sell',
+                        icon: Store,
+                        color: 'text-amber-600 bg-amber-50',
+                        tab: 'marketplace'
+                      },
+                      {
+                        title: 'Chats',
+                        desc: `${totalUnreadChatCount} unread`,
+                        icon: MessageSquare,
+                        color: 'text-indigo-600 bg-indigo-50',
+                        tab: 'messages'
+                      },
+                      {
+                        title: 'Notifications',
+                        desc: `${unreadCount} new`,
+                        icon: Bell,
+                        color: 'text-rose-600 bg-rose-50',
+                        tab: 'notifications'
+                      },
+                      {
+                        title: 'Campus Hub',
+                        desc: 'Notices & updates',
+                        icon: Tv,
+                        color: 'text-purple-600 bg-purple-50',
+                        tab: 'campus'
+                      }
+                    ].map((item, idx) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setActiveTab(item.tab);
+                            setMenuDrawerOpen(false);
+                          }}
+                          className="p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:bg-slate-50 transition-all flex flex-col items-start text-left cursor-pointer group"
+                        >
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${item.color}`}>
+                            <Icon className="w-5 h-5 stroke-[2.2]" />
+                          </div>
+                          <span className="text-xs font-black text-slate-900 group-hover:text-blue-600 transition-colors">
+                            {item.title}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-semibold truncate w-full">
+                            {item.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Additional Settings & Tools */}
+                <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('profile');
+                      setProfileSubtab('profile');
+                      setMenuDrawerOpen(false);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                        <Settings className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-800">Settings & Privacy</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('marketplace');
+                      setMarketType('orders');
+                      setMenuDrawerOpen(false);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                        <ShoppingBag className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-800">My Orders & Purchases</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('messages');
+                      setMessageSubtab('ai');
+                      setMenuDrawerOpen(false);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-800">CampusLink AI Assistant</span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
+
+                {/* Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuDrawerOpen(false);
+                    handleLogout();
+                  }}
+                  className="w-full py-3 px-4 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-bold flex items-center justify-center space-x-2 transition-colors cursor-pointer border border-rose-200/60"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Log Out</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
 
       {/* --- WHATSAPP-STYLE STATUS STORY VIEWER MODAL --- */}
       <AnimatePresence>
@@ -8482,108 +9360,8 @@ export default function StudentDashboard() {
         onConfirm={handleConfirmSendChatMedia}
       />
 
-      {/* --- FACEBOOK-STYLE MOBILE BOTTOM NAVIGATION BAR (Anchored Dock with Native Safe Areas & Refined Tactile Feedback) --- */}
-      <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-slate-200/80 px-1.5 py-1 safe-nav-bottom shadow-lg ${isAnyModalOpen || (selectedPartner && activeTab === 'messages') ? 'hidden' : 'flex'} items-center justify-around w-full max-w-lg mx-auto`}>
-        {/* 1. Home (Feed & Reels) */}
-        <button
-          onClick={() => setActiveTab('reels')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'reels'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Home and Feed"
-        >
-          <div className="relative flex items-center justify-center">
-            <Home className={`w-[19px] h-[19px] transition-transform ${activeTab === 'reels' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
-          </div>
-          <span className="text-[9.5px] tracking-tight mt-0.5">Home</span>
-          {activeTab === 'reels' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
+      {/* --- FACEBOOK LITE MODE: MOBILE NAVIGATION IS ANCHORED AT TOP TAB BAR --- */}
 
-        {/* 2. Unified Market & Services */}
-        <button
-          onClick={() => { setActiveTab('marketplace'); }}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'marketplace'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Market and Services"
-        >
-          <div className="relative flex items-center justify-center">
-            <ShoppingBag className={`w-[19px] h-[19px] transition-transform ${activeTab === 'marketplace' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
-          </div>
-          <span className="text-[9.5px] tracking-tight mt-0.5">Market</span>
-          {activeTab === 'marketplace' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* 3. Campus Notices & Directory */}
-        <button
-          onClick={() => setActiveTab('campus')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'campus'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Campus Notices"
-        >
-          <div className="relative flex items-center justify-center">
-            <Bell className={`w-[19px] h-[19px] transition-transform ${activeTab === 'campus' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
-          </div>
-          <span className="text-[9.5px] tracking-tight mt-0.5">Campus</span>
-          {activeTab === 'campus' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* 4. Chats & Friends */}
-        <button
-          onClick={() => setActiveTab('messages')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'messages'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Messages and Friends"
-        >
-          <div className="relative flex items-center justify-center">
-            <MessageSquare className={`w-[19px] h-[19px] transition-transform ${activeTab === 'messages' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
-            {(totalUnreadChatCount > 0 || (pendingRequests || []).length > 0) && (
-              <span className="absolute -top-1.5 -right-2 bg-rose-500 text-white text-[8px] font-black min-w-[15px] h-3.5 px-0.5 rounded-full flex items-center justify-center shadow-xs ring-2 ring-white">
-                {totalUnreadChatCount > 0 ? totalUnreadChatCount : (pendingRequests || []).length}
-              </span>
-            )}
-          </div>
-          <span className="text-[9.5px] tracking-tight mt-0.5">Chats</span>
-          {activeTab === 'messages' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-
-        {/* 5. Settings & Profile */}
-        <button
-          onClick={() => setActiveTab('profile')}
-          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-0.5 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'profile'
-              ? 'text-sky-600 font-extrabold'
-              : 'text-slate-500 hover:text-slate-900 font-medium'
-          }`}
-          aria-label="Settings and Profile"
-        >
-          <div className="relative flex items-center justify-center">
-            <Settings className={`w-[19px] h-[19px] transition-transform ${activeTab === 'profile' ? 'stroke-[2.5] scale-105' : 'stroke-[1.75]'}`} />
-          </div>
-          <span className="text-[9.5px] tracking-tight mt-0.5">Settings</span>
-          {activeTab === 'profile' && (
-            <span className="absolute top-0 w-6 h-0.5 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
-          )}
-        </button>
-      </nav>
 
       {/* --- FLOATING NOTIFICATION / FEEDBACK TOAST --- */}
       <AnimatePresence>
