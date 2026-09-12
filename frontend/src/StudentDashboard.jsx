@@ -1220,10 +1220,12 @@ export default function StudentDashboard() {
     const t = (notif.notification_type || notif.type || '').toLowerCase();
     if (t.includes('reel') || t.includes('like') || t.includes('comment') || t === 'status_view') {
       setActiveTab('reels');
-    } else if (t.includes('friend') || t === 'message') {
+    } else if (t.includes('friend')) {
+      setActiveTab('friends');
+      if (t === 'friend_request') setFriendsTabFilter('all');
+      else if (t === 'friend_accept') setFriendsTabFilter('friends');
+    } else if (t === 'message') {
       setActiveTab('messages');
-      if (t === 'friend_request') setMessageSubtab('requests');
-      else if (t === 'friend_accept') setMessageSubtab('my_friends');
     } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
       setActiveTab('campus');
     } else if (t.includes('order') || t.includes('service')) {
@@ -4150,7 +4152,7 @@ export default function StudentDashboard() {
 
         {/* --- TAB: FRIENDS (FACEBOOK LITE STYLE) --- */}
         {activeTab === 'friends' && (
-          <div className="max-w-2xl mx-auto space-y-4">
+          <div className="max-w-3xl mx-auto space-y-4">
             {/* Header: < Friends + Search */}
             <div className="flex items-center justify-between py-1">
               <div className="flex items-center space-x-2">
@@ -4166,18 +4168,15 @@ export default function StudentDashboard() {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setActiveTab('messages');
-                  setMessageSubtab('friends');
-                }}
-                className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                onClick={() => setFriendsTabFilter('find')}
+                className={`p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors ${friendsTabFilter === 'find' ? 'bg-slate-200 text-sky-600' : ''}`}
                 title="Search friends"
               >
                 <Search className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Filter Chips: Requests & Your Friends */}
+            {/* Filter Chips: Requests, Your Friends, Find Friends */}
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
               <button
                 type="button"
@@ -4198,6 +4197,17 @@ export default function StudentDashboard() {
                 }`}
               >
                 Your friends ({myFriends.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFriendsTabFilter('find')}
+                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                  friendsTabFilter === 'find' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                <Search className="w-3.5 h-3.5" />
+                <span>Find Friends ({campusStudents.length})</span>
               </button>
             </div>
 
@@ -4264,10 +4274,239 @@ export default function StudentDashboard() {
                     })}
                   </div>
                 ) : (
-                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
-                    You don't have any added friends yet. Confirm incoming requests to connect!
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs space-y-3">
+                    <p>You don't have any added friends yet. Confirm incoming requests or search the campus directory to connect!</p>
+                    <button
+                      type="button"
+                      onClick={() => setFriendsTabFilter('find')}
+                      className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs inline-flex items-center space-x-1.5"
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                      <span>Find Campus Friends</span>
+                    </button>
                   </div>
                 )}
+              </div>
+            ) : friendsTabFilter === 'find' ? (
+              /* View: Find Campus Friends Directory */
+              <div className="space-y-3 pt-1">
+                {/* Search & Filter Header */}
+                <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search users by name, university, department, or seller store..."
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                      className="w-full pl-10 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
+                    />
+                    {studentSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setStudentSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-1.5 text-xs overflow-x-auto pb-0.5 scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setFriendsFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                        friendsFilter === 'all'
+                          ? 'bg-sky-500 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      All Members ({campusStudents.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFriendsFilter('students')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                        friendsFilter === 'students'
+                          ? 'bg-sky-500 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Students
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFriendsFilter('sellers')}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                        friendsFilter === 'sellers'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Sellers & Merchants
+                    </button>
+                  </div>
+                </div>
+
+                {/* Member Cards Grid */}
+                <div className="space-y-3">
+                  {filteredStudents.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {filteredStudents.map((stud) => {
+                        const isSeller = stud.is_seller || stud.role === 'vendor';
+                        return (
+                          <div
+                            key={stud.user_id}
+                            className="p-4 rounded-2xl border border-slate-200 bg-white hover:shadow-xs hover:border-sky-200 transition-all flex flex-col justify-between gap-3"
+                          >
+                            <div>
+                              {/* Profile Header */}
+                              <div className="flex items-start space-x-3">
+                                {stud.profile_picture_url ? (
+                                  <SafeImage
+                                    src={stud.profile_picture_url}
+                                    alt={stud.full_name}
+                                    fallbackType="avatar"
+                                    className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0 cursor-pointer"
+                                    onClick={() => handleViewProfile(stud.user_id)}
+                                  />
+                                ) : (
+                                  <div
+                                    onClick={() => handleViewProfile(stud.user_id)}
+                                    className="w-12 h-12 rounded-xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-base shadow-2xs shrink-0 cursor-pointer"
+                                  >
+                                    {stud.full_name?.charAt(0) || 'U'}
+                                  </div>
+                                )}
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center space-x-1">
+                                    <h4
+                                      onClick={() => handleViewProfile(stud.user_id)}
+                                      className="font-extrabold text-xs sm:text-sm text-slate-900 hover:text-blue-600 truncate cursor-pointer"
+                                    >
+                                      {stud.full_name}
+                                    </h4>
+                                    <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                                  </div>
+
+                                  {/* Role Badge */}
+                                  <div className="mt-0.5">
+                                    {isSeller ? (
+                                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                        <ShoppingBag className="w-2.5 h-2.5 text-amber-700" />
+                                        <span>Campus Seller ({stud.business_name || 'Store'})</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                                        <GraduationCap className="w-2.5 h-2.5 text-sky-600" />
+                                        <span>Verified Student</span>
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* University & Department */}
+                                  <div className="text-[11px] text-slate-500 font-medium truncate mt-1">
+                                    {stud.department ? `${stud.department} • ` : ''}{stud.level || stud.university_name || universityName}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Bio Quote */}
+                              {stud.bio && (
+                                <div className="mt-2.5 p-2 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 line-clamp-2 italic">
+                                  "{stud.bio}"
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleViewProfile(stud.user_id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Profile</span>
+                              </button>
+
+                              <div className="flex items-center space-x-1.5">
+                                {stud.friendship_status === 'friends' ? (
+                                  <>
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg flex items-center space-x-1">
+                                      <UserCheck className="w-3 h-3 text-emerald-600" />
+                                      <span>Friends</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartChatWithStudent(stud)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs"
+                                    >
+                                      <MessageCircle className="w-3 h-3" />
+                                      <span>Chat</span>
+                                    </button>
+                                  </>
+                                ) : stud.friendship_status === 'request_sent' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelOrRemoveFriend(stud.user_id)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 border border-amber-200 text-xs font-bold cursor-pointer transition-colors"
+                                    title="Cancel request"
+                                  >
+                                    Request Sent (Cancel)
+                                  </button>
+                                ) : stud.friendship_status === 'request_received' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAcceptFriendRequest(stud.request_id)}
+                                    className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs flex items-center space-x-1"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>Accept</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendFriendRequest(stud.user_id)}
+                                    className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs transition-colors"
+                                  >
+                                    <UserPlus className="w-3 h-3" />
+                                    <span>Add Friend</span>
+                                  </button>
+                                )}
+
+                                {isSeller && stud.friendship_status !== 'friends' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartVendorChat({
+                                      vendor_user_id: stud.user_id,
+                                      vendor_name: stud.business_name || stud.full_name,
+                                      vendor_phone: stud.phone_number,
+                                      vendor_location: stud.hostel
+                                    })}
+                                    className="px-2 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                                    title="Chat with Seller"
+                                  >
+                                    <ShoppingBag className="w-3 h-3 text-amber-600" />
+                                    <span>Chat Seller</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 p-6">
+                      <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <h4 className="text-sm font-bold text-slate-800">No members match your search</h4>
+                      <p className="text-xs text-slate-500 mt-1">Try searching another department or campus seller.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               /* View: Friend Requests */
@@ -4348,8 +4587,16 @@ export default function StudentDashboard() {
                     ))}
                   </div>
                 ) : (
-                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
-                    No pending friend requests.
+                  <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs space-y-3">
+                    <p>No pending friend requests.</p>
+                    <button
+                      type="button"
+                      onClick={() => setFriendsTabFilter('find')}
+                      className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs inline-flex items-center space-x-1.5"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Discover Campus Friends</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -4971,110 +5218,78 @@ export default function StudentDashboard() {
         {activeTab === 'messages' && (
           <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
             {/* Chat Box Container */}
-            <div className={`flex flex-col overflow-hidden flex-1 min-h-0 bg-white ${selectedPartner && messageSubtab === 'chats' ? 'rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'rounded-3xl border border-slate-200 shadow-xs'}`}>
+            <div className={`flex flex-col overflow-hidden flex-1 min-h-0 bg-white ${selectedPartner ? 'rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'rounded-3xl border border-slate-200 shadow-xs'}`}>
               
-              {/* Top Sub-Switcher */}
-              <div className={`p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 ${selectedPartner && messageSubtab === 'chats' ? 'hidden md:flex' : 'flex'}`}>
-              <div className="flex bg-slate-100 p-1 rounded-xl overflow-x-auto text-xs">
-                <button
-                  onClick={() => setMessageSubtab('chats')}
-                  className={`px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
-                    messageSubtab === 'chats' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>Active Chats {conversations.length > 0 && `(${conversations.length})`}</span>
-                  {totalUnreadChatCount > 0 && (
-                    <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse">
-                      {totalUnreadChatCount}
-                    </span>
-                  )}
-                </button>
+              {/* Header: Active Chats & Active Partner Controls */}
+              <div className={`p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between gap-3 ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+                    <MessageSquare className="w-4 h-4" />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Active Chats</h2>
+                    {conversations.length > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
+                        {conversations.length}
+                      </span>
+                    )}
+                    {totalUnreadChatCount > 0 && (
+                      <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
+                        {totalUnreadChatCount} new
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-                <button
-                  onClick={() => setMessageSubtab('friends')}
-                  className={`px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer shrink-0 ${
-                    messageSubtab === 'friends' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Find Campus Friends ({campusStudents.length})
-                </button>
-
-                <button
-                  onClick={() => setMessageSubtab('requests')}
-                  className={`px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
-                    messageSubtab === 'requests' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>Friend Requests</span>
-                  {pendingRequests.length > 0 && (
-                    <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
-                      {pendingRequests.length}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setMessageSubtab('my_friends')}
-                  className={`px-3.5 py-1.5 rounded-lg font-bold transition-all cursor-pointer shrink-0 ${
-                    messageSubtab === 'my_friends' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  My Friends ({myFriends.length})
-                </button>
+                {selectedPartner && (
+                  <div className="flex items-center space-x-2 text-xs">
+                    {selectedPartner.is_ai ? (
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-slate-800">CampusLink AI</span>
+                        <button
+                          type="button"
+                          onClick={handleClearAiChat}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-semibold rounded-xl text-[11px] cursor-pointer transition-colors"
+                          title="Clear conversation"
+                        >
+                          Clear Chat
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-bold text-slate-800">{selectedPartner.partner_name}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
+                            {selectedPartner.partner_role || 'Student'}
+                          </span>
+                        </div>
+                        {selectedPartner.partner_role === 'Vendor' && selectedPartner.partner_phone && (
+                          <a
+                            href={`https://wa.me/${selectedPartner.partner_phone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
+                          >
+                            Store WhatsApp
+                          </a>
+                        )}
+                        {selectedPartner.partner_role === 'Student' && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewProfile(selectedPartner.partner_id)}
+                            className="px-2.5 py-1 bg-sky-50 text-sky-700 font-bold rounded-lg hover:bg-sky-100 text-[11px] cursor-pointer"
+                          >
+                            View Profile
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {selectedPartner && messageSubtab === 'chats' && (
-                <div className="flex items-center space-x-2 text-xs">
-                  {selectedPartner.is_ai ? (
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-800">CampusLink AI</span>
-                      <button
-                        type="button"
-                        onClick={handleClearAiChat}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-semibold rounded-xl text-[11px] cursor-pointer transition-colors"
-                        title="Clear conversation"
-                      >
-                        Clear Chat
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="font-bold text-slate-800">{selectedPartner.partner_name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
-                          {selectedPartner.partner_role || 'Student'}
-                        </span>
-                      </div>
-                      {selectedPartner.partner_role === 'Vendor' && selectedPartner.partner_phone && (
-                        <a
-                          href={`https://wa.me/${selectedPartner.partner_phone.replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
-                        >
-                          Store WhatsApp
-                        </a>
-                      )}
-                      {selectedPartner.partner_role === 'Student' && (
-                        <button
-                          onClick={() => handleViewProfile(selectedPartner.partner_id)}
-                          className="px-2.5 py-1 bg-sky-50 text-sky-700 font-bold rounded-lg hover:bg-sky-100 text-[11px] cursor-pointer"
-                        >
-                          View Profile
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Subtab Views */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/40 min-h-0 h-full">
-              
-              {/* 1. SUBTAB: ACTIVE CHATS (2-Column Split View) */}
-              {messageSubtab === 'chats' && (
-                <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 h-full">
+              {/* Active Chats (2-Column Split View) */}
+              <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 h-full">
                   {/* Left Column: Conversations List */}
                   <div className={`w-full md:w-84 h-full flex-1 md:flex-none border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                     {/* Universal Chat & Directory Search */}
@@ -6197,359 +6412,9 @@ export default function StudentDashboard() {
                     )}
                   </div>
                 </div>
-              )}
-
-              {/* 2. SUBTAB: FIND CAMPUS FRIENDS (Full-Width Directory) */}
-              {messageSubtab === 'friends' && (
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  {/* Search and Role Filter Header */}
-                  <div className="p-4 bg-white border-b border-slate-200 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search users by name, university, department, or seller store..."
-                          value={studentSearch}
-                          onChange={(e) => setStudentSearch(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="flex items-center space-x-1.5 text-xs">
-                        <button
-                          onClick={() => setFriendsFilter('all')}
-                          className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
-                            friendsFilter === 'all'
-                              ? 'bg-sky-500 text-white shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          All Members ({campusStudents.length})
-                        </button>
-                        <button
-                          onClick={() => setFriendsFilter('students')}
-                          className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
-                            friendsFilter === 'students'
-                              ? 'bg-sky-500 text-white shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          Students
-                        </button>
-                        <button
-                          onClick={() => setFriendsFilter('sellers')}
-                          className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer ${
-                            friendsFilter === 'sellers'
-                              ? 'bg-amber-500 text-white shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          Sellers & Merchants
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cards Directory */}
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-                    {filteredStudents.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                        {filteredStudents.map((stud) => {
-                          const isSeller = stud.is_seller || stud.role === 'vendor';
-                          return (
-                            <div
-                              key={stud.user_id}
-                              className="p-5 rounded-3xl border border-slate-200 bg-white hover:shadow-md hover:border-sky-200 transition-all flex flex-col justify-between"
-                            >
-                              <div>
-                                {/* Profile Header */}
-                                <div className="flex items-start space-x-3.5">
-                                  {stud.profile_picture_url ? (
-                                    <SafeImage
-                                      src={stud.profile_picture_url}
-                                      alt={stud.full_name}
-                                      fallbackType="avatar"
-                                      className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-100 shadow-xs shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-lg shadow-xs shrink-0">
-                                      {stud.full_name.charAt(0)}
-                                    </div>
-                                  )}
-
-                                  <div className="flex-1 overflow-hidden">
-                                    <div className="flex items-center space-x-1">
-                                      <h4 className="font-bold text-sm text-slate-900 truncate">{stud.full_name}</h4>
-                                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                                    </div>
-
-                                    {/* Role Badge */}
-                                    <div className="mt-1">
-                                      {isSeller ? (
-                                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-200">
-                                          <ShoppingBag className="w-3 h-3 text-amber-700" />
-                                          <span>Campus Seller ({stud.business_name || 'Store'})</span>
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-50 text-sky-700 border border-sky-200">
-                                          <GraduationCap className="w-3 h-3 text-sky-600" />
-                                          <span>Verified Student</span>
-                                        </span>
-                                      )}
-                                    </div>
-
-                                    {/* University Name */}
-                                    <div className="text-xs text-slate-500 font-semibold flex items-center space-x-1 mt-1">
-                                      <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                      <span className="truncate">{stud.university_name || universityName}</span>
-                                    </div>
-
-                                    <div className="text-xs text-slate-500 mt-0.5">
-                                      {stud.department} • {stud.level}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Bio Quote */}
-                                <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 line-clamp-2 leading-relaxed italic">
-                                  "{stud.bio || (isSeller ? 'Verified seller on campus with active products & services.' : 'Student connecting on CampusLink.')}"
-                                </div>
-                              </div>
-
-                              {/* Action Buttons */}
-                              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                                <button
-                                  onClick={() => handleViewProfile(stud.user_id)}
-                                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>Profile</span>
-                                </button>
-
-                                <div className="flex items-center space-x-1.5">
-                                  {stud.friendship_status === 'friends' ? (
-                                    <>
-                                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-xl flex items-center space-x-1">
-                                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>Friends</span>
-                                      </span>
-                                      <button
-                                        onClick={() => handleStartChatWithStudent(stud)}
-                                        className="px-3 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs relative"
-                                      >
-                                        <MessageCircle className="w-3.5 h-3.5" />
-                                        <span>Chat</span>
-                                        {getUnreadCountForUser(stud.user_id) > 0 && (
-                                          <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-xs animate-pulse">
-                                            {getUnreadCountForUser(stud.user_id)}
-                                          </span>
-                                        )}
-                                      </button>
-                                    </>
-                                  ) : stud.friendship_status === 'request_sent' ? (
-                                    <button
-                                      onClick={() => handleCancelOrRemoveFriend(stud.user_id)}
-                                      className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 border border-amber-200 text-xs font-bold cursor-pointer transition-colors"
-                                      title="Click to cancel pending request"
-                                    >
-                                      Request Sent (Cancel)
-                                    </button>
-                                  ) : stud.friendship_status === 'request_received' ? (
-                                    <button
-                                      onClick={() => handleAcceptFriendRequest(stud.request_id)}
-                                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs flex items-center space-x-1"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>Accept</span>
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleSendFriendRequest(stud.user_id)}
-                                      className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs transition-colors"
-                                    >
-                                      <UserPlus className="w-3.5 h-3.5" />
-                                      <span>Add Friend</span>
-                                    </button>
-                                  )}
-
-                                  {isSeller && stud.friendship_status !== 'friends' && (
-                                    <button
-                                      onClick={() => handleStartVendorChat({
-                                        vendor_user_id: stud.user_id,
-                                        vendor_name: stud.business_name || stud.full_name,
-                                        vendor_phone: stud.phone_number,
-                                        vendor_location: stud.hostel
-                                      })}
-                                      className="px-2.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                                      title="Chat with Seller"
-                                    >
-                                      <ShoppingBag className="w-3 h-3 text-amber-600" />
-                                      <span>Chat Seller</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-10 max-w-md mx-auto">
-                        <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                        <h4 className="text-base font-bold text-slate-800">No members match your search</h4>
-                        <p className="text-xs text-slate-500 mt-1">Try clearing filters or search for another department or university.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 3. SUBTAB: FRIEND REQUESTS (Full-Width View) */}
-              {messageSubtab === 'requests' && (
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-                  <div className="max-w-2xl mx-auto space-y-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-sm text-slate-900">Pending Incoming Friend Requests ({pendingRequests.length})</h3>
-                      <span className="text-xs text-slate-400">Accept requests to connect and chat</span>
-                    </div>
-
-                    {pendingRequests.length > 0 ? (
-                      pendingRequests.map((req) => (
-                        <div key={req.request_id} className="p-5 rounded-3xl border border-sky-200 bg-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex items-start space-x-3.5">
-                            {req.sender_avatar ? (
-                              <SafeImage src={req.sender_avatar} alt={req.sender_name} fallbackType="avatar" className="w-12 h-12 rounded-2xl object-cover border border-sky-200 shrink-0" />
-                            ) : (
-                              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-black flex items-center justify-center text-base shrink-0">
-                                {req.sender_name.charAt(0)}
-                              </div>
-                            )}
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <h4 className="font-bold text-sm text-slate-900">{req.sender_name}</h4>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700">
-                                  {req.sender_role === 'vendor' ? 'Campus Merchant' : 'Student'}
-                                </span>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {req.sender_department} • {req.sender_level} • {req.sender_university || universityName}
-                              </p>
-                              <p className="text-xs text-slate-600 mt-1 italic">
-                                "{req.sender_bio || 'Wants to connect with you on CampusLink.'}"
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-2 shrink-0">
-                            <button
-                              onClick={() => handleAcceptFriendRequest(req.request_id)}
-                              className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors flex items-center space-x-1.5 shadow-xs"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Accept Request</span>
-                            </button>
-
-                            <button
-                              onClick={() => handleDeclineFriendRequest(req.request_id)}
-                              className="px-3.5 py-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                            >
-                              Decline
-                            </button>
-
-                            <button
-                              onClick={() => handleViewProfile(req.sender_id)}
-                              className="p-2 text-slate-400 hover:text-slate-800 rounded-xl cursor-pointer"
-                              title="View Profile"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8">
-                        <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                        <h4 className="font-bold text-slate-800">No pending friend requests</h4>
-                        <p className="text-xs text-slate-500 mt-1">When students or sellers send you friend requests, they will appear here.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* 4. SUBTAB: MY FRIENDS (Full-Width Grid) */}
-              {messageSubtab === 'my_friends' && (
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-                  <div className="max-w-4xl mx-auto space-y-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-sm text-slate-900">Connected Campus Friends ({myFriends.length})</h3>
-                      <span className="text-xs text-slate-400">Directly message any of your accepted friends</span>
-                    </div>
-
-                    {myFriends.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                        {myFriends.map((f) => (
-                          <div key={f.id} className="p-4 rounded-3xl bg-white border border-slate-200 hover:shadow-xs transition-all flex items-center justify-between">
-                            <div className="flex items-center space-x-3 overflow-hidden">
-                              {f.profile_picture_url ? (
-                                <SafeImage src={f.profile_picture_url} alt={f.full_name} fallbackType="avatar" className="w-11 h-11 rounded-2xl object-cover border border-slate-200 shrink-0" />
-                              ) : (
-                                <div className="w-11 h-11 rounded-2xl bg-sky-100 text-sky-700 font-black flex items-center justify-center text-sm shrink-0">
-                                  {f.full_name.charAt(0)}
-                                </div>
-                              )}
-                              <div className="overflow-hidden">
-                                <span className="font-bold text-xs text-slate-900 block truncate">{f.full_name}</span>
-                                <span className="text-[11px] text-slate-500 block truncate">{f.department} • {f.level}</span>
-                                <span className="text-[10px] text-slate-400 block truncate">{f.university_name || universityName}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center space-x-1 shrink-0 ml-2">
-                              <button
-                                onClick={() => handleViewProfile(f.id)}
-                                className="p-2 text-slate-400 hover:text-slate-800 rounded-xl cursor-pointer"
-                                title="View Profile"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleStartChatWithStudent(f)}
-                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs flex items-center space-x-1.5 relative"
-                              >
-                                <span>Chat</span>
-                                {getUnreadCountForUser(f.id || f.user_id) > 0 && (
-                                  <span className="px-1.5 py-0.2 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-xs animate-pulse">
-                                    {getUnreadCountForUser(f.id || f.user_id)}
-                                  </span>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8">
-                        <Users className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                        <h4 className="font-bold text-slate-800">No connected campus friends yet</h4>
-                        <p className="text-xs text-slate-500 mt-1">Explore "Find Campus Friends" to connect with peers and merchants!</p>
-                        <button
-                          onClick={() => setMessageSubtab('friends')}
-                          className="mt-3 px-4 py-2 bg-sky-500 text-white text-xs font-bold rounded-xl cursor-pointer"
-                        >
-                          Discover Peers
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
             </div>
           </div>
-        </div>
-      )}
+        )}
 
         {/* --- TAB 5: PROFILE & SETTINGS (MODERN SOCIAL / IOS GROUPED EXPERIENCE) --- */}
         {activeTab === 'profile' && (
@@ -6660,7 +6525,7 @@ export default function StudentDashboard() {
               <div className="grid grid-cols-3 gap-1 mt-5 pt-4 border-t border-slate-100 text-center w-full">
                 <button
                   type="button"
-                  onClick={() => { setActiveTab('messages'); setMessageSubtab('my_friends'); }}
+                  onClick={() => { setActiveTab('friends'); setFriendsTabFilter('friends'); }}
                   className="py-2 px-1 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
                 >
                   <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(myFriends || []).length}</p>
@@ -6668,7 +6533,7 @@ export default function StudentDashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setActiveTab('messages'); setMessageSubtab('requests'); }}
+                  onClick={() => { setActiveTab('friends'); setFriendsTabFilter('all'); }}
                   className="py-2 px-1 rounded-2xl hover:bg-sky-50/70 transition-colors cursor-pointer group"
                 >
                   <p className="text-base sm:text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">{(pendingRequests || []).length}</p>
@@ -8012,8 +7877,7 @@ export default function StudentDashboard() {
                   <button
                     type="button"
                     onClick={() => {
-                      setActiveTab('messages');
-                      setMessageSubtab('ai');
+                      handleSelectAiChat();
                       setMenuDrawerOpen(false);
                     }}
                     className="w-full p-3.5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer"
