@@ -4911,10 +4911,18 @@ export default function VendorDashboard() {
               </div>
             </div>
 
-            {/* Facebook Lite Card-Style Stories Rail */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 shadow-2xs">
-              <div className="flex items-center space-x-2.5 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
-                {/* 1. Create Story Card */}
+            {/* Campus Stories Rail (Modern Instagram/Threads Circular Story Rings) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-3 sm:p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-3 px-1">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Campus Stories</span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-400">24h Drops</span>
+              </div>
+
+              <div className="flex items-center space-x-3 sm:space-x-4 overflow-x-auto scrollbar-none momentum-scroll py-1 px-1">
+                {/* 1. Create / View Store Story Ring */}
                 {(() => {
                   const selfGroup = statusGroups.find(g => g.is_self);
                   const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
@@ -4928,42 +4936,57 @@ export default function VendorDashboard() {
                           setCreateStatusModalOpen(true);
                         }
                       }}
-                      className="w-24 sm:w-28 h-40 sm:h-44 rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-transform active:scale-95"
+                      className="flex flex-col items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                     >
-                      <div className="h-[70%] w-full overflow-hidden bg-slate-100 relative">
-                        {user?.profile_picture_url || vendorStore?.logo ? (
-                          <SafeImage
-                            src={user?.profile_picture_url || vendorStore?.logo}
-                            alt="Your Story"
-                            fallbackType="avatar"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-lg">
-                            {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                      <div className="relative">
+                        <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${
+                          hasMyStory
+                            ? 'bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 shadow-sm'
+                            : 'border-2 border-dashed border-slate-300 group-hover:border-sky-400'
+                        }`}>
+                          <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
+                            {user?.profile_picture_url || vendorStore?.logo ? (
+                              <SafeImage
+                                src={user?.profile_picture_url || vendorStore?.logo}
+                                alt="Your Story"
+                                fallbackType="avatar"
+                                className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-200"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-gradient-to-tr from-slate-100 to-slate-200 text-slate-700 font-bold flex items-center justify-center text-sm">
+                                {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {/* Overlapping blue plus icon */}
-                        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center border-2 border-white shadow-xs">
-                          <Plus className="w-4 h-4 stroke-[3]" />
+                        </div>
+
+                        {/* Plus / Add Story Floating Badge */}
+                        <div
+                          onClick={(e) => {
+                            if (hasMyStory) {
+                              e.stopPropagation();
+                              setCreateStatusModalOpen(true);
+                            }
+                          }}
+                          className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center border-2 border-white shadow-xs hover:scale-110 transition-transform"
+                          title="Add to story"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
                         </div>
                       </div>
-                      <div className="h-[30%] w-full bg-white flex items-end justify-center pb-1.5 pt-3 px-1">
-                        <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate">
-                          {hasMyStory ? 'Your story' : 'Post drop'}
-                        </span>
-                      </div>
+
+                      <span className="text-[11px] font-semibold text-slate-700 truncate max-w-[68px] text-center mt-1.5 group-hover:text-sky-600 transition-colors">
+                        {hasMyStory ? 'Your story' : 'Add story'}
+                      </span>
                     </div>
                   );
                 })()}
 
-                {/* 2. Peer Campus Story Cards */}
+                {/* 2. Peer Campus Story Rings */}
                 {statusGroups
                   .filter(g => !g.is_self)
                   .map((group) => {
                     const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
-                    const firstItem = group.items?.[0];
-                    const bgUrl = firstItem?.media_url || group.user_avatar;
                     const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
 
                     return (
@@ -4976,49 +4999,33 @@ export default function VendorDashboard() {
                             itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
                           });
                         }}
-                        className={`w-24 sm:w-28 h-40 sm:h-44 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-all active:scale-95 ${
-                          isUnviewed ? 'bg-slate-900 ring-2 ring-blue-500/90 ring-offset-1 ring-offset-white' : 'bg-slate-800 opacity-80'
-                        }`}
+                        className="flex flex-col items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                       >
-                        {bgUrl ? (
-                          <SafeImage
-                            src={bgUrl}
-                            alt={group.user_name}
-                            fallbackType="product"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xl">
-                            {group.user_name?.charAt(0)}
-                          </div>
-                        )}
-
-                        {/* Top Left Author Avatar (Active Blue Ring if Unviewed, Muted if Viewed) */}
-                        <div className={`absolute top-2 left-2 w-8 h-8 rounded-full p-0.5 shadow-md flex items-center justify-center ${
-                          isUnviewed ? 'bg-blue-600 ring-2 ring-blue-400 ring-offset-1 ring-offset-black/50' : 'bg-slate-400/80 ring-1 ring-white/60'
+                        <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${
+                          isUnviewed
+                            ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 shadow-sm'
+                            : 'bg-slate-200'
                         }`}>
-                          <div className="w-full h-full rounded-full overflow-hidden bg-white">
+                          <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
                             {group.user_avatar ? (
                               <SafeImage
                                 src={group.user_avatar}
                                 alt={group.user_name}
                                 fallbackType="avatar"
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-200"
                               />
                             ) : (
-                              <div className="w-full h-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                              <div className="w-full h-full rounded-full bg-gradient-to-tr from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xs sm:text-sm">
                                 {group.user_name?.charAt(0)}
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {/* Dark bottom gradient overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
-
-                        {/* Bottom author name */}
-                        <span className="absolute bottom-2 left-2 right-2 text-[11px] font-bold text-white leading-tight truncate drop-shadow-sm">
-                          {group.user_name}
+                        <span className={`text-[11px] truncate max-w-[68px] text-center mt-1.5 transition-colors ${
+                          isUnviewed ? 'font-bold text-slate-900 group-hover:text-sky-600' : 'font-medium text-slate-500'
+                        }`}>
+                          {group.user_name?.split(' ')[0] || group.user_name}
                         </span>
                       </div>
                     );

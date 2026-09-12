@@ -3337,17 +3337,29 @@ export default function StudentDashboard() {
       {/* Main Content Area */}
       <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
         
-        {/* --- FACEBOOK LITE STYLE TOP HEADER & TABS BAR --- */}
-        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/90 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
+        {/* --- BESPOKE CAMPUS HEADER & MODERN CAPSULE NAVIGATION --- */}
+        <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
           {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
           {activeTab === 'reels' && (
             <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => setActiveTab('reels')}
-                className="text-2xl sm:text-3xl font-black tracking-tighter text-blue-600 hover:opacity-90 transition-opacity cursor-pointer flex items-center space-x-1.5"
+                className="flex items-center space-x-2 text-left cursor-pointer group"
               >
-                <span>campuslink</span>
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black shadow-xs group-hover:scale-105 transition-transform">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="flex items-baseline space-x-1.5">
+                  <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
+                    Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
+                  </span>
+                  {(currentUser?.university_name || universityName) && (
+                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
+                      🎓 {(currentUser?.university_name || universityName).split(' ')[0]}
+                    </span>
+                  )}
+                </div>
               </button>
 
               <div className="flex items-center space-x-2">
@@ -3355,11 +3367,11 @@ export default function StudentDashboard() {
                   <InstallAppButton variant="header" />
                 </div>
 
-                {/* Menu '☰' (leads to settings & drawer) */}
+                {/* Profile / Menu Button */}
                 <button
                   type="button"
                   onClick={() => setMenuDrawerOpen(true)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs overflow-hidden"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs overflow-hidden border border-slate-200/70 p-0.5"
                   title="Menu & Settings"
                   aria-label="Menu"
                 >
@@ -3368,53 +3380,62 @@ export default function StudentDashboard() {
                       src={currentUser.profile_picture_url}
                       alt="Menu"
                       fallbackType="avatar"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover rounded-lg"
                     />
                   ) : (
-                    <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+                    <div className="w-full h-full rounded-lg bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-xs">
+                      {currentUser?.full_name?.charAt(0) || 'U'}
+                    </div>
                   )}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Row 2: The 6 Top Tabs (Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
-          <div className={`flex items-center justify-between px-1 sm:px-4 ${activeTab === 'reels' ? 'border-t border-slate-100' : ''}`}>
-            {[
-              { id: 'reels', icon: Home, label: 'Home' },
-              { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
-              { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
-              { id: 'marketplace', icon: Store, label: 'Marketplace' },
-              { id: 'notifications', icon: Bell, label: 'Notifications', badge: unreadCount },
-              { id: 'campus', icon: PackageSearch, label: 'Lost & Found' }
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    localStorage.setItem('campuslink_student_tab', tab.id);
-                  }}
-                  className={`flex-1 py-2.5 sm:py-3 flex flex-col items-center justify-center relative transition-colors cursor-pointer group ${
-                    isActive ? 'text-blue-600 border-b-[3px] border-blue-600 font-bold' : 'text-slate-500 hover:text-slate-800 border-b-[3px] border-transparent'
-                  }`}
-                  title={tab.label}
-                  aria-label={tab.label}
-                >
-                  <div className="relative">
-                    <Icon className={`w-5 h-5 sm:w-6 sm:h-6 transition-transform group-hover:scale-105 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                    {tab.badge > 0 && (
-                      <span className="absolute -top-1.5 -right-2.5 bg-rose-600 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
-                        {tab.badge > 15 ? '15+' : tab.badge}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+          {/* Row 2: Modern Segmented Capsule Tabs (Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
+          <div className="px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
+            <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
+              {[
+                { id: 'reels', icon: Home, label: 'Home' },
+                { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+                { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
+                { id: 'marketplace', icon: Store, label: 'Market' },
+                { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
+                { id: 'campus', icon: PackageSearch, label: 'Lost & Found' }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      localStorage.setItem('campuslink_student_tab', tab.id);
+                    }}
+                    className={`flex-1 py-1.5 sm:py-2 flex items-center justify-center space-x-1.5 rounded-xl transition-all cursor-pointer relative ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-xs font-bold'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-white/60 font-medium'
+                    }`}
+                    title={tab.label}
+                    aria-label={tab.label}
+                  >
+                    <div className="relative">
+                      <Icon className={`w-4 h-4 sm:w-4.5 sm:h-4.5 ${isActive ? 'stroke-[2.5]' : 'stroke-2'}`} />
+                      {tab.badge > 0 && (
+                        <span className={`absolute -top-1.5 -right-2 text-white text-[9px] font-black min-w-[15px] h-3.5 px-0.5 rounded-full flex items-center justify-center ring-2 ring-white shadow-xs ${isActive ? 'bg-rose-500' : 'bg-rose-600'}`}>
+                          {tab.badge > 15 ? '15+' : tab.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[11px] hidden lg:inline tracking-tight ${isActive ? 'font-bold text-white' : 'text-slate-600'}`}>
+                      {tab.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -3695,52 +3716,84 @@ export default function StudentDashboard() {
         {/* --- TAB 2: CAMPUS HOME & FEED (SWEET SOCIAL EXPERIENCE) --- */}
         {activeTab === 'reels' && (
           <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-4">
-            {/* Quick Create Bar (Facebook Lite Style) */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-3 flex items-center space-x-2.5 shadow-2xs">
-              <div
-                onClick={() => handleViewProfile(currentUser?.user_id || currentUser?.id)}
-                className="relative cursor-pointer shrink-0"
-              >
-                {currentUser?.profile_picture_url ? (
-                  <SafeImage
-                    src={currentUser.profile_picture_url}
-                    alt="You"
-                    fallbackType="avatar"
-                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
-                    {currentUser?.full_name?.charAt(0) || 'U'}
-                  </div>
-                )}
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />
+            {/* Campus Drop Composer (Modern bespoke campus style) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-3 sm:p-4 shadow-xs space-y-2.5">
+              <div className="flex items-center space-x-3">
+                <div
+                  onClick={() => handleViewProfile(currentUser?.user_id || currentUser?.id)}
+                  className="relative cursor-pointer shrink-0"
+                  title="Your Profile"
+                >
+                  {currentUser?.profile_picture_url ? (
+                    <SafeImage
+                      src={currentUser.profile_picture_url}
+                      alt="You"
+                      fallbackType="avatar"
+                      className="w-10 h-10 rounded-2xl object-cover border border-slate-200"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                      {currentUser?.full_name?.charAt(0) || 'U'}
+                    </div>
+                  )}
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
+                </div>
+
+                <div
+                  onClick={() => setQuickPostModalOpen(true)}
+                  className="flex-1 bg-slate-50 hover:bg-slate-100/90 border border-slate-200/70 rounded-2xl px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-all flex items-center justify-between group"
+                >
+                  <span className="truncate">Share a campus drop, gist or question...</span>
+                  <Sparkles className="w-4 h-4 text-sky-500 shrink-0 group-hover:rotate-12 transition-transform" />
+                </div>
               </div>
 
-              <div
-                onClick={() => setQuickPostModalOpen(true)}
-                className="flex-1 bg-slate-100 hover:bg-slate-200/80 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
-              >
-                What's on your mind?
-              </div>
+              {/* Shortcut action pills */}
+              <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 overflow-x-auto scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickPostModalOpen(true);
+                    setTimeout(() => reelFileInputRef.current?.click(), 100);
+                  }}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-sky-50 text-slate-700 hover:text-sky-700 border border-slate-200/60 transition-colors cursor-pointer shrink-0 text-xs font-semibold"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-sky-500" />
+                  <span>Media Drop</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setQuickPostModalOpen(true);
-                  setTimeout(() => reelFileInputRef.current?.click(), 100);
-                }}
-                className="flex items-center space-x-1 px-2.5 py-2 rounded-xl hover:bg-slate-100 text-slate-700 transition-colors cursor-pointer shrink-0"
-                title="Add photo"
-              >
-                <ImageIcon className="w-5 h-5 text-emerald-500" />
-                <span className="text-xs font-semibold text-slate-700 hidden xs:inline">Photo</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setQuickPostModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200/60 transition-colors cursor-pointer shrink-0 text-xs font-semibold"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Campus Gist</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateStatusModalOpen(true)}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-amber-50 text-slate-700 hover:text-amber-700 border border-slate-200/60 transition-colors cursor-pointer shrink-0 text-xs font-semibold"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Add Story</span>
+                </button>
+              </div>
             </div>
 
-            {/* Facebook Lite Card-Style Stories Rail */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 p-2.5 sm:p-3 shadow-2xs">
-              <div className="flex items-center space-x-2.5 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
-                {/* 1. Create Story Card */}
+            {/* Campus Stories Rail (Modern Instagram/Threads Circular Story Rings) */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 p-3 sm:p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-3 px-1">
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Campus Stories</span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-400">24h Drops</span>
+              </div>
+
+              <div className="flex items-center space-x-3 sm:space-x-4 overflow-x-auto scrollbar-none momentum-scroll py-1 px-1">
+                {/* 1. Your Story Ring */}
                 {(() => {
                   const selfGroup = statusGroups.find(g => g.is_self);
                   const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
@@ -3754,42 +3807,57 @@ export default function StudentDashboard() {
                           setCreateStatusModalOpen(true);
                         }
                       }}
-                      className="w-24 sm:w-28 h-40 sm:h-44 rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-transform active:scale-95"
+                      className="flex flex-col items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                     >
-                      <div className="h-[70%] w-full overflow-hidden bg-slate-100 relative">
-                        {currentUser?.profile_picture_url ? (
-                          <SafeImage
-                            src={currentUser.profile_picture_url}
-                            alt="Your Story"
-                            fallbackType="avatar"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-lg">
-                            {currentUser?.full_name?.charAt(0) || 'U'}
+                      <div className="relative">
+                        <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${
+                          hasMyStory
+                            ? 'bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 shadow-sm'
+                            : 'border-2 border-dashed border-slate-300 group-hover:border-sky-400'
+                        }`}>
+                          <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
+                            {currentUser?.profile_picture_url ? (
+                              <SafeImage
+                                src={currentUser.profile_picture_url}
+                                alt="Your Story"
+                                fallbackType="avatar"
+                                className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-200"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-gradient-to-tr from-slate-100 to-slate-200 text-slate-700 font-bold flex items-center justify-center text-sm">
+                                {currentUser?.full_name?.charAt(0) || 'U'}
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {/* Overlapping blue plus icon */}
-                        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center border-2 border-white shadow-xs">
-                          <Plus className="w-4 h-4 stroke-[3]" />
+                        </div>
+
+                        {/* Plus / Add Story Floating Badge */}
+                        <div
+                          onClick={(e) => {
+                            if (hasMyStory) {
+                              e.stopPropagation();
+                              setCreateStatusModalOpen(true);
+                            }
+                          }}
+                          className="absolute bottom-0 right-0 w-5 h-5 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center border-2 border-white shadow-xs hover:scale-110 transition-transform"
+                          title="Add to story"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
                         </div>
                       </div>
-                      <div className="h-[30%] w-full bg-white flex items-end justify-center pb-1.5 pt-3 px-1">
-                        <span className="text-[11px] font-bold text-slate-800 text-center leading-tight truncate">
-                          {hasMyStory ? 'Your story' : 'Create story'}
-                        </span>
-                      </div>
+
+                      <span className="text-[11px] font-semibold text-slate-700 truncate max-w-[68px] text-center mt-1.5 group-hover:text-sky-600 transition-colors">
+                        {hasMyStory ? 'Your story' : 'Add story'}
+                      </span>
                     </div>
                   );
                 })()}
 
-                {/* 2. Peer Campus Story Cards */}
+                {/* 2. Peer Campus Story Rings */}
                 {statusGroups
                   .filter(g => !g.is_self)
                   .map((group) => {
                     const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
-                    const firstItem = group.items?.[0];
-                    const bgUrl = firstItem?.media_url || group.user_avatar;
                     const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
 
                     return (
@@ -3802,49 +3870,33 @@ export default function StudentDashboard() {
                             itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
                           });
                         }}
-                        className={`w-24 sm:w-28 h-40 sm:h-44 rounded-2xl overflow-hidden relative shrink-0 cursor-pointer shadow-2xs group snap-start transition-all active:scale-95 ${
-                          isUnviewed ? 'bg-slate-900 ring-2 ring-blue-500/90 ring-offset-1 ring-offset-white' : 'bg-slate-800 opacity-80'
-                        }`}
+                        className="flex flex-col items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                       >
-                        {bgUrl ? (
-                          <SafeImage
-                            src={bgUrl}
-                            alt={group.user_name}
-                            fallbackType="product"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xl">
-                            {group.user_name?.charAt(0)}
-                          </div>
-                        )}
-
-                        {/* Top Left Author Avatar (Active Blue Ring if Unviewed, Muted if Viewed) */}
-                        <div className={`absolute top-2 left-2 w-8 h-8 rounded-full p-0.5 shadow-md flex items-center justify-center ${
-                          isUnviewed ? 'bg-blue-600 ring-2 ring-blue-400 ring-offset-1 ring-offset-black/50' : 'bg-slate-400/80 ring-1 ring-white/60'
+                        <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${
+                          isUnviewed
+                            ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 shadow-sm'
+                            : 'bg-slate-200'
                         }`}>
-                          <div className="w-full h-full rounded-full overflow-hidden bg-white">
+                          <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
                             {group.user_avatar ? (
                               <SafeImage
                                 src={group.user_avatar}
                                 alt={group.user_name}
                                 fallbackType="avatar"
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-200"
                               />
                             ) : (
-                              <div className="w-full h-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                              <div className="w-full h-full rounded-full bg-gradient-to-tr from-indigo-500 to-sky-600 flex items-center justify-center text-white font-bold text-xs sm:text-sm">
                                 {group.user_name?.charAt(0)}
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {/* Dark bottom gradient overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none" />
-
-                        {/* Bottom author name */}
-                        <span className="absolute bottom-2 left-2 right-2 text-[11px] font-bold text-white leading-tight truncate drop-shadow-sm">
-                          {group.user_name}
+                        <span className={`text-[11px] truncate max-w-[68px] text-center mt-1.5 transition-colors ${
+                          isUnviewed ? 'font-bold text-slate-900 group-hover:text-sky-600' : 'font-medium text-slate-500'
+                        }`}>
+                          {group.user_name?.split(' ')[0] || group.user_name}
                         </span>
                       </div>
                     );
@@ -7554,7 +7606,15 @@ export default function StudentDashboard() {
             >
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-                <h3 className="text-base font-black text-slate-900">Create Post</h3>
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                    CL
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">Create Campus Drop</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Post to your campus feed & classmates</p>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {
@@ -7570,20 +7630,20 @@ export default function StudentDashboard() {
               </div>
 
               {/* Author Row */}
-              <div className="flex items-center space-x-3 mb-4">
+              <div className="flex items-center space-x-3 mb-3">
                 <div className="relative">
                   <SafeImage
                     src={currentUser?.avatar_url || currentUser?.profile_pic}
                     alt={currentUser?.full_name || 'User'}
                     fallbackType="avatar"
-                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                    className="w-10 h-10 rounded-2xl object-cover border border-slate-200"
                   />
-                  <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500" />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
                 </div>
                 <div>
                   <h4 className="text-xs font-black text-slate-900">{currentUser?.full_name || 'Campus Student'}</h4>
-                  <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-bold text-slate-600 mt-0.5">
-                    <span>👥 Public · Campus Feed</span>
+                  <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-sky-50 text-[10px] font-bold text-sky-700 mt-0.5 border border-sky-100">
+                    <span>🎓 Campus Community Feed</span>
                   </div>
                 </div>
               </div>
@@ -7593,8 +7653,8 @@ export default function StudentDashboard() {
                 <textarea
                   value={reelText}
                   onChange={(e) => setReelText(e.target.value)}
-                  placeholder="What's on your mind? Share campus updates, gist, or questions..."
-                  className="w-full h-28 text-sm text-slate-800 placeholder:text-slate-400 border-0 focus:ring-0 resize-none p-0 focus:outline-none"
+                  placeholder="What's happening on campus? Share gist, drops, notes, or questions..."
+                  className="w-full h-28 text-sm text-slate-800 placeholder:text-slate-400 border-0 focus:ring-0 resize-none p-0 focus:outline-none leading-relaxed"
                   autoFocus
                 />
 
@@ -7620,18 +7680,19 @@ export default function StudentDashboard() {
                 )}
               </div>
 
-              {/* Add to Post Toolbar */}
-              <div className="p-3 border border-slate-200 rounded-2xl mb-4 flex items-center justify-between bg-slate-50/50">
-                <span className="text-xs font-bold text-slate-700">Add to your post</span>
-                <div className="flex items-center space-x-1.5">
-                  <label className="w-8 h-8 rounded-full hover:bg-slate-200/80 text-emerald-600 flex items-center justify-center cursor-pointer transition-colors" title="Photo/Video">
+              {/* Tag Toolbar (Sleek Campus Action Pills) */}
+              <div className="p-2.5 border border-slate-200/80 rounded-2xl mb-3 flex items-center justify-between bg-slate-50/80 gap-2">
+                <span className="text-[11px] font-bold text-slate-500 hidden xs:inline">Attach to Drop:</span>
+                <div className="flex items-center space-x-2">
+                  <label className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200/90 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer transition-colors shadow-2xs">
                     <input
                       type="file"
                       accept="image/*,video/*"
                       onChange={handleReelFileSelect}
                       className="hidden"
                     />
-                    <ImageIcon className="w-5 h-5" />
+                    <ImageIcon className="w-3.5 h-3.5 text-sky-500" />
+                    <span>Photo / Video</span>
                   </label>
                   <button
                     type="button"
@@ -7639,18 +7700,19 @@ export default function StudentDashboard() {
                       const loc = prompt('Enter campus location or venue (e.g. Faculty of Science, Main Gate, Moremi Hall):', reelLocation || '');
                       if (loc !== null) setReelLocation(loc.trim());
                     }}
-                    className={`w-8 h-8 rounded-full hover:bg-slate-200/80 flex items-center justify-center cursor-pointer transition-colors ${reelLocation ? 'text-blue-600' : 'text-rose-500'}`}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white border text-xs font-semibold cursor-pointer transition-colors shadow-2xs ${reelLocation ? 'border-sky-300 text-sky-700 bg-sky-50' : 'border-slate-200/90 text-slate-700 hover:bg-slate-100'}`}
                     title="Tag Location"
                   >
-                    <MapPin className="w-5 h-5" />
+                    <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{reelLocation ? 'Location Set' : 'Location'}</span>
                   </button>
                 </div>
               </div>
 
               {reelLocation && (
-                <div className="flex items-center justify-between text-[11px] font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl mb-3">
+                <div className="flex items-center justify-between text-[11px] font-bold text-sky-700 bg-sky-50 px-3 py-1.5 rounded-xl mb-3 border border-sky-200/60">
                   <span className="truncate">📍 {reelLocation}</span>
-                  <button type="button" onClick={() => setReelLocation('')} className="text-blue-400 hover:text-blue-700 ml-2">
+                  <button type="button" onClick={() => setReelLocation('')} className="text-sky-500 hover:text-sky-800 ml-2">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -7664,7 +7726,7 @@ export default function StudentDashboard() {
                   await handlePostReelSubmit(e);
                   setQuickPostModalOpen(false);
                 }}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 active:scale-98 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 active:scale-98 disabled:opacity-50 text-white font-bold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
               >
                 {reelPosting ? (
                   <>
@@ -7672,7 +7734,7 @@ export default function StudentDashboard() {
                     <span>Sharing to Campus...</span>
                   </>
                 ) : (
-                  <span>Post</span>
+                  <span>Share Campus Drop 🚀</span>
                 )}
               </button>
             </motion.div>
