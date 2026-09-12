@@ -3355,42 +3355,24 @@ export default function StudentDashboard() {
                   <InstallAppButton variant="header" />
                 </div>
 
-                {/* Quick Create '+' */}
-                <button
-                  type="button"
-                  onClick={() => setQuickPostModalOpen(true)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                  title="Create post or story"
-                  aria-label="Create post or story"
-                >
-                  <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
-                </button>
-
-                {/* Search '🔍' */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (activeTab !== 'marketplace') {
-                      setActiveTab('marketplace');
-                    }
-                    setMarketSearchOpen(prev => !prev);
-                  }}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
-                  title="Search campus"
-                  aria-label="Search campus"
-                >
-                  <Search className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
-                </button>
-
                 {/* Menu '☰' (leads to settings & drawer) */}
                 <button
                   type="button"
                   onClick={() => setMenuDrawerOpen(true)}
-                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs"
+                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-colors cursor-pointer active:scale-95 shadow-2xs overflow-hidden"
                   title="Menu & Settings"
                   aria-label="Menu"
                 >
-                  <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
+                  {currentUser?.profile_picture_url ? (
+                    <SafeImage
+                      src={currentUser.profile_picture_url}
+                      alt="Menu"
+                      fallbackType="avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+                  )}
                 </button>
               </div>
             </div>
