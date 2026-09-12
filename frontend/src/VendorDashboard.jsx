@@ -286,6 +286,7 @@ export default function VendorDashboard() {
   // Data States (with SWR Instant-Load Cache)
   const [products, setProducts] = useState(() => getCachedData('products', []));
   const [services, setServices] = useState(() => getCachedData('services', []));
+  const [vendorOrders, setVendorOrders] = useState(() => getCachedData('orders', []));
   const [vendorReviews, setVendorReviews] = useState(() => getCachedData('reviews', []));
 
   // Campus Marketplace States (Vendors can explore other campus products & services)
@@ -2864,8 +2865,8 @@ export default function VendorDashboard() {
     navigate('/login');
   };
 
-  const pendingOrdersCount = vendorOrders.filter(o => o.status === 'pending').length;
-  const totalRevenue = vendorOrders
+  const pendingOrdersCount = (vendorOrders || []).filter(o => o.status === 'pending').length;
+  const totalRevenue = (vendorOrders || [])
     .filter(o => o.status === 'completed' || o.status === 'confirmed')
     .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
 
@@ -6200,7 +6201,7 @@ export default function VendorDashboard() {
                 <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-xs">
                   <span className="text-[11px] font-bold text-slate-500 block uppercase">Customer Orders</span>
                   <span className="text-lg sm:text-xl font-black text-slate-900 mt-1 block">
-                    {vendorOrders.length}
+                    {(vendorOrders || []).length}
                   </span>
                   <span className="text-[10px] text-amber-600 font-bold mt-1 block">{pendingOrdersCount} Action Required</span>
                 </div>
