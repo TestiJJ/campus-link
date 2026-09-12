@@ -530,21 +530,6 @@ export default function VendorDashboard() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Initialize push notification permission state and auto-subscribe on mount
-  useEffect(() => {
-    if (!isPushSupported()) return;
-    const state = getNotificationPermissionState();
-    setPushPermission(state);
-    if (state === 'granted') {
-      setPushEnabled(true);
-      // Auto-sync subscription to backend
-      subscribeUserToPush(API).then(res => {
-        if (res?.success) setPushEnabled(true);
-      }).catch(() => {});
-    }
-  }, []);
-
-
   // Synchronize activeTab with URL query params and localStorage
   useEffect(() => {
     try {
