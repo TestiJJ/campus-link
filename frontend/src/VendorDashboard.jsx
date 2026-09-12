@@ -243,6 +243,10 @@ export default function VendorDashboard() {
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
   const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
   const [bankModalOpen, setBankModalOpen] = useState(false);
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  const [broadcastInput, setBroadcastInput] = useState(() => localStorage.getItem('vendor_store_broadcast') || '');
+  const [storeBroadcast, setStoreBroadcast] = useState(() => localStorage.getItem('vendor_store_broadcast') || '');
+  const [isEditingBroadcast, setIsEditingBroadcast] = useState(false);
 
   // New Vendor Profile Completion Prompt State
   const [showNewVendorModal, setShowNewVendorModal] = useState(() => {
