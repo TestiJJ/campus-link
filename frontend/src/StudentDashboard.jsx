@@ -268,6 +268,7 @@ export default function StudentDashboard() {
   const [reelFile, setReelFile] = useState(null);
   const [reelPreview, setReelPreview] = useState(null);
   const [reelPosting, setReelPosting] = useState(false);
+  const [feedFilter, setFeedFilter] = useState('all'); // 'all' | 'media' | 'text'
   const [activeCommentsReelId, setActiveCommentsReelId] = useState(null);
   const [newCommentText, setNewCommentText] = useState('');
   const [replyingToComment, setReplyingToComment] = useState(null);
@@ -3640,45 +3641,175 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* --- TAB 2: CAMPUS HOME & FEED (REELS, PHOTOS, STORIES) --- */}
+        {/* --- TAB 2: CAMPUS HOME & FEED (SWEET SOCIAL EXPERIENCE) --- */}
         {activeTab === 'reels' && (
-          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate flex items-center space-x-2">
-                  <Home className="w-6 h-6 text-sky-500 shrink-0 inline md:hidden" />
-                  <span>Campus Home & Feed</span>
-                </h1>
-                <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                  Stories, student video drops, photo moments & campus pulse across {universityName}.
-                </p>
+          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-5">
+            {/* Top Campus Stories Rail (Instagram/Facebook Style) */}
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 px-3.5 py-2.5 shadow-2xs">
+              <div className="flex items-center justify-between mb-2 px-0.5">
+                <span className="text-xs font-black text-slate-900 flex items-center space-x-1.5">
+                  <Camera className="w-3.5 h-3.5 text-sky-500" />
+                  <span>Campus Stories</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-semibold">{statusGroups.length} active</span>
               </div>
+
+              <div className="flex items-center space-x-3 overflow-x-auto scrollbar-none momentum-scroll snap-x snap-mandatory py-0.5">
+                {/* 1. Your Story Bubble */}
+                {(() => {
+                  const selfGroup = statusGroups.find(g => g.is_self);
+                  const hasMyStory = Boolean(selfGroup && selfGroup.items && selfGroup.items.length > 0);
+                  return (
+                    <div className="flex flex-col items-center shrink-0 cursor-pointer group snap-start">
+                      <div
+                        onClick={() => {
+                          if (hasMyStory) {
+                            const selfIdx = statusGroups.findIndex(g => g.is_self);
+                            setActiveStatusViewer({ userIdx: selfIdx !== -1 ? selfIdx : 0, itemIdx: 0 });
+                          } else {
+                            setCreateStatusModalOpen(true);
+                          }
+                        }}
+                        className={`relative w-12 h-12 rounded-full p-0.5 transition-all flex items-center justify-center bg-slate-50 active:scale-95 ${
+                          hasMyStory
+                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
+                            : 'border-2 border-dashed border-sky-400 group-hover:border-sky-600'
+                        }`}
+                      >
+                        <div className="w-full h-full rounded-full bg-white p-0.5 overflow-hidden flex items-center justify-center">
+                          {currentUser?.profile_picture_url ? (
+                            <SafeImage
+                              src={currentUser.profile_picture_url}
+                              alt="Your Story"
+                              fallbackType="avatar"
+                              className="w-full h-full rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full rounded-full bg-sky-50 text-sky-700 font-bold flex items-center justify-center text-xs">
+                              {currentUser?.full_name?.charAt(0) || 'U'}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCreateStatusModalOpen(true);
+                          }}
+                          className="absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 bg-sky-500 hover:bg-sky-600 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs transition-transform active:scale-90 cursor-pointer"
+                          title="Add to story"
+                          aria-label="Add to story"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                        </button>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[56px] text-center">Your Story</span>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Peer Campus Stories */}
+                {statusGroups
+                  .filter(g => !g.is_self)
+                  .map((group) => {
+                    const origIdx = statusGroups.findIndex(g => g.user_id === group.user_id);
+                    const isUnviewed = group.has_unviewed !== false && !group.all_viewed;
+                    return (
+                      <div
+                        key={group.user_id}
+                        onClick={() => {
+                          const firstUnviewed = group.items.findIndex(it => !it.is_viewed);
+                          setActiveStatusViewer({
+                            userIdx: origIdx !== -1 ? origIdx : 0,
+                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                          });
+                        }}
+                        className="flex flex-col items-center shrink-0 cursor-pointer group snap-start"
+                      >
+                        <div
+                          className={`w-12 h-12 rounded-full p-0.5 transition-transform group-hover:scale-105 active:scale-95 flex items-center justify-center ${
+                            isUnviewed
+                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25'
+                              : 'bg-slate-200 border border-slate-300 opacity-60'
+                          }`}
+                        >
+                          <div className="w-full h-full rounded-full bg-white p-0.5 flex items-center justify-center overflow-hidden">
+                            {group.user_avatar ? (
+                              <SafeImage
+                                src={group.user_avatar}
+                                alt={group.user_name}
+                                fallbackType="avatar"
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs">
+                                {group.user_name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-800 mt-1 truncate max-w-[56px] text-center">
+                          {group.user_name.split(' ')[0]}
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Header with Segmented Filter Pills */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none pb-0.5">
+                {[
+                  { id: 'all', label: '🌟 All Feed', count: reels.length },
+                  { id: 'media', label: '📸 Photos & Videos', count: reels.filter(r => r.media_url && r.media_type !== 'text').length },
+                  { id: 'text', label: '💬 Campus Gist', count: reels.filter(r => !r.media_url || r.media_type === 'text').length }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setFeedFilter(tab.id)}
+                    className={`px-3 py-1.5 rounded-full font-bold text-xs transition-all shrink-0 cursor-pointer flex items-center space-x-1.5 ${
+                      feedFilter === tab.id
+                        ? 'bg-sky-500 text-white shadow-xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      feedFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
               <button
                 type="button"
                 onClick={() => handleManualRefresh(true)}
                 disabled={isRefreshing}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                className="flex items-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 shrink-0 self-end sm:self-auto"
                 title="Refresh feed"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
-                <span className="hidden sm:inline">{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
+                <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
               </button>
             </div>
 
-            {/* Post Creator Card */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-4 shadow-xs">
-              <div className="flex items-center space-x-3 mb-3">
+            {/* Sweet Post Creator Card */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs space-y-3">
+              <div className="flex items-center space-x-3">
                 {currentUser?.profile_picture_url ? (
-                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-9 h-9 rounded-full object-cover border border-sky-200 shrink-0" />
+                  <SafeImage src={currentUser?.profile_picture_url} alt="You" fallbackType="avatar" className="w-10 h-10 rounded-full object-cover border border-sky-200 shrink-0" />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-sm shrink-0">
                     {currentUser?.full_name?.charAt(0) || 'U'}
                   </div>
                 )}
                 <div className="min-w-0">
-                  <span className="font-bold text-xs text-slate-900 block truncate">{currentUser?.full_name}</span>
-                  <span className="text-[10px] text-slate-400 truncate block">Share with students across {universityName}</span>
+                  <span className="font-extrabold text-xs text-slate-900 block truncate">{currentUser?.full_name}</span>
+                  <span className="text-[10px] text-slate-400 truncate block">Share moments with {universityName || 'campus peers'}</span>
                 </div>
               </div>
 
@@ -3687,60 +3818,60 @@ export default function StudentDashboard() {
                   rows={3}
                   value={reelText}
                   onChange={(e) => setReelText(e.target.value)}
-                  placeholder={`What's happening on campus? Share thoughts, announcements, photos or videos...`}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed"
+                  placeholder={`What's happening on campus? Share gist, drops, or photos...`}
+                  className="w-full p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white resize-none leading-relaxed transition-colors"
                 />
 
                 {reelPreview && (
-                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 flex items-center justify-center">
                     {reelFile?.type?.startsWith('video') ? (
-                      <video src={getMediaUrl(reelPreview)} controls className="max-h-56 w-full object-contain" />
+                      <video src={getMediaUrl(reelPreview)} controls className="max-h-64 w-full object-contain" />
                     ) : (
-                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-56 w-full object-contain" />
+                      <SafeImage src={reelPreview} alt="Preview" fallbackType="product" className="max-h-64 w-full object-contain" />
                     )}
                     <button
                       type="button"
                       onClick={() => { setReelFile(null); setReelPreview(null); }}
-                      className="absolute top-2 right-2 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
+                      className="absolute top-2.5 right-2.5 bg-slate-950/80 text-white p-1.5 rounded-full hover:bg-rose-600 transition-colors cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
 
-                {/* Location Tags - horizontal scroll on mobile */}
+                {/* Location Quick Chips */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                   <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Tag:</span>
                   <button type="button" onClick={handleDetectGpsLocation} disabled={detectingGps}
-                    className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0">
+                    className="px-2.5 py-1 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold flex items-center space-x-1 cursor-pointer transition-colors shrink-0">
                     <Navigation className={`w-3 h-3 text-sky-600 ${detectingGps ? 'animate-spin' : ''}`} />
                     <span>{detectingGps ? 'Locating...' : 'GPS'}</span>
                   </button>
-                  <button type="button" onClick={() => setReelLocation(`📍 ${universityName} Campus`)}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                  <button type="button" onClick={() => setReelLocation(`📍 ${universityName || 'Campus'} Hub`)}
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     🏫 Campus
                   </button>
                   <button type="button" onClick={() => setReelLocation('📍 Central Library')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     📚 Library
                   </button>
                   <button type="button" onClick={() => setReelLocation('📍 Student Union (SUB)')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     🏛️ SUB
                   </button>
                   <button type="button" onClick={() => setReelLocation('📍 Hostels Quad')}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold cursor-pointer shrink-0">
                     🛏️ Hostels
                   </button>
                 </div>
 
                 {/* Toolbar + Submit */}
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <input ref={reelFileInputRef} type="file" accept="image/*,video/*" onChange={handleReelFileSelect} className="hidden" />
                     <button type="button" onClick={() => reelFileInputRef.current?.click()}
-                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-sky-50 hover:text-sky-600 text-slate-700 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
-                      <Camera className="w-4 h-4 text-sky-500" />
+                      className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold transition-colors flex items-center space-x-1.5 cursor-pointer shrink-0">
+                      <Camera className="w-4 h-4 text-sky-600" />
                       <span>{reelFile ? (reelFile.type?.startsWith('video') ? 'Change Video' : 'Change Photo') : 'Photo / Video Drop'}</span>
                     </button>
                     <div className="flex items-center space-x-1 bg-slate-100 px-2.5 py-1.5 rounded-xl text-xs text-slate-600 min-w-0 flex-1">
@@ -3757,267 +3888,293 @@ export default function StudentDashboard() {
                   <button
                     type="submit"
                     disabled={reelPosting || (!reelFile && !reelText.trim())}
-                    className="px-4 py-2 rounded-full bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50 shrink-0"
                   >
-                    {reelPosting ? 'Posting...' : 'Post'}
+                    {reelPosting ? 'Posting...' : 'Share Post'}
                   </button>
                 </div>
               </form>
             </div>
 
-            {/* Reels Feed */}
-            <div className="space-y-4">
-              {reels.filter(r => !hiddenPostIds.includes(r.id)).map((reel) => {
-                const isAuthor = (currentUser?.user_id && reel.user_id === currentUser.user_id) ||
-                                 (currentUser?.id && reel.user_id === currentUser.id) ||
-                                 currentUser?.role === 'admin';
+            {/* Reels Feed Stream */}
+            <div className="space-y-4 sm:space-y-5">
+              {reels
+                .filter(r => {
+                  if (hiddenPostIds.includes(r.id)) return false;
+                  if (feedFilter === 'media') return Boolean(r.media_url && r.media_type !== 'text');
+                  if (feedFilter === 'text') return !r.media_url || r.media_type === 'text';
+                  return true;
+                })
+                .map((reel) => {
+                  const isAuthor = (currentUser?.user_id && reel.user_id === currentUser.user_id) ||
+                                   (currentUser?.id && reel.user_id === currentUser.id) ||
+                                   currentUser?.role === 'admin';
 
-                return (
-                <div key={reel.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
-                  {/* Post Header */}
-                  <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
-                    <div className="flex items-start space-x-2.5 min-w-0">
-                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shadow-xs shrink-0">
-                        {reel.author_name?.charAt(0) || 'U'}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => reel.user_id && handleViewProfile(reel.user_id)}
-                            className="font-bold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left"
-                          >
-                            {reel.author_name}
-                          </button>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                            reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
-                          }`}>
-                            {reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
-                          </span>
-                          {(reel.author_university_abbr || reel.author_university) && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              📍 {reel.author_university_abbr || reel.author_university}
+                  return (
+                  <div key={reel.id} className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md transition-all duration-200">
+                    {/* Post Header */}
+                    <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
+                      <div className="flex items-start space-x-2.5 min-w-0">
+                        <div
+                          onClick={() => reel.user_id && handleViewProfile(reel.user_id)}
+                          className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shadow-xs shrink-0 cursor-pointer active:scale-95"
+                        >
+                          {reel.author_name?.charAt(0) || 'U'}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => reel.user_id && handleViewProfile(reel.user_id)}
+                              className="font-extrabold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate cursor-pointer"
+                            >
+                              {reel.author_name}
+                            </button>
+                            <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                              reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
+                            }`}>
+                              {reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
                             </span>
+                            {(reel.author_university_abbr || reel.author_university) && (
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                                📍 {reel.author_university_abbr || reel.author_university}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 flex-wrap">
+                            <span className="flex items-center space-x-0.5 text-sky-600 font-semibold">
+                              <MapPin className="w-2.5 h-2.5 text-sky-500" />
+                              <span>{reel.location || 'Campus'}</span>
+                            </span>
+                            <span>•</span>
+                            <span>{safeDate(reel.created_at, 'Recent')}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Post Settings Menu */}
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setActivePostMenuId(activePostMenuId === reel.id ? null : reel.id)}
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
+                          title="Post settings"
+                          aria-label="Post settings"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+
+                        {activePostMenuId === reel.id && (
+                          <>
+                            <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
+                            <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                              {isAuthor && (
+                                <button type="button" onClick={() => handleDeleteReel(reel.id)}
+                                  className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                                  <Trash2 className="w-4 h-4 text-rose-500" />
+                                  <span>Delete Post</span>
+                                </button>
+                              )}
+                              <button type="button" onClick={() => handleCopyPostLink(reel)}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                                <Copy className="w-4 h-4 text-slate-400" />
+                                <span>Copy Link</span>
+                              </button>
+                              {reel.user_id && (
+                                <button type="button" onClick={() => { setActivePostMenuId(null); handleViewProfile(reel.user_id); }}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                                  <User className="w-4 h-4 text-slate-400" />
+                                  <span>View Profile</span>
+                                </button>
+                              )}
+                              <button type="button" onClick={() => handleHidePost(reel.id)}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                                <EyeOff className="w-4 h-4 text-slate-400" />
+                                <span>Hide Post</span>
+                              </button>
+                              <button type="button" onClick={() => handleReportPost(reel.id)}
+                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                                <Flag className="w-4 h-4 text-slate-400" />
+                                <span>Report Post</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Post Content */}
+                    {(!reel.media_url || reel.media_type === 'text') ? (
+                      <div className="px-4 pb-3.5 pt-1">
+                        <p className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed whitespace-pre-line">
+                          {reel.description || reel.title}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {reel.description && (
+                          <div className="px-4 pb-2.5 pt-1 text-xs sm:text-sm text-slate-800 leading-relaxed font-medium">
+                            {reel.description}
+                          </div>
+                        )}
+                        {/* Media Display */}
+                        <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '72vw', minHeight: '200px' }}>
+                          {reel.media_type === 'video' ? (
+                            <video
+                              src={getMediaUrl(reel.media_url)}
+                              controls
+                              playsInline
+                              className="w-full h-full object-contain"
+                              style={{ maxHeight: '72vw', minHeight: '200px' }}
+                            />
+                          ) : (
+                            <SafeImage
+                              src={reel.media_url}
+                              alt={reel.title || 'Campus drop'}
+                              fallbackType="product"
+                              className="w-full h-full object-contain"
+                              style={{ maxHeight: '72vw', minHeight: '200px' }}
+                            />
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 flex-wrap">
-                          <span className="flex items-center space-x-0.5 text-sky-600 font-semibold">
-                            <MapPin className="w-2.5 h-2.5 text-sky-500" />
-                            <span>{reel.location || 'Campus'}</span>
-                          </span>
-                          <span>•</span>
-                          <span>{safeDate(reel.created_at, 'Recent')}</span>
-                        </div>
-                      </div>
-                    </div>
+                      </>
+                    )}
 
-                    {/* Post Settings Menu */}
-                    <div className="relative shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setActivePostMenuId(activePostMenuId === reel.id ? null : reel.id)}
-                        className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all cursor-pointer"
-                        title="Post settings"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      {activePostMenuId === reel.id && (
-                        <>
-                          <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
-                          <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            {isAuthor && (
-                              <button type="button" onClick={() => handleDeleteReel(reel.id)}
-                                className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                                <Trash2 className="w-4 h-4 text-rose-500" />
-                                <span>Delete Post</span>
-                              </button>
-                            )}
-                            <button type="button" onClick={() => handleCopyPostLink(reel)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                              <Copy className="w-4 h-4 text-slate-400" />
-                              <span>Copy Link</span>
-                            </button>
-                            {reel.user_id && (
-                              <button type="button" onClick={() => { setActivePostMenuId(null); handleViewProfile(reel.user_id); }}
-                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                                <User className="w-4 h-4 text-slate-400" />
-                                <span>View Profile</span>
-                              </button>
-                            )}
-                            <button type="button" onClick={() => handleHidePost(reel.id)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                              <EyeOff className="w-4 h-4 text-slate-400" />
-                              <span>Hide Post</span>
-                            </button>
-                            <button type="button" onClick={() => handleReportPost(reel.id)}
-                              className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                              <Flag className="w-4 h-4 text-slate-400" />
-                              <span>Report Post</span>
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Post Content */}
-                  {(!reel.media_url || reel.media_type === 'text') ? (
-                    <div className="px-4 pb-3 pt-1 bg-gradient-to-br from-slate-50 via-sky-50/20 to-slate-50 border-y border-slate-100">
-                      <p className="text-slate-800 text-sm font-semibold leading-relaxed whitespace-pre-line">
-                        {reel.description || reel.title}
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {reel.description && (
-                        <div className="px-4 pb-2 pt-1 text-xs text-slate-700 leading-relaxed font-medium">
-                          {reel.description}
-                        </div>
-                      )}
-                      {/* Media — full width, aspect-ratio on mobile */}
-                      <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '70vw', minHeight: '200px' }}>
-                        {reel.media_type === 'video' ? (
-                          <video
-                            src={getMediaUrl(reel.media_url)}
-                            controls
-                            playsInline
-                            className="w-full h-full object-contain"
-                            style={{ maxHeight: '70vw', minHeight: '200px' }}
-                          />
-                        ) : (
-                          <SafeImage
-                            src={reel.media_url}
-                            alt={reel.title}
-                            fallbackType="product"
-                            className="w-full h-full object-contain"
-                            style={{ maxHeight: '70vw', minHeight: '200px' }}
-                          />
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Action Bar */}
-                  <div className="px-4 py-2.5 flex items-center justify-between border-t border-slate-100 bg-white">
-                    <div className="flex items-center space-x-4">
-                      <button
-                        onClick={() => handleLikeReel(reel.id)}
-                        className={`flex items-center space-x-1.5 text-xs font-bold transition-colors cursor-pointer ${
-                          reel.has_liked ? 'text-rose-500' : 'text-slate-600 hover:text-rose-500'
-                        }`}
-                      >
-                        <Heart className={`w-4 h-4 ${reel.has_liked ? 'fill-rose-500 text-rose-500' : 'text-slate-500'}`} />
-                        <span>{reel.likes_count || 0}</span>
-                      </button>
-
-                      <button
-                        onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
-                        className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
-                      >
-                        <MessageCircle className="w-4 h-4 text-sky-500" />
-                        <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)}</span>
-                      </button>
-                    </div>
-                    <span className="text-[10px] font-semibold text-slate-300 hidden sm:block">Campus Stories</span>
-                  </div>
-
-                  {/* Interactive Comments Drawer */}
-                  {activeCommentsReelId === reel.id && (
-                    <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 space-y-3">
-                      {/* Comments List */}
-                      <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
-                        {reel.comments && reel.comments.length > 0 ? (
-                          reel.comments.map((comment, idx) => {
-                            const canDeleteComment = (currentUser?.user_id && comment.user_id === currentUser.user_id) ||
-                                                     (currentUser?.id && comment.user_id === currentUser.id) ||
-                                                     isAuthor || currentUser?.role === 'admin';
-
-                            return (
-                            <div key={comment.id || idx} className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs text-xs">
-                              <div className="flex items-center justify-between mb-1 gap-2">
-                                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                  <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
-                                  {comment.reply_to_author && (
-                                    <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
-                                      <Reply className="w-2.5 h-2.5" />
-                                      <span>@{comment.reply_to_author}</span>
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center space-x-2 shrink-0">
-                                  <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                                    {safeTime(comment.created_at, 'Just now')}
-                                  </span>
-                                  <button type="button"
-                                    onClick={() => { setReplyingToComment({ reelId: reel.id, commentId: comment.id, authorName: comment.author_name, text: comment.content }); setTimeout(() => commentInputRef.current?.focus(), 60); }}
-                                    className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold">
-                                    <Reply className="w-3 h-3" />
-                                  </button>
-                                  {canDeleteComment && (
-                                    <button type="button" onClick={() => handleDeleteReelComment(reel.id, comment.id)}
-                                      className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer">
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <p className="text-slate-700 leading-relaxed">{comment.content}</p>
-                            </div>
-                            );
-                          })
-                        ) : (
-                          <div className="py-4 text-center text-xs text-slate-400">
-                            No comments yet. Be the first!
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Replying Indicator Banner */}
-                      {replyingToComment && replyingToComment.reelId === reel.id && (
-                        <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-200/80 rounded-xl text-xs text-sky-800">
-                          <div className="flex items-center space-x-1.5 overflow-hidden min-w-0">
-                            <Reply className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                            <span className="truncate">
-                              Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
-                            </span>
-                          </div>
-                          <button type="button" onClick={() => setReplyingToComment(null)}
-                            className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer shrink-0">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Comment Input */}
-                      <form onSubmit={(e) => { e.preventDefault(); handlePostComment(reel.id); }}
-                        className="flex items-center space-x-2 pt-2 border-t border-slate-200/60">
-                        <input
-                          ref={commentInputRef}
-                          type="text"
-                          placeholder={replyingToComment && replyingToComment.reelId === reel.id
-                            ? `Reply to @${replyingToComment.authorName}...`
-                            : "Write a comment..."}
-                          value={newCommentText}
-                          onChange={(e) => setNewCommentText(e.target.value)}
-                          className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
-                        />
-                        <button type="submit" disabled={postingComment || !newCommentText.trim()}
-                          className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
-                          <Send className="w-3.5 h-3.5" />
+                    {/* Action Bar */}
+                    <div className="px-4 py-3 flex items-center justify-between border-t border-slate-100 bg-white">
+                      <div className="flex items-center space-x-4">
+                        <button
+                          type="button"
+                          onClick={() => handleLikeReel(reel.id)}
+                          className={`flex items-center space-x-1.5 text-xs font-bold transition-all cursor-pointer active:scale-125 ${
+                            reel.has_liked ? 'text-rose-500' : 'text-slate-600 hover:text-rose-500'
+                          }`}
+                        >
+                          <Heart className={`w-4 h-4 transition-transform ${reel.has_liked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-slate-500'}`} />
+                          <span>{reel.likes_count || 0}</span>
                         </button>
-                      </form>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
+                          className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
+                        >
+                          <MessageCircle className="w-4 h-4 text-sky-500" />
+                          <span>{reel.comments_count || (reel.comments ? reel.comments.length : 0)}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCopyPostLink(reel)}
+                          className="flex items-center space-x-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                          title="Share post"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="hidden sm:inline">Share</span>
+                        </button>
+                      </div>
+
+                      <span className="text-[10px] font-bold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100">
+                        {reel.media_type === 'video' ? '🎬 Video Drop' : reel.media_url ? '📸 Photo Drop' : '💬 Campus Gist'}
+                      </span>
                     </div>
-                  )}
-                </div>
-                );
-              })}
+
+                    {/* Interactive Comments Drawer */}
+                    {activeCommentsReelId === reel.id && (
+                      <div className="p-3.5 sm:p-4 bg-slate-50/90 border-t border-slate-100 space-y-3">
+                        {/* Comments List */}
+                        <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                          {reel.comments && reel.comments.length > 0 ? (
+                            reel.comments.map((comment, idx) => {
+                              const canDeleteComment = (currentUser?.user_id && comment.user_id === currentUser.user_id) ||
+                                                       (currentUser?.id && comment.user_id === currentUser.id) ||
+                                                       isAuthor || currentUser?.role === 'admin';
+
+                              return (
+                              <div key={comment.id || idx} className="p-3 bg-white rounded-2xl border border-slate-100 shadow-2xs text-xs">
+                                <div className="flex items-center justify-between mb-1 gap-2">
+                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                    <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
+                                    {comment.reply_to_author && (
+                                      <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
+                                        <Reply className="w-2.5 h-2.5" />
+                                        <span>@{comment.reply_to_author}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center space-x-2 shrink-0">
+                                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                                      {safeTime(comment.created_at, 'Just now')}
+                                    </span>
+                                    <button type="button"
+                                      onClick={() => { setReplyingToComment({ reelId: reel.id, commentId: comment.id, authorName: comment.author_name, text: comment.content }); setTimeout(() => commentInputRef.current?.focus(), 60); }}
+                                      className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold">
+                                      <Reply className="w-3 h-3" />
+                                    </button>
+                                    {canDeleteComment && (
+                                      <button type="button" onClick={() => handleDeleteReelComment(reel.id, comment.id)}
+                                        className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer">
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="text-slate-700 leading-relaxed">{comment.content}</p>
+                              </div>
+                              );
+                            })
+                          ) : (
+                            <div className="py-4 text-center text-xs text-slate-400">
+                              No comments yet. Be the first to join the conversation!
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Replying Indicator Banner */}
+                        {replyingToComment && replyingToComment.reelId === reel.id && (
+                          <div className="flex items-center justify-between px-3 py-1.5 bg-sky-50 border border-sky-200/80 rounded-xl text-xs text-sky-800">
+                            <div className="flex items-center space-x-1.5 overflow-hidden min-w-0">
+                              <Reply className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                              <span className="truncate">
+                                Replying to <strong className="font-bold text-sky-900">@{replyingToComment.authorName}</strong>
+                              </span>
+                            </div>
+                            <button type="button" onClick={() => setReplyingToComment(null)}
+                              className="p-1 text-sky-500 hover:text-sky-800 cursor-pointer shrink-0">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Comment Input */}
+                        <form onSubmit={(e) => { e.preventDefault(); handlePostComment(reel.id); }}
+                          className="flex items-center space-x-2 pt-2 border-t border-slate-200/60">
+                          <input
+                            ref={commentInputRef}
+                            type="text"
+                            placeholder={replyingToComment && replyingToComment.reelId === reel.id
+                              ? `Reply to @${replyingToComment.authorName}...`
+                              : "Write a comment..."}
+                            value={newCommentText}
+                            onChange={(e) => setNewCommentText(e.target.value)}
+                            className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
+                          />
+                          <button type="submit" disabled={postingComment || !newCommentText.trim()}
+                            className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                  );
+                })}
 
               {reels.filter(r => !hiddenPostIds.includes(r.id)).length === 0 && (
-                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 p-10 text-center">
+                <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-2xs">
                   <Video className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <h3 className="font-bold text-slate-700 text-sm">No campus posts yet</h3>
-                  <p className="text-xs text-slate-400 mt-1">Be the first to share a photo, video or thought!</p>
+                  <h3 className="font-bold text-slate-800 text-sm">No campus posts yet</h3>
+                  <p className="text-xs text-slate-400 mt-1">Be the first to share a photo, video or gist!</p>
                 </div>
               )}
             </div>
