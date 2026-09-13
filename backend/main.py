@@ -253,6 +253,13 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User account associated with this session does not exist.",
         )
+    user_status = (getattr(user, "status", "active") or "active").lower().strip()
+    if user_status in ["suspended", "banned"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your account has been {user_status} by platform administration. Access is restricted.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optional), db: Session = Depends(database.get_db)) -> Optional[models.User]:
@@ -261,7 +268,10 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme_optio
     token_data = auth.verify_token(token)
     if not token_data:
         return None
-    return db.query(models.User).filter(models.User.user_id == token_data.user_id).first()
+    user = db.query(models.User).filter(models.User.user_id == token_data.user_id).first()
+    if user and (getattr(user, "status", "active") or "active").lower().strip() in ["suspended", "banned"]:
+        return None
+    return user
 
 def require_role(allowed_roles: list[str]):
     def role_checker(current_user: models.User = Depends(get_current_user)):
@@ -776,10 +786,11 @@ def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.ge
             detail="Email not verified. A fresh 6-digit verification code has been dispatched to your email."
         )
 
-    if getattr(user, "status", "active") == "suspended":
+    user_status = (getattr(user, "status", "active") or "active").lower().strip()
+    if user_status in ["suspended", "banned"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Your account has been suspended by administration. Please contact support."
+            detail=f"Your account has been {user_status} by platform administration. Please contact support."
         )
 
     access_token = auth.create_access_token(data={"sub": user.user_id, "role": user.role})
@@ -2023,21 +2034,22 @@ def get_all_users_admin(
 
 
 @app.put("/api/admin/users/{user_id}/status")
-def update_user_status_admin(
+async def update_user_status_admin(
     user_id: str,
     status_payload: schemas.AdminUserStatusUpdate,
     current_user: models.User = Depends(require_role(["admin"])),
     db: Session = Depends(database.get_db)
 ):
     """
-    Allows an administrator to suspend or reactivate any student or vendor account.
+    Allows an administrator to suspend, ban, or reactivate any student or vendor account.
     Prevents admin from suspending their own account.
+    Terminates active WebSocket connections and forces real-time client logout immediately.
     """
     new_status = (status_payload.status or "").strip().lower()
-    if new_status not in ["active", "suspended"]:
+    if new_status not in ["active", "suspended", "banned"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid status. Allowed values: 'active', 'suspended'."
+            detail="Invalid status. Allowed values: 'active', 'suspended', 'banned'."
         )
 
     if current_user.user_id == user_id:
@@ -2054,7 +2066,18 @@ def update_user_status_admin(
     db.commit()
     db.refresh(target_user)
 
-    action_label = "suspended" if new_status == "suspended" else "reactivated"
+    # Immediately disconnect and force logout the user via WebSocket in real-time
+    if new_status in ["suspended", "banned"]:
+        try:
+            await ws_manager.broadcast_to_user(str(user_id), {
+                "type": "account_status_changed",
+                "status": new_status,
+                "message": f"Your account has been {new_status} by platform administration."
+            })
+        except Exception as _ws_err:
+            print(f"[WebSocket] User status disconnect notice: {_ws_err}")
+
+    action_label = "suspended" if new_status == "suspended" else "banned" if new_status == "banned" else "reactivated"
     return {
         "message": f"User account for '{target_user.full_name}' has been {action_label}.",
         "user_id": target_user.user_id,
@@ -2063,7 +2086,7 @@ def update_user_status_admin(
 
 
 @app.delete("/api/admin/users/{user_id}")
-def delete_user_admin(
+async def delete_user_admin(
     user_id: str,
     current_user: models.User = Depends(require_role(["admin"])),
     db: Session = Depends(database.get_db)
@@ -2071,7 +2094,7 @@ def delete_user_admin(
     """
     Allows an administrator to permanently take down / delete a registered student or vendor profile.
     Cascades through all related tables to ensure no orphan records or constraint errors.
-    Prevents admin self-deletion.
+    Forces real-time WebSocket disconnect and client session termination.
     """
     if current_user.user_id == user_id:
         raise HTTPException(
@@ -2084,11 +2107,73 @@ def delete_user_admin(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
 
     user_name = target_user.full_name
+
+    # Broadcast real-time deletion event
+    try:
+        await ws_manager.broadcast_to_user(str(user_id), {
+            "type": "account_deleted",
+            "message": "Your account has been permanently removed by platform administration."
+        })
+    except Exception as _ws_err:
+        print(f"[WebSocket] User delete disconnect notice: {_ws_err}")
+
     delete_user_cascade(db, target_user)
 
     return {
         "message": f"User profile and all associated data for '{user_name}' have been permanently deleted and taken down.",
         "user_id": user_id
+    }
+
+
+@app.post("/api/admin/broadcast")
+async def broadcast_announcement_admin(
+    payload: schemas.AdminBroadcastPayload,
+    current_user: models.User = Depends(require_role(["admin"])),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Broadcasts a platform-wide announcement or emergency alert to all active users.
+    Creates in-app notifications and delivers instantaneous WebSocket messages.
+    """
+    title = (payload.title or "Campus Announcement").strip()
+    msg_text = (payload.message or "").strip()
+    if not msg_text:
+        raise HTTPException(status_code=400, detail="Announcement message cannot be empty.")
+
+    query = db.query(models.User).filter(models.User.status == "active")
+    if payload.target_role and payload.target_role != "all":
+        query = query.filter(models.User.role == payload.target_role)
+    recipients = query.all()
+
+    now = datetime.utcnow()
+    for u in recipients:
+        notif = models.Notification(
+            user_id=u.user_id,
+            actor_id=current_user.user_id,
+            notification_type="system",
+            title=title,
+            message=msg_text,
+            is_read=False,
+            created_at=now
+        )
+        db.add(notif)
+    db.commit()
+
+    # Deliver instantaneous WebSocket alert across all active client connections
+    try:
+        await ws_manager.broadcast_all({
+            "type": "campus_announcement",
+            "title": title,
+            "message": msg_text,
+            "sender": current_user.full_name
+        })
+    except Exception as _err:
+        print(f"[WebSocket] Admin broadcast notice: {_err}")
+
+    return {
+        "status": "success",
+        "recipients_count": len(recipients),
+        "message": f"Broadcast successfully dispatched to {len(recipients)} campus members."
     }
 
 
@@ -3154,6 +3239,10 @@ class ConnectionManager:
                     dead_sockets.append(connection)
             for dead in dead_sockets:
                 self.disconnect(uid, dead)
+
+    async def broadcast_all(self, data: dict):
+        for uid in list(self.active_connections.keys()):
+            await self.broadcast_to_user(uid, data)
 
 ws_manager = ConnectionManager()
 

@@ -813,6 +813,18 @@ export default function VendorDashboard() {
             const data = JSON.parse(event.data);
             if (data.type === 'pong') return; // Heartbeat response
 
+            if (data.type === 'account_status_changed' || data.type === 'account_deleted') {
+              try {
+                localStorage.removeItem('token');
+                localStorage.removeItem('campuslink_token');
+                localStorage.removeItem('user');
+                sessionStorage.setItem('auth_alert', data.message || 'Your account status has been changed by platform administration.');
+              } catch {}
+              alert(data.message || 'Your account has been suspended by platform administration.');
+              window.location.replace('/login');
+              return;
+            }
+
             if (data.type === 'message_edited' && data.message) {
               const ed = data.message;
               setChatMessages(prev => prev.map(m => String(m.id) === String(ed.id) ? { ...m, content: ed.content, is_edited: true } : m));

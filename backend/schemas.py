@@ -86,7 +86,12 @@ class UserPasswordChange(BaseModel):
     new_password: str
 
 class AdminUserStatusUpdate(BaseModel):
-    status: str  # "active" or "suspended"
+    status: str  # "active", "suspended", or "banned"
+
+class AdminBroadcastPayload(BaseModel):
+    title: str
+    message: str
+    target_role: Optional[str] = "all"
 
 class UserAccountDeleteRequest(BaseModel):
     confirm_text: Optional[str] = None

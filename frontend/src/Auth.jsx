@@ -73,7 +73,16 @@ export default function Auth() {
   const [resendLoading, setResendLoading] = useState(false);
 
   // Alert & Feedback Messages
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState(() => {
+    try {
+      const alertMsg = sessionStorage.getItem('auth_alert');
+      if (alertMsg) {
+        sessionStorage.removeItem('auth_alert');
+        return alertMsg;
+      }
+    } catch {}
+    return '';
+  });
   const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
 
   // Diagnostic Server Health Check (Warms up Render backend & checks reachability)

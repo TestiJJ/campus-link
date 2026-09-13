@@ -67,9 +67,13 @@ API.interceptors.response.use(
       return API(config);
     }
 
-    if (error?.response?.status === 401) {
-      const token = getAuthToken();
-      if (!token && typeof window !== 'undefined') {
+    const status = error?.response?.status;
+    const detail = String(error?.response?.data?.detail || '').toLowerCase();
+    const isSuspendedOrBanned = status === 403 && (detail.includes('suspend') || detail.includes('ban'));
+    const isSessionExpired = status === 401;
+
+    if (isSessionExpired || isSuspendedOrBanned) {
+      if (typeof window !== 'undefined') {
         const isAlreadyOnAuth =
           window.location.pathname === '/login' ||
           window.location.pathname === '/signup' ||
@@ -79,8 +83,11 @@ API.interceptors.response.use(
             localStorage.removeItem('token');
             localStorage.removeItem('campuslink_token');
             localStorage.removeItem('user');
+            if (isSuspendedOrBanned) {
+              sessionStorage.setItem('auth_alert', error?.response?.data?.detail || 'Your account has been suspended or banned by platform administration.');
+            }
           } catch {}
-          window.location.href = '/login';
+          window.location.replace('/login');
         }
       }
     }

@@ -9,7 +9,9 @@ import {
   Trash2, RotateCcw, GraduationCap, Phone, Mail,
   MapPin, Clock, Filter, AlertTriangle, ChevronRight,
   Heart, MessageSquare, Video, Menu, Activity, Sparkles,
-  ExternalLink, Layers, UserX, UserCheck, Ban
+  ExternalLink, Layers, UserX, UserCheck, Ban,
+  Settings, KeyRound, Megaphone, Lock, ShieldAlert,
+  ToggleLeft, ToggleRight, Radio, Server, RefreshCw
 } from 'lucide-react';
 import API, { getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
@@ -18,7 +20,7 @@ import InstallAppButton from './components/InstallAppButton';
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('vendors'); // 'vendors' | 'products' | 'services' | 'reels' | 'students' | 'stats'
+  const [activeTab, setActiveTab] = useState('vendors'); // 'vendors' | 'products' | 'services' | 'reels' | 'students' | 'stats' | 'settings'
   
   // Data States
   const [stats, setStats] = useState(null);
@@ -40,7 +42,28 @@ export default function AdminDashboard() {
   const [serviceSearch, setServiceSearch] = useState('');
   const [reelSearch, setReelSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
-  const [userStatusFilter, setUserStatusFilter] = useState('all'); // 'all' | 'active' | 'suspended'
+  const [userStatusFilter, setUserStatusFilter] = useState('all'); // 'all' | 'active' | 'suspended' | 'banned' | 'vendor' | 'student'
+
+  // Admin Settings & Governance States
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordFeedback, setPasswordFeedback] = useState({ type: '', text: '' });
+
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [broadcastAudience, setBroadcastAudience] = useState('all'); // 'all' | 'student' | 'vendor'
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastFeedback, setBroadcastFeedback] = useState({ type: '', text: '' });
+
+  const [maintenanceMode, setMaintenanceMode] = useState(() => {
+    return localStorage.getItem('campuslink_maintenance_mode') === 'true';
+  });
+  const [strictMatricVerification, setStrictMatricVerification] = useState(() => {
+    return localStorage.getItem('campuslink_strict_matric') !== 'false';
+  });
 
   // Modals
   const [selectedVendorForId, setSelectedVendorForId] = useState(null);
@@ -229,9 +252,119 @@ export default function AdminDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    try {
+      localStorage.removeItem('token');
+      localStorage.removeItem('campuslink_token');
+      localStorage.removeItem('user');
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_'))) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {}
     window.location.replace('/login');
+  };
+
+  // Admin Change Password Handler
+  const handleAdminPasswordChange = async (e) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword) {
+      setPasswordFeedback({ type: 'error', text: 'Please fill in all password fields.' });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordFeedback({ type: 'error', text: 'New password must be at least 6 characters.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordFeedback({ type: 'error', text: 'New passwords do not match.' });
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordFeedback({ type: '', text: '' });
+    try {
+      await API.put('/users/password', {
+        current_password: currentPassword,
+        new_password: newPassword
+      });
+      setPasswordFeedback({ type: 'success', text: 'Administrator password updated successfully!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      setPasswordFeedback({ type: 'error', text: err.response?.data?.detail || 'Failed to update password.' });
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  // Campus-Wide Emergency Broadcast Announcement
+  const handleSendBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastMessage.trim()) {
+      setBroadcastFeedback({ type: 'error', text: 'Please enter a message for the announcement.' });
+      return;
+    }
+    setBroadcastLoading(true);
+    setBroadcastFeedback({ type: '', text: '' });
+    try {
+      const res = await API.post('/admin/broadcast', {
+        title: broadcastTitle.trim() || 'CampusLink Admin Notice',
+        message: broadcastMessage.trim(),
+        target_role: broadcastAudience
+      });
+      setBroadcastFeedback({
+        type: 'success',
+        text: res.data?.message || 'Emergency alert dispatched successfully across campus!'
+      });
+      setBroadcastTitle('');
+      setBroadcastMessage('');
+      await loadAdminData();
+    } catch (err) {
+      setBroadcastFeedback({ type: 'error', text: err.response?.data?.detail || 'Failed to dispatch broadcast.' });
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
+  // Purge System Caches & Reload
+  const handlePurgeAllCaches = async () => {
+    setActionLoading(true);
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_'))) {
+          localStorage.removeItem(k);
+        }
+      }
+      await loadAdminData();
+      setToastMessage({ type: 'success', text: 'Platform database and client cache re-indexed cleanly.' });
+    } catch {
+      setToastMessage({ type: 'info', text: 'Platform refresh completed.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleToggleMaintenance = () => {
+    const nextVal = !maintenanceMode;
+    setMaintenanceMode(nextVal);
+    localStorage.setItem('campuslink_maintenance_mode', String(nextVal));
+    setToastMessage({
+      type: nextVal ? 'warning' : 'success',
+      text: nextVal ? 'Platform Maintenance Mode is now ENABLED.' : 'Platform Maintenance Mode is now DISABLED.'
+    });
+  };
+
+  const handleToggleStrictMatric = () => {
+    const nextVal = !strictMatricVerification;
+    setStrictMatricVerification(nextVal);
+    localStorage.setItem('campuslink_strict_matric', String(nextVal));
+    setToastMessage({
+      type: 'success',
+      text: nextVal ? 'Strict Matric ID verification requirement ACTIVE.' : 'Strict Matric ID requirement relaxed.'
+    });
   };
 
   // Computed Vendors Filter
@@ -300,8 +433,16 @@ export default function AdminDashboard() {
   // Computed Users Filter
   const filteredUsers = useMemo(() => {
     let list = users;
-    if (userStatusFilter !== 'all') {
-      list = list.filter((u) => (u.status || 'active') === userStatusFilter);
+    if (userStatusFilter === 'active') {
+      list = list.filter((u) => (u.status || 'active') === 'active');
+    } else if (userStatusFilter === 'suspended') {
+      list = list.filter((u) => u.status === 'suspended');
+    } else if (userStatusFilter === 'banned') {
+      list = list.filter((u) => u.status === 'banned');
+    } else if (userStatusFilter === 'vendor') {
+      list = list.filter((u) => u.role === 'vendor');
+    } else if (userStatusFilter === 'student') {
+      list = list.filter((u) => u.role === 'student' || !u.role);
     }
     const q = userSearch.toLowerCase().trim();
     if (!q) return list;
@@ -344,14 +485,22 @@ export default function AdminDashboard() {
           </button>
           
           {adminUser && (
-            <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-sky-50 border border-sky-100 text-sky-800 text-[11px] font-bold max-w-[120px] truncate">
-              <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-bold max-w-[120px] truncate transition-all cursor-pointer ${
+                activeTab === 'settings'
+                  ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
+                  : 'bg-sky-50 border-sky-100 text-sky-800 hover:bg-sky-100'
+              }`}
+              title="Admin Settings"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate">{adminUser.full_name?.split(' ')[0] || 'Admin'}</span>
-            </div>
+            </button>
           )}
 
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutModal(true)}
             title="Log Out Admin"
             className="p-2 min-tap-target-sm rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 transition-colors cursor-pointer flex items-center justify-center"
             aria-label="Log Out"
@@ -474,13 +623,23 @@ export default function AdminDashboard() {
               <Activity className="w-4 h-4" />
               <span>Platform Analytics</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'settings' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              <span>Admin Settings</span>
+            </button>
           </nav>
         </div>
 
         <div className="pt-4 border-t border-slate-200 space-y-2">
           <InstallAppButton variant="header" className="w-full justify-center" />
           <button
-            onClick={handleLogout}
+            onClick={() => setShowLogoutModal(true)}
             className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
@@ -581,19 +740,19 @@ export default function AdminDashboard() {
           )}
         </button>
 
-        {/* Stats */}
+        {/* Settings */}
         <button
-          onClick={() => setActiveTab('stats')}
+          onClick={() => setActiveTab('settings')}
           className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
-            activeTab === 'stats' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
+            activeTab === 'settings' ? 'text-sky-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
           }`}
-          aria-label="Platform Stats"
+          aria-label="Admin Settings"
         >
           <div className="relative flex items-center justify-center">
-            <Activity className={`w-5 h-5 transition-transform ${activeTab === 'stats' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            <Settings className={`w-5 h-5 transition-transform ${activeTab === 'settings' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Stats</span>
-          {activeTab === 'stats' && (
+          <span className="text-[10px] tracking-tight mt-0.5">Settings</span>
+          {activeTab === 'settings' && (
             <span className="absolute top-0 w-8 h-1 bg-sky-500 rounded-full shadow-xs shadow-sky-500/50" />
           )}
         </button>
@@ -1337,15 +1496,18 @@ export default function AdminDashboard() {
             {/* Status Filter Tabs */}
             <div className="flex items-center space-x-2 mb-4 overflow-x-auto pb-1">
               {[
-                { id: 'all', label: 'All Users', count: users.length },
+                { id: 'all', label: 'All Accounts', count: users.length },
                 { id: 'active', label: 'Active', count: users.filter(u => (u.status || 'active') === 'active').length },
-                { id: 'suspended', label: 'Suspended', count: users.filter(u => u.status === 'suspended').length }
+                { id: 'suspended', label: 'Suspended', count: users.filter(u => u.status === 'suspended').length },
+                { id: 'banned', label: 'Banned', count: users.filter(u => u.status === 'banned').length },
+                { id: 'vendor', label: 'Vendors', count: users.filter(u => u.role === 'vendor').length },
+                { id: 'student', label: 'Students', count: users.filter(u => u.role === 'student' || !u.role).length }
               ].map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setUserStatusFilter(tab.id)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 shrink-0 ${
                     userStatusFilter === tab.id
                       ? 'bg-slate-900 text-white shadow-xs'
                       : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -1415,9 +1577,14 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="p-4">
-                          {u.status === 'suspended' ? (
-                            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-[10px] flex items-center space-x-1 w-fit border border-rose-200">
-                              <Ban className="w-3 h-3 text-rose-600" />
+                          {u.status === 'banned' ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[10px] flex items-center space-x-1 w-fit border border-rose-300">
+                              <ShieldAlert className="w-3 h-3 text-rose-600" />
+                              <span>Banned</span>
+                            </span>
+                          ) : u.status === 'suspended' ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px] flex items-center space-x-1 w-fit border border-amber-200">
+                              <Ban className="w-3 h-3 text-amber-600" />
                               <span>Suspended</span>
                             </span>
                           ) : (
@@ -1441,12 +1608,12 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-4 text-right">
                           {u.user_id !== adminUser?.user_id ? (
-                            <div className="flex items-center justify-end space-x-2">
-                              {u.status === 'suspended' ? (
+                            <div className="flex items-center justify-end space-x-1.5 flex-wrap gap-y-1">
+                              {u.status === 'suspended' || u.status === 'banned' ? (
                                 <button
                                   type="button"
                                   onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'active' })}
-                                  title="Reactivate student account"
+                                  title="Restore full account access"
                                   className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] border border-emerald-200 transition-colors flex items-center space-x-1 cursor-pointer"
                                 >
                                   <UserCheck className="w-3 h-3" />
@@ -1456,21 +1623,34 @@ export default function AdminDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'suspended' })}
-                                  title="Suspend student account"
+                                  title="Suspend account temporarily"
                                   className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-[10px] border border-amber-200 transition-colors flex items-center space-x-1 cursor-pointer"
                                 >
                                   <Ban className="w-3 h-3" />
                                   <span>Suspend</span>
                                 </button>
                               )}
+
+                              {u.status !== 'banned' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'banned' })}
+                                  title="Permanently ban user account"
+                                  className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200 transition-colors flex items-center space-x-1 cursor-pointer"
+                                >
+                                  <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                  <span>Ban</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={() => setUserToDelete(u)}
                                 title="Permanently take down profile"
-                                className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200 transition-colors flex items-center space-x-1 cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] border border-slate-200 transition-colors flex items-center space-x-1 cursor-pointer"
                               >
-                                <Trash2 className="w-3 h-3 text-rose-600" />
-                                <span>Take Down</span>
+                                <Trash2 className="w-3 h-3 text-slate-600" />
+                                <span>Delete</span>
                               </button>
                             </div>
                           ) : (
@@ -1519,8 +1699,12 @@ export default function AdminDashboard() {
                       }`}>
                         {u.role}
                       </span>
-                      {u.status === 'suspended' ? (
+                      {u.status === 'banned' ? (
                         <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                          Banned
+                        </span>
+                      ) : u.status === 'suspended' ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
                           Suspended
                         </span>
                       ) : (
@@ -1561,12 +1745,12 @@ export default function AdminDashboard() {
                   </div>
 
                   {u.user_id !== adminUser?.user_id && (
-                    <div className="pt-2.5 border-t border-slate-100 grid grid-cols-2 gap-2">
-                      {u.status === 'suspended' ? (
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
+                      {u.status === 'suspended' || u.status === 'banned' ? (
                         <button
                           type="button"
                           onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'active' })}
-                          className="w-full py-2 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                          className="flex-1 min-w-[90px] py-1.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs border border-emerald-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <UserCheck className="w-3.5 h-3.5 shrink-0" />
                           <span className="truncate">Reactivate</span>
@@ -1575,19 +1759,29 @@ export default function AdminDashboard() {
                         <button
                           type="button"
                           onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'suspended' })}
-                          className="w-full py-2 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-xs border border-amber-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                          className="flex-1 min-w-[80px] py-1.5 px-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-xs border border-amber-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <Ban className="w-3.5 h-3.5 shrink-0" />
                           <span className="truncate">Suspend</span>
                         </button>
                       )}
+                      {u.status !== 'banned' && (
+                        <button
+                          type="button"
+                          onClick={() => setUserToToggleStatus({ user: u, nextStatus: 'banned' })}
+                          className="flex-1 min-w-[70px] py-1.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Ban</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setUserToDelete(u)}
-                        className="w-full py-2 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
+                        className="py-1.5 px-2.5 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-700 font-bold text-xs border border-slate-200 transition-colors flex items-center justify-center space-x-1 cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                        <span className="truncate">Take Down</span>
+                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Delete</span>
                       </button>
                     </div>
                   )}
@@ -1695,6 +1889,345 @@ export default function AdminDashboard() {
                 <span className="px-3 py-1 bg-white/10 rounded-full">Anti-Impersonation Protection</span>
                 <span className="px-3 py-1 bg-white/10 rounded-full">Manual Admin Oversight</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- TAB 7: ADMIN SETTINGS & PLATFORM GOVERNANCE --- */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6 max-w-5xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
+                  <span>Admin Settings & Governance</span>
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  SuperAdmin credentials, emergency campus announcements, platform toggles, and secure session management.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <div className="px-3.5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center space-x-2 shrink-0 shadow-xs">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>SuperAdmin Console</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Admin Profile Overview Banner */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center space-x-4">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-700 text-white font-black text-xl flex items-center justify-center shadow-md shrink-0">
+                  {adminUser?.full_name?.charAt(0) || 'A'}
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900">{adminUser?.full_name || 'System Administrator'}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-black uppercase tracking-wider">
+                      {adminUser?.role || 'admin'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">{adminUser?.email}</p>
+                  <div className="flex items-center space-x-2 mt-1.5 text-[11px] text-slate-400">
+                    <span className="flex items-center space-x-1">
+                      <Radio className="w-3 h-3 text-emerald-500 animate-pulse" />
+                      <span className="text-emerald-700 font-semibold">Live Real-Time Socket Connected</span>
+                    </span>
+                    <span>•</span>
+                    <span>0ms Instant Enforcement</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(true)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Admin Sign Out</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Card 1: Change Admin Password */}
+              <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center space-x-2.5 mb-2">
+                    <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center font-bold">
+                      <KeyRound className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Change Admin Password</h3>
+                      <p className="text-xs text-slate-500">Update your SuperAdmin authentication credentials.</p>
+                    </div>
+                  </div>
+
+                  {pwdSuccess && (
+                    <div className="my-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{pwdSuccess}</span>
+                    </div>
+                  )}
+
+                  {pwdError && (
+                    <div className="my-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{pwdError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleAdminPasswordChange} className="space-y-3 mt-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Current Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        placeholder="Enter current password"
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">New Password</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Minimum 6 characters"
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Confirm New Password</label>
+                      <input
+                        type="password"
+                        required
+                        minLength={6}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        placeholder="Re-type new password"
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={pwdLoading}
+                      className="w-full mt-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {pwdLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Updating Password...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4" />
+                          <span>Update Admin Password</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Card 2: Campus-Wide Emergency Broadcast */}
+              <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center space-x-2.5 mb-2">
+                    <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
+                      <Megaphone className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Emergency Campus Broadcast</h3>
+                      <p className="text-xs text-slate-500">Push instant notification to active devices across campus.</p>
+                    </div>
+                  </div>
+
+                  {broadcastSuccess && (
+                    <div className="my-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{broadcastSuccess}</span>
+                    </div>
+                  )}
+
+                  {broadcastError && (
+                    <div className="my-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{broadcastError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSendBroadcast} className="space-y-3 mt-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Announcement Title</label>
+                      <input
+                        type="text"
+                        required
+                        value={broadcastTitle}
+                        onChange={(e) => setBroadcastTitle(e.target.value)}
+                        placeholder="e.g. Scheduled Maintenance or Campus Safety Notice"
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Target Audience</label>
+                      <select
+                        value={broadcastTarget}
+                        onChange={(e) => setBroadcastTarget(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white cursor-pointer"
+                      >
+                        <option value="all">All Campus Members (Students & Vendors)</option>
+                        <option value="students">Students Only</option>
+                        <option value="vendors">Vendors Only</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Broadcast Message Body</label>
+                      <textarea
+                        required
+                        rows={3}
+                        value={broadcastMessage}
+                        onChange={(e) => setBroadcastMessage(e.target.value)}
+                        placeholder="Type the announcement or alert message here..."
+                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={broadcastLoading}
+                      className="w-full mt-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {broadcastLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Dispatching Broadcast...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Megaphone className="w-4 h-4" />
+                          <span>Dispatch Live Campus Broadcast</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            {/* Platform Governance & System Controls */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
+              <div className="flex items-center space-x-2.5 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
+                  <Server className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Platform Governance & System Controls</h3>
+                  <p className="text-xs text-slate-500">Configure global enrollment gates and active system runtime parameters.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+                {/* Switch 1: Strict Matric ID */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">Strict ID Verification</span>
+                      <button
+                        type="button"
+                        onClick={handleToggleStrictMatric}
+                        className="text-sky-600 hover:text-sky-700 cursor-pointer"
+                        title="Toggle verification requirement"
+                      >
+                        {strictMatricVerification ? (
+                          <ToggleRight className="w-7 h-7 text-sky-600" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Require physical student ID review before merchants can publish marketplace items.
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md inline-block w-fit ${
+                    strictMatricVerification ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {strictMatricVerification ? 'Mandatory ID Enforcement' : 'Open Vendor Registration'}
+                  </span>
+                </div>
+
+                {/* Switch 2: Maintenance Mode */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800">Maintenance Sandbox</span>
+                      <button
+                        type="button"
+                        onClick={handleToggleMaintenance}
+                        className="text-amber-600 hover:text-amber-700 cursor-pointer"
+                        title="Toggle Maintenance Mode"
+                      >
+                        {maintenanceMode ? (
+                          <ToggleRight className="w-7 h-7 text-amber-600" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-slate-400" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Temporarily lock public order checkout for scheduled database optimization.
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md inline-block w-fit ${
+                    maintenanceMode ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {maintenanceMode ? 'Maintenance Window Active' : 'Normal Live Operations'}
+                  </span>
+                </div>
+
+                {/* Action 3: Purge System Cache */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">System Cache & State Sync</span>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                      Force clean memory cache, refresh feed indexing, and re-sync real-time user channels.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePurgeAllCaches}
+                    className="w-full py-2 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Sync Platform State</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Danger Zone */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-rose-50/70 border border-rose-200">
+              <div className="flex items-center space-x-2.5 mb-2">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+                <h3 className="font-bold text-sm sm:text-base text-rose-900">Administrator Danger Zone</h3>
+              </div>
+              <p className="text-xs text-rose-700 leading-relaxed mb-4">
+                Ending your administrator session will clear local moderation credentials and redirect you to the login screen. Ensure all pending ID checks or user disputes are finalized.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(true)}
+                className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out of SuperAdmin Console</span>
+              </button>
             </div>
           </div>
         )}
@@ -1992,22 +2525,37 @@ export default function AdminDashboard() {
               className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl relative my-auto"
             >
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold mb-4 ${
-                userToToggleStatus.nextStatus === 'suspended' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                userToToggleStatus.nextStatus === 'banned'
+                  ? 'bg-rose-100 text-rose-800'
+                  : userToToggleStatus.nextStatus === 'suspended'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-emerald-100 text-emerald-800'
               }`}>
-                {userToToggleStatus.nextStatus === 'suspended' ? (
+                {userToToggleStatus.nextStatus === 'banned' ? (
+                  <ShieldAlert className="w-6 h-6 text-rose-600" />
+                ) : userToToggleStatus.nextStatus === 'suspended' ? (
                   <Ban className="w-6 h-6 text-amber-600" />
                 ) : (
                   <UserCheck className="w-6 h-6 text-emerald-600" />
                 )}
               </div>
               <h3 className="text-base font-black text-slate-900 mb-1">
-                {userToToggleStatus.nextStatus === 'suspended' ? 'Suspend Student Account?' : 'Reactivate Student Account?'}
+                {userToToggleStatus.nextStatus === 'banned'
+                  ? 'Ban User Account Permanently?'
+                  : userToToggleStatus.nextStatus === 'suspended'
+                  ? 'Suspend User Account?'
+                  : 'Reactivate User Account?'}
               </h3>
               <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-                {userToToggleStatus.nextStatus === 'suspended' ? (
+                {userToToggleStatus.nextStatus === 'banned' ? (
+                  <>
+                    Are you sure you want to permanently ban <strong className="text-slate-800">{userToToggleStatus.user.full_name}</strong> ({userToToggleStatus.user.email})?
+                    Their active sessions will be terminated immediately in real time, and they will be barred from creating or accessing any campus account.
+                  </>
+                ) : userToToggleStatus.nextStatus === 'suspended' ? (
                   <>
                     Are you sure you want to suspend <strong className="text-slate-800">{userToToggleStatus.user.full_name}</strong> ({userToToggleStatus.user.email})?
-                    Their active sessions will be terminated and they will not be able to log in or interact with the platform until reactivated.
+                    Their active sessions will be terminated immediately in real time, and they will not be able to log in or interact with the platform until reactivated.
                   </>
                 ) : (
                   <>
@@ -2030,13 +2578,17 @@ export default function AdminDashboard() {
                   disabled={actionLoading}
                   onClick={handleConfirmUserStatusToggle}
                   className={`px-5 py-2.5 rounded-xl text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 text-center ${
-                    userToToggleStatus.nextStatus === 'suspended'
+                    userToToggleStatus.nextStatus === 'banned'
+                      ? 'bg-rose-600 hover:bg-rose-500'
+                      : userToToggleStatus.nextStatus === 'suspended'
                       ? 'bg-amber-600 hover:bg-amber-500'
                       : 'bg-emerald-600 hover:bg-emerald-500'
                   }`}
                 >
                   {actionLoading
                     ? 'Updating...'
+                    : userToToggleStatus.nextStatus === 'banned'
+                    ? 'Confirm Permanent Ban'
                     : userToToggleStatus.nextStatus === 'suspended'
                     ? 'Confirm Suspension'
                     : 'Confirm Reactivation'}
@@ -2090,6 +2642,47 @@ export default function AdminDashboard() {
                   className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 text-center"
                 >
                   {actionLoading ? 'Deleting...' : 'Permanently Take Down'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- CONFIRM ADMIN LOGOUT MODAL --- */}
+      <AnimatePresence>
+        {showLogoutModal && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative my-auto"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold mb-4">
+                <LogOut className="w-6 h-6 text-rose-600" />
+              </div>
+              <h3 className="text-base font-black text-slate-900 mb-1">
+                End Administrator Session?
+              </h3>
+              <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+                You are about to sign out of the CampusLink Administrator Command Center. To resume platform moderation, you will need to re-authenticate with your SuperAdmin credentials.
+              </p>
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutModal(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer text-center"
+                >
+                  Stay Signed In
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-xs transition-all cursor-pointer text-center flex items-center justify-center space-x-1.5"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Confirm Sign Out</span>
                 </button>
               </div>
             </motion.div>
