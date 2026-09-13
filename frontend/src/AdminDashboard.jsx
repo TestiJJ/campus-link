@@ -10,8 +10,9 @@ import {
   MapPin, Clock, Filter, AlertTriangle, ChevronRight,
   Heart, MessageSquare, Video, Menu, Activity, Sparkles,
   ExternalLink, Layers, UserX, UserCheck, Ban,
-  Settings, KeyRound, Megaphone, Lock, ShieldAlert,
-  ToggleLeft, ToggleRight, Radio, Server, RefreshCw
+  Settings, Megaphone, ShieldAlert,
+  ToggleLeft, ToggleRight, Radio, Server, RefreshCw,
+  Loader2, Send, Zap, Wifi
 } from 'lucide-react';
 import API, { getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
@@ -46,15 +47,9 @@ export default function AdminDashboard() {
 
   // Admin Settings & Governance States
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordFeedback, setPasswordFeedback] = useState({ type: '', text: '' });
-
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
-  const [broadcastAudience, setBroadcastAudience] = useState('all'); // 'all' | 'student' | 'vendor'
+  const [broadcastAudience, setBroadcastAudience] = useState('all'); // 'all' | 'students' | 'vendors'
   const [broadcastLoading, setBroadcastLoading] = useState(false);
   const [broadcastFeedback, setBroadcastFeedback] = useState({ type: '', text: '' });
 
@@ -264,39 +259,6 @@ export default function AdminDashboard() {
       }
     } catch {}
     window.location.replace('/login');
-  };
-
-  // Admin Change Password Handler
-  const handleAdminPasswordChange = async (e) => {
-    e.preventDefault();
-    if (!currentPassword || !newPassword) {
-      setPasswordFeedback({ type: 'error', text: 'Please fill in all password fields.' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPasswordFeedback({ type: 'error', text: 'New password must be at least 6 characters.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordFeedback({ type: 'error', text: 'New passwords do not match.' });
-      return;
-    }
-    setPasswordLoading(true);
-    setPasswordFeedback({ type: '', text: '' });
-    try {
-      await API.put('/users/password', {
-        current_password: currentPassword,
-        new_password: newPassword
-      });
-      setPasswordFeedback({ type: 'success', text: 'Administrator password updated successfully!' });
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (err) {
-      setPasswordFeedback({ type: 'error', text: err.response?.data?.detail || 'Failed to update password.' });
-    } finally {
-      setPasswordLoading(false);
-    }
   };
 
   // Campus-Wide Emergency Broadcast Announcement
@@ -761,6 +723,51 @@ export default function AdminDashboard() {
       {/* Main Content Area */}
       <main className="flex-1 w-full min-w-0 max-w-full overflow-x-hidden p-3.5 sm:p-6 lg:p-8 max-w-7xl mx-auto pb-28 md:pb-8">
         
+        {/* --- MODERN SEGMENTED CAPSULE TAB STRIP --- */}
+        <div className="mb-5 -mx-3.5 sm:mx-0 px-3.5 sm:px-0 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1.5 p-1.5 bg-slate-200/70 backdrop-blur-md rounded-2xl border border-slate-300/60 shadow-2xs min-w-max">
+            {[
+              { id: 'vendors', icon: Store, label: 'Vendors & ID Review', badge: pendingCount, badgeColor: 'bg-rose-500' },
+              { id: 'products', icon: Package, label: 'Products', badge: products.length },
+              { id: 'services', icon: Wrench, label: 'Services', badge: services.length },
+              { id: 'reels', icon: Video, label: 'Reels', badge: reels.length },
+              { id: 'students', icon: GraduationCap, label: 'Users & Roles', badge: users.length },
+              { id: 'stats', icon: Activity, label: 'Ecosystem Analytics' },
+              { id: 'settings', icon: Settings, label: 'Admin Settings', isLive: true }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 cursor-pointer shrink-0 relative ${
+                    isActive
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'stroke-[2.5] text-sky-400' : 'text-slate-500'}`} />
+                  <span>{tab.label}</span>
+                  {tab.badge !== undefined && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                      isActive
+                        ? (tab.badgeColor ? 'bg-rose-500 text-white' : 'bg-slate-800 text-slate-300')
+                        : (tab.badgeColor ? 'bg-rose-500 text-white animate-bounce' : 'bg-slate-300/80 text-slate-700')
+                    }`}>
+                      {tab.badge > 99 ? '99+' : tab.badge}
+                    </span>
+                  )}
+                  {tab.isLive && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Toast Feedback */}
         {toastMessage.text && (
           <motion.div
@@ -1896,245 +1903,238 @@ export default function AdminDashboard() {
         {/* --- TAB 7: ADMIN SETTINGS & PLATFORM GOVERNANCE --- */}
         {activeTab === 'settings' && (
           <div className="space-y-6 max-w-5xl">
+            {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
               <div className="min-w-0">
-                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2">
-                  <span>Admin Settings & Governance</span>
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2.5">
+                  <span>SuperAdmin Command & Platform Governance</span>
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  SuperAdmin credentials, emergency campus announcements, platform toggles, and secure session management.
+                  Live session enforcement, campus broadcasts, ID protocol verification gates, and platform diagnostics.
                 </p>
               </div>
 
               <div className="flex items-center space-x-2">
                 <div className="px-3.5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center space-x-2 shrink-0 shadow-xs">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>SuperAdmin Console</span>
+                  <span>Tier-1 SuperAdmin Console</span>
                 </div>
               </div>
             </div>
 
-            {/* Admin Profile Overview Banner */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center space-x-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-sky-600 to-indigo-700 text-white font-black text-xl flex items-center justify-center shadow-md shrink-0">
-                  {adminUser?.full_name?.charAt(0) || 'A'}
+            {/* 1. SuperAdmin Profile & Live System Authority (Hero Card) */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 text-white shadow-xl relative overflow-hidden border border-slate-800">
+              {/* Subtle ambient blur orb */}
+              <div className="absolute -top-12 -right-12 w-64 h-64 bg-sky-500/15 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5 pb-6 border-b border-white/10">
+                <div className="flex items-center space-x-4 min-w-0">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 text-white font-black text-2xl flex items-center justify-center shadow-lg ring-2 ring-white/20 shrink-0">
+                    {adminUser?.full_name?.charAt(0) || 'A'}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                      <h2 className="text-lg sm:text-xl font-black text-white truncate tracking-tight">
+                        {adminUser?.full_name || 'Platform Administrator'}
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full bg-sky-400/20 border border-sky-400/30 text-sky-300 text-[10px] font-black uppercase tracking-wider">
+                        {adminUser?.role || 'admin'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-0.5 truncate">{adminUser?.email}</p>
+                    <div className="flex items-center space-x-2 mt-2 text-[11px] text-emerald-300 font-semibold">
+                      <span className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                        <span>Live WebSocket: Instant Real-Time Kick (0ms)</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowLogoutModal(true)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/30 font-bold text-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer shadow-xs"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Sign Out Console</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Matrix Tiles inside Hero Card */}
+              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-5">
+                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                  <div className="flex items-center space-x-2 text-sky-400 mb-1">
+                    <Zap className="w-4 h-4" />
+                    <span className="text-xs font-bold">Instant Kick Engine</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-tight">
+                    Dual-layer WebSocket broadcast + 403 API interceptor immediately locks banned accounts.
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                  <div className="flex items-center space-x-2 text-emerald-400 mb-1">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="text-xs font-bold">Verification Gate</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-tight">
+                    {strictMatricVerification ? 'Mandatory ID Review Active' : 'Open Registration Mode'}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                  <div className="flex items-center space-x-2 text-indigo-400 mb-1">
+                    <Users className="w-4 h-4" />
+                    <span className="text-xs font-bold">Accounts Managed</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-tight">
+                    {users.length} Registered Users • {allVendors.length} Merchant Stores
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Emergency Campus Announcement Broadcast Suite */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-white border border-slate-200 shadow-xs">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center font-bold shadow-md shadow-amber-500/20">
+                  <Megaphone className="w-5 h-5" />
                 </div>
                 <div>
+                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900">Campus-Wide Emergency Broadcast</h3>
+                  <p className="text-xs text-slate-500">Push instant banner alerts and notifications directly to active student & vendor screens.</p>
+                </div>
+              </div>
+
+              {/* Feedback Alert */}
+              {broadcastFeedback.text && (
+                <div className={`my-4 p-4 rounded-2xl text-xs font-semibold flex items-center justify-between shadow-xs border ${
+                  broadcastFeedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}>
                   <div className="flex items-center space-x-2">
-                    <h2 className="text-base sm:text-lg font-bold text-slate-900">{adminUser?.full_name || 'System Administrator'}</h2>
-                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-black uppercase tracking-wider">
-                      {adminUser?.role || 'admin'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500 mt-0.5">{adminUser?.email}</p>
-                  <div className="flex items-center space-x-2 mt-1.5 text-[11px] text-slate-400">
-                    <span className="flex items-center space-x-1">
-                      <Radio className="w-3 h-3 text-emerald-500 animate-pulse" />
-                      <span className="text-emerald-700 font-semibold">Live Real-Time Socket Connected</span>
-                    </span>
-                    <span>•</span>
-                    <span>0ms Instant Enforcement</span>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowLogoutModal(true)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Admin Sign Out</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Card 1: Change Admin Password */}
-              <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center space-x-2.5 mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-700 flex items-center justify-center font-bold">
-                      <KeyRound className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Change Admin Password</h3>
-                      <p className="text-xs text-slate-500">Update your SuperAdmin authentication credentials.</p>
-                    </div>
-                  </div>
-
-                  {pwdSuccess && (
-                    <div className="my-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>{pwdSuccess}</span>
-                    </div>
-                  )}
-
-                  {pwdError && (
-                    <div className="my-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center space-x-2">
+                    {broadcastFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
                       <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>{pwdError}</span>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleAdminPasswordChange} className="space-y-3 mt-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Current Password</label>
-                      <input
-                        type="password"
-                        required
-                        value={currentPassword}
-                        onChange={(e) => setCurrentPassword(e.target.value)}
-                        placeholder="Enter current password"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">New Password</label>
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="Minimum 6 characters"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Confirm New Password</label>
-                      <input
-                        type="password"
-                        required
-                        minLength={6}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Re-type new password"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={pwdLoading}
-                      className="w-full mt-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
-                    >
-                      {pwdLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Updating Password...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          <span>Update Admin Password</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* Card 2: Campus-Wide Emergency Broadcast */}
-              <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center space-x-2.5 mb-2">
-                    <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold">
-                      <Megaphone className="w-5 h-5 text-amber-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Emergency Campus Broadcast</h3>
-                      <p className="text-xs text-slate-500">Push instant notification to active devices across campus.</p>
-                    </div>
+                    )}
+                    <span>{broadcastFeedback.text}</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastFeedback({ type: '', text: '' })}
+                    className="text-slate-400 hover:text-slate-700 cursor-pointer font-bold"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
-                  {broadcastSuccess && (
-                    <div className="my-3 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
-                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>{broadcastSuccess}</span>
-                    </div>
-                  )}
-
-                  {broadcastError && (
-                    <div className="my-3 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center space-x-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>{broadcastError}</span>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleSendBroadcast} className="space-y-3 mt-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Announcement Title</label>
-                      <input
-                        type="text"
-                        required
-                        value={broadcastTitle}
-                        onChange={(e) => setBroadcastTitle(e.target.value)}
-                        placeholder="e.g. Scheduled Maintenance or Campus Safety Notice"
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Target Audience</label>
-                      <select
-                        value={broadcastTarget}
-                        onChange={(e) => setBroadcastTarget(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white cursor-pointer"
+              <form onSubmit={handleSendBroadcast} className="space-y-4 mt-5">
+                {/* Target Audience Segmented Buttons */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Target Audience</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      { id: 'all', label: 'All Campus Members', desc: 'Students & Vendors' },
+                      { id: 'students', label: 'Students Only', desc: 'Student Community' },
+                      { id: 'vendors', label: 'Vendors Only', desc: 'Campus Merchants' }
+                    ].map((aud) => (
+                      <button
+                        key={aud.id}
+                        type="button"
+                        onClick={() => setBroadcastAudience(aud.id)}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                          broadcastAudience === aud.id
+                            ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/40 text-amber-950 shadow-xs'
+                            : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-700'
+                        }`}
                       >
-                        <option value="all">All Campus Members (Students & Vendors)</option>
-                        <option value="students">Students Only</option>
-                        <option value="vendors">Vendors Only</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Broadcast Message Body</label>
-                      <textarea
-                        required
-                        rows={3}
-                        value={broadcastMessage}
-                        onChange={(e) => setBroadcastMessage(e.target.value)}
-                        placeholder="Type the announcement or alert message here..."
-                        className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={broadcastLoading}
-                      className="w-full mt-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs shadow-xs transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
-                    >
-                      {broadcastLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Dispatching Broadcast...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Megaphone className="w-4 h-4" />
-                          <span>Dispatch Live Campus Broadcast</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
+                        <span className="text-xs font-bold block">{aud.label}</span>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">{aud.desc}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+
+                {/* Broadcast Subject */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Announcement Title / Subject</label>
+                  <input
+                    type="text"
+                    required
+                    value={broadcastTitle}
+                    onChange={(e) => setBroadcastTitle(e.target.value)}
+                    placeholder="e.g. Scheduled System Optimization or Campus Safety Advisory"
+                    className="w-full px-4 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-slate-50/50"
+                  />
+                </div>
+
+                {/* Broadcast Message Body */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-slate-700">Announcement Message Body</label>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {broadcastMessage.length} characters
+                    </span>
+                  </div>
+                  <textarea
+                    required
+                    rows={4}
+                    value={broadcastMessage}
+                    onChange={(e) => setBroadcastMessage(e.target.value)}
+                    placeholder="Write the comprehensive alert or message that all active devices will receive..."
+                    className="w-full px-4 py-3 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-slate-50/50 resize-none leading-relaxed"
+                  />
+                </div>
+
+                {/* Delivery Notice */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2.5">
+                  <Megaphone className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    <strong>Instant Real-Time Push:</strong> When dispatched, all connected sockets receive this announcement immediately. A permanent notification is also generated in users' activity inboxes.
+                  </p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={broadcastLoading}
+                  className="w-full sm:w-auto py-3 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs shadow-md shadow-orange-500/20 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {broadcastLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Dispatching Broadcast...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      <span>Dispatch Live Campus Broadcast</span>
+                    </>
+                  )}
+                </button>
+              </form>
             </div>
 
-            {/* Platform Governance & System Controls */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200 shadow-xs">
-              <div className="flex items-center space-x-2.5 mb-4">
-                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center font-bold">
-                  <Server className="w-5 h-5 text-purple-600" />
+            {/* 3. Platform Governance & System Controls */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-white border border-slate-200 shadow-xs">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-700 text-white flex items-center justify-center font-bold shadow-md shadow-purple-500/20">
+                  <Server className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Platform Governance & System Controls</h3>
+                  <h3 className="font-extrabold text-base sm:text-lg text-slate-900">Platform Governance & Security Controls</h3>
                   <p className="text-xs text-slate-500">Configure global enrollment gates and active system runtime parameters.</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
                 {/* Switch 1: Strict Matric ID */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                <div className="p-4.5 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between space-y-3.5">
                   <div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800">Strict ID Verification</span>
@@ -2155,7 +2155,7 @@ export default function AdminDashboard() {
                       Require physical student ID review before merchants can publish marketplace items.
                     </p>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md inline-block w-fit ${
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block w-fit ${
                     strictMatricVerification ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-600'
                   }`}>
                     {strictMatricVerification ? 'Mandatory ID Enforcement' : 'Open Vendor Registration'}
@@ -2163,7 +2163,7 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Switch 2: Maintenance Mode */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                <div className="p-4.5 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between space-y-3.5">
                   <div>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-800">Maintenance Sandbox</span>
@@ -2184,7 +2184,7 @@ export default function AdminDashboard() {
                       Temporarily lock public order checkout for scheduled database optimization.
                     </p>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md inline-block w-fit ${
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block w-fit ${
                     maintenanceMode ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                   }`}>
                     {maintenanceMode ? 'Maintenance Window Active' : 'Normal Live Operations'}
@@ -2192,7 +2192,7 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Action 3: Purge System Cache */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between space-y-3">
+                <div className="p-4.5 rounded-2xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between space-y-3.5">
                   <div>
                     <span className="text-xs font-bold text-slate-800 block">System Cache & State Sync</span>
                     <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
@@ -2202,28 +2202,34 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     onClick={handlePurgeAllCaches}
-                    className="w-full py-2 px-3 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                    disabled={actionLoading}
+                    className="w-full py-2.5 px-3.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors flex items-center justify-center space-x-2 cursor-pointer shadow-xs disabled:opacity-50"
                   >
-                    <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                    <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${actionLoading ? 'animate-spin text-sky-600' : ''}`} />
                     <span>Sync Platform State</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Danger Zone */}
-            <div className="p-5 sm:p-6 rounded-2xl bg-rose-50/70 border border-rose-200">
-              <div className="flex items-center space-x-2.5 mb-2">
-                <AlertTriangle className="w-5 h-5 text-rose-600" />
-                <h3 className="font-bold text-sm sm:text-base text-rose-900">Administrator Danger Zone</h3>
+            {/* 4. Administrator Danger Zone */}
+            <div className="p-6 sm:p-7 rounded-3xl bg-rose-50/70 border border-rose-200 shadow-xs">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-rose-900">Administrator Danger Zone</h3>
+                  <p className="text-xs text-rose-700">Platform session moderation safeguards and sign-out controls.</p>
+                </div>
               </div>
-              <p className="text-xs text-rose-700 leading-relaxed mb-4">
+              <p className="text-xs text-rose-700 leading-relaxed my-3 max-w-3xl">
                 Ending your administrator session will clear local moderation credentials and redirect you to the login screen. Ensure all pending ID checks or user disputes are finalized.
               </p>
               <button
                 type="button"
                 onClick={() => setShowLogoutModal(true)}
-                className="py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
+                className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-xs transition-colors flex items-center space-x-2 cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign Out of SuperAdmin Console</span>
