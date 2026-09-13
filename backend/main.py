@@ -3427,14 +3427,31 @@ async def react_to_message(
 
     # Toggle if clicking same emoji, else update
     current_emoji = reactions_dict.get(uid)
+    is_new_reaction = False
     if current_emoji == req.emoji:
         reactions_dict.pop(uid, None)
     else:
         reactions_dict[uid] = req.emoji
+        is_new_reaction = True
 
     msg.reactions = json.dumps(reactions_dict) if reactions_dict else None
     db.commit()
     db.refresh(msg)
+
+    # Dispatch in-app and push notification if reaction added
+    if is_new_reaction:
+        target_uid = str(msg.sender_id) if str(uid) != str(msg.sender_id) else str(msg.recipient_id)
+        if target_uid != str(uid):
+            sender_name = current_user.full_name or "Someone"
+            create_notification(
+                db=db,
+                user_id=target_uid,
+                actor_id=current_user.user_id,
+                notification_type="reaction",
+                title=f"{sender_name} reacted to your message",
+                message=f"{sender_name} reacted {req.emoji} to your message",
+                reference_id=str(msg.id)
+            )
 
     reaction_payload = {
         "type": "message_reaction",

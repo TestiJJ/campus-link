@@ -11,7 +11,7 @@ import {
   UserPlus, UserCheck, UserX, Eye, Mail, Star, Laptop, BookOpen, Scissors,
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
-  Bell, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
+  Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
@@ -1214,15 +1214,11 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleNotificationClick = async (notif) => {
-    try {
-      if (!notif.is_read) {
-        await API.post(`/notifications/${notif.id}/read`);
-        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
-        setUnreadCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (err) {
-      console.error('Error marking notification read:', err);
+  const handleNotificationClick = (notif) => {
+    if (!notif.is_read) {
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      API.post(`/notifications/${notif.id}/read`).catch(() => {});
     }
     setNotificationsOpen(false);
     const t = (notif.notification_type || notif.type || '').toLowerCase();
@@ -1232,13 +1228,22 @@ export default function StudentDashboard() {
       setActiveTab('friends');
       if (t === 'friend_request') setFriendsTabFilter('all');
       else if (t === 'friend_accept') setFriendsTabFilter('friends');
-    } else if (t === 'message') {
+    } else if (t.includes('message') || t.includes('reaction') || t.includes('chat')) {
       setActiveTab('messages');
+      const partnerId = notif.actor_id || notif.sender_id || notif.user_id;
+      if (partnerId) {
+        setSelectedPartner({
+          partner_id: partnerId,
+          full_name: notif.actor_name || notif.sender_name || 'Campus Member',
+          profile_picture_url: notif.actor_avatar || notif.sender_avatar
+        });
+      }
     } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
       setActiveTab('campus');
-    } else if (t.includes('order') || t.includes('service')) {
+    } else if (t.includes('order') || t.includes('service') || t.includes('product')) {
       setActiveTab('marketplace');
       if (t.includes('service')) setMarketType('services');
+      else setMarketType('products');
     }
   };
 
@@ -3203,9 +3208,9 @@ export default function StudentDashboard() {
           localStorage.removeItem(k);
         }
       }
-    } catch {}
+    } catch { }
     setAiMessages([]);
-    navigate('/login');
+    window.location.replace('/login');
   };
 
   // Filtered Lists
@@ -3796,21 +3801,26 @@ export default function StudentDashboard() {
                   <span className="truncate">Share a campus drop...</span>
                 </div>
 
-                <label
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                <input
+                  ref={reelFileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    handleReelFileSelect(e);
+                    setQuickPostModalOpen(true);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => reelFileInputRef.current?.click()}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
                   title="Add photo or video drop"
+                  aria-label="Add photo or video drop"
                 >
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={(e) => {
-                      handleReelFileSelect(e);
-                      setQuickPostModalOpen(true);
-                    }}
-                    className="hidden"
-                  />
-                  <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
-                </label>
+                  <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500 pointer-events-none" />
+                </button>
               </div>
             </div>
 
@@ -4665,141 +4675,179 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* --- TAB: NOTIFICATIONS (FACEBOOK LITE STYLE) --- */}
+        {/* --- TAB: NOTIFICATIONS & ALERTS (MODERN CARD STYLE) --- */}
         {activeTab === 'notifications' && (
-          <div className="max-w-2xl mx-auto space-y-4">
-            {/* Header: < Notifications + Mark Read + Search */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('reels')}
-                  className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
-                  title="Back"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">Notifications</h1>
+          <div className="space-y-4 sm:space-y-6 max-w-4xl mx-auto">
+            {/* Header Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center font-black shadow-md shadow-sky-500/20">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                      Notifications
+                    </h1>
+                    {unreadCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-black bg-rose-500 text-white shadow-xs animate-pulse">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Friend requests, message reactions, campus alerts & marketplace updates.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center space-x-1">
+              {unreadCount > 0 && (
                 <button
                   type="button"
                   onClick={handleMarkAllNotificationsRead}
-                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
-                  title="Mark all as read"
+                  className="px-4 py-2 bg-slate-100 hover:bg-sky-50 text-slate-700 hover:text-sky-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 self-start sm:self-auto"
                 >
-                  <CheckCheck className="w-5 h-5" />
+                  <CheckCheck className="w-4 h-4 text-sky-600" />
+                  <span>Mark all as read</span>
                 </button>
-                <button
-                  type="button"
-                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
-                  title="Search notifications"
-                >
-                  <Search className="w-5 h-5" />
-                </button>
-              </div>
+              )}
             </div>
 
-            {/* Notifications List Grouped into New and Earlier */}
+            {/* Notification Filter Chips */}
+            <div className="flex items-center space-x-1.5 bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-2xs overflow-x-auto">
+              {[
+                { id: 'all', label: 'All Notifications' },
+                { id: 'unread', label: `Unread (${unreadCount})` },
+                { id: 'social', label: 'Requests & Friends' },
+                { id: 'campus', label: 'Campus & Orders' }
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setNotifFilter(f.id)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    notifFilter === f.id
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Notifications List */}
             {(() => {
-              const unreadNotifs = notifications.filter(n => !n.is_read);
-              const earlierNotifs = notifications.filter(n => n.is_read);
+              const filteredList = (notifications || []).filter((n) => {
+                const t = (n.notification_type || n.type || '').toLowerCase();
+                if (notifFilter === 'unread') return !n.is_read;
+                if (notifFilter === 'social') return t.includes('friend') || t.includes('like') || t.includes('comment') || t.includes('reaction') || t.includes('message') || t === 'status_view';
+                if (notifFilter === 'campus') return t.includes('notice') || t.includes('lost') || t.includes('found') || t.includes('order') || t.includes('product') || t.includes('service');
+                return true;
+              });
 
-              const renderNotifItem = (notif) => {
-                const t = (notif.notification_type || notif.type || '').toLowerCase();
-                let badgeColor = 'bg-blue-600';
-                let BadgeIcon = MessageCircle;
-                if (t.includes('like') || t.includes('heart')) {
-                  badgeColor = 'bg-rose-500';
-                  BadgeIcon = Heart;
-                } else if (t.includes('friend') || t.includes('connect')) {
-                  badgeColor = 'bg-blue-600';
-                  BadgeIcon = Users;
-                } else if (t.includes('order') || t.includes('product') || t.includes('service')) {
-                  badgeColor = 'bg-amber-500';
-                  BadgeIcon = ShoppingBag;
-                } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
-                  badgeColor = 'bg-indigo-600';
-                  BadgeIcon = Megaphone;
-                }
-
+              if (filteredList.length === 0) {
                 return (
-                  <div
-                    key={notif.id}
-                    onClick={() => handleNotificationClick(notif)}
-                    className={`flex items-start space-x-3 p-3 rounded-2xl transition-colors cursor-pointer ${
-                      !notif.is_read ? 'bg-blue-50/80 hover:bg-blue-100/70' : 'bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    {/* User Avatar with Micro Action Badge */}
-                    <div className="relative shrink-0">
-                      {notif.actor_avatar || notif.sender_avatar ? (
-                        <SafeImage
-                          src={notif.actor_avatar || notif.sender_avatar}
-                          alt="Avatar"
-                          fallbackType="avatar"
-                          className="w-12 h-12 rounded-full object-cover border border-slate-200"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
-                          {(notif.actor_name || notif.title || 'U').charAt(0)}
-                        </div>
-                      )}
-                      <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full ${badgeColor} text-white flex items-center justify-center border-2 border-white shadow-xs`}>
-                        <BadgeIcon className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                    </div>
-
-                    <div className="flex-1 min-w-0 text-xs">
-                      <p className="text-slate-800 leading-snug">
-                        <strong className="font-extrabold text-slate-900">{notif.actor_name || notif.title || 'Campus Link'}</strong>{' '}
-                        {notif.message || notif.content || notif.body || 'sent an update'}
-                      </p>
-                      <span className="text-[11px] text-slate-400 mt-1 block font-medium">
-                        {safeTime(notif.created_at, 'Recently')}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                      }}
-                      className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer shrink-0"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
+                  <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 space-y-3">
+                    <BellOff className="w-12 h-12 text-slate-300 mx-auto" />
+                    <h4 className="text-base font-bold text-slate-800">No notifications found</h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      {notifFilter === 'unread'
+                        ? "You're all caught up! No unread notifications right now."
+                        : "You don't have any notifications in this category yet."}
+                    </p>
                   </div>
                 );
-              };
+              }
 
               return (
-                <div className="space-y-4">
-                  {unreadNotifs.length > 0 && (
-                    <div className="space-y-1.5">
-                      <h3 className="text-sm font-black text-slate-900 px-1">New</h3>
-                      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs divide-y divide-slate-100 overflow-hidden">
-                        {unreadNotifs.map(renderNotifItem)}
-                      </div>
-                    </div>
-                  )}
+                <div className="space-y-2.5">
+                  {filteredList.map((notif) => {
+                    const isUnread = !notif.is_read;
+                    const t = (notif.notification_type || notif.type || '').toLowerCase();
+                    const targetId = notif.actor_id || notif.sender_id || notif.user_id;
 
-                  <div className="space-y-1.5">
-                    <h3 className="text-sm font-black text-slate-900 px-1">
-                      {unreadNotifs.length > 0 ? 'Earlier' : 'Notifications'}
-                    </h3>
-                    {earlierNotifs.length > 0 ? (
-                      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs divide-y divide-slate-100 overflow-hidden">
-                        {earlierNotifs.map(renderNotifItem)}
+                    return (
+                      <div
+                        key={notif.id}
+                        onClick={() => handleNotificationClick(notif)}
+                        className={`p-4 rounded-2xl sm:rounded-3xl border transition-all cursor-pointer flex items-start space-x-3.5 ${
+                          isUnread
+                            ? 'bg-sky-50/70 border-sky-200 hover:border-sky-300 shadow-xs'
+                            : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/50'
+                        }`}
+                      >
+                        {/* Left Icon / Avatar with Profile Click */}
+                        <div
+                          onClick={(e) => {
+                            if (targetId) {
+                              e.stopPropagation();
+                              handleViewProfile(targetId, {
+                                full_name: notif.actor_name || notif.sender_name || notif.title || 'Campus Member',
+                                profile_picture_url: notif.actor_avatar || notif.sender_avatar
+                              });
+                            }
+                          }}
+                          className="relative shrink-0 mt-0.5 cursor-pointer hover:opacity-85 transition-opacity"
+                          title="View Profile"
+                        >
+                          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-white border border-slate-200 shadow-2xs overflow-hidden flex items-center justify-center font-bold text-sky-700">
+                            {notif.actor_avatar || notif.sender_avatar ? (
+                              <SafeImage
+                                src={notif.actor_avatar || notif.sender_avatar}
+                                alt="Avatar"
+                                fallbackType="avatar"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : t.includes('friend') ? (
+                              <UserPlus className="w-5 h-5 text-sky-600" />
+                            ) : t.includes('like') || t.includes('heart') ? (
+                              <Heart className="w-5 h-5 text-rose-500 fill-rose-500" />
+                            ) : t.includes('reaction') || t.includes('message') ? (
+                              <MessageCircle className="w-5 h-5 text-indigo-600" />
+                            ) : t.includes('order') || t.includes('product') || t.includes('service') ? (
+                              <ShoppingBag className="w-5 h-5 text-amber-500" />
+                            ) : t.includes('notice') || t.includes('lost') || t.includes('found') ? (
+                              <Megaphone className="w-5 h-5 text-emerald-600" />
+                            ) : (
+                              <Bell className="w-5 h-5 text-indigo-600" />
+                            )}
+                          </div>
+                          {isUnread && (
+                            <span className="absolute -top-1 -right-1 w-3 h-3 bg-sky-500 border-2 border-white rounded-full shadow-xs" />
+                          )}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4
+                              onClick={(e) => {
+                                if (targetId) {
+                                  e.stopPropagation();
+                                  handleViewProfile(targetId, {
+                                    full_name: notif.actor_name || notif.sender_name || notif.title || 'Campus Member',
+                                    profile_picture_url: notif.actor_avatar || notif.sender_avatar
+                                  });
+                                }
+                              }}
+                              className={`text-xs sm:text-sm font-bold truncate hover:text-sky-600 hover:underline ${
+                                isUnread ? 'text-slate-900' : 'text-slate-800'
+                              }`}
+                            >
+                              {notif.actor_name || notif.title || (t.includes('friend') ? 'Friend Request' : 'Campus Alert')}
+                            </h4>
+                            <span className="text-[10px] text-slate-400 shrink-0">
+                              {safeTime(notif.created_at, 'Recently')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed break-words">
+                            {notif.message || notif.content || notif.body || 'Tap to view details'}
+                          </p>
+                        </div>
                       </div>
-                    ) : unreadNotifs.length === 0 ? (
-                      <div className="py-16 text-center bg-white rounded-2xl border border-slate-200 text-slate-400 text-xs">
-                        <Bell className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                        No notifications right now.
-                      </div>
-                    ) : null}
-                  </div>
+                    );
+                  })}
                 </div>
               );
             })()}

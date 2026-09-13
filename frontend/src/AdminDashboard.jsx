@@ -231,7 +231,7 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/login');
+    window.location.replace('/login');
   };
 
   // Computed Vendors Filter

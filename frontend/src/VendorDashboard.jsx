@@ -1151,15 +1151,12 @@ export default function VendorDashboard() {
     }
   };
 
-  const handleNotificationClick = async (notif) => {
-    try {
-      if (!notif.is_read) {
-        await API.post(`/notifications/${notif.id}/read`);
-        setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
-        setUnreadNotifCount(prev => Math.max(0, prev - 1));
-      }
-    } catch (err) {
-      console.warn('Error marking notification read:', err);
+  const handleNotificationClick = (notif) => {
+    if (!notif) return;
+    if (!notif.is_read) {
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
+      setUnreadNotifCount(prev => Math.max(0, prev - 1));
+      API.post(`/notifications/${notif.id}/read`).catch(() => {});
     }
     const t = (notif.notification_type || notif.type || '').toLowerCase();
     if (t.includes('reel') || t.includes('like') || t.includes('comment') || t === 'status_view') {
@@ -1168,11 +1165,16 @@ export default function VendorDashboard() {
       setActiveTab('friends');
       if (t === 'friend_request') setFriendsTabFilter('all');
       else if (t === 'friend_accept') setFriendsTabFilter('friends');
-    } else if (t === 'message' || t.includes('chat') || t.includes('inquiry')) {
+    } else if (t === 'message' || t.includes('chat') || t.includes('inquiry') || t.includes('reaction')) {
       setActiveTab('messages');
+      const partnerId = notif.reference_id || notif.actor_id || notif.sender_id;
+      if (partnerId) {
+        const p = (conversations || []).find(c => String(c.partner_id) === String(partnerId));
+        if (p) setSelectedPartner(p);
+      }
     } else if (t.includes('verification')) {
       setActiveTab('verification');
-    } else if (t.includes('product') || t.includes('service') || t.includes('store')) {
+    } else if (t.includes('product') || t.includes('service') || t.includes('store') || t.includes('order')) {
       setActiveTab('inventory');
     }
   };
@@ -3002,7 +3004,7 @@ export default function VendorDashboard() {
       }
     } catch { }
     setAiMessages([]);
-    navigate('/login');
+    window.location.replace('/login');
   };
 
   const pendingOrdersCount = (vendorOrders || []).filter(o => o.status === 'pending').length;
@@ -4126,7 +4128,20 @@ export default function VendorDashboard() {
                             }`}
                         >
                           {/* Left Icon / Avatar */}
-                          <div className="relative shrink-0 mt-0.5">
+                          <div
+                            onClick={(e) => {
+                              const targetId = notif.actor_id || notif.sender_id || notif.user_id;
+                              if (targetId) {
+                                e.stopPropagation();
+                                handleOpenProfile(targetId, {
+                                  full_name: notif.actor_name || notif.sender_name || 'Campus Member',
+                                  profile_picture_url: notif.actor_avatar || notif.sender_avatar
+                                });
+                              }
+                            }}
+                            className="relative shrink-0 mt-0.5 cursor-pointer hover:opacity-85 transition-opacity"
+                            title="View Profile"
+                          >
                             <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-2xs overflow-hidden flex items-center justify-center font-bold text-sky-700">
                               {notif.sender_avatar ? (
                                 <SafeImage src={notif.sender_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
@@ -4148,7 +4163,19 @@ export default function VendorDashboard() {
                           {/* Content */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
-                              <h4 className={`text-xs sm:text-sm font-bold truncate ${isUnread ? 'text-slate-900' : 'text-slate-800'}`}>
+                              <h4
+                                onClick={(e) => {
+                                  const targetId = notif.actor_id || notif.sender_id || notif.user_id;
+                                  if (targetId && (notif.type === 'friend_request' || notif.type === 'friend_accept' || notif.type === 'like' || notif.type === 'comment' || notif.type === 'message' || notif.type === 'reaction')) {
+                                    e.stopPropagation();
+                                    handleOpenProfile(targetId, {
+                                      full_name: notif.actor_name || notif.sender_name || 'Campus Member',
+                                      profile_picture_url: notif.actor_avatar || notif.sender_avatar
+                                    });
+                                  }
+                                }}
+                                className={`text-xs sm:text-sm font-bold truncate ${isUnread ? 'text-slate-900' : 'text-slate-800'}`}
+                              >
                                 {notif.title || (notif.type === 'friend_request' ? 'New Friend Request' : 'Campus Alert')}
                               </h4>
                               <span className="text-[10px] text-slate-400 shrink-0">
@@ -5805,6 +5832,25 @@ export default function VendorDashboard() {
                     <span className="truncate">Share a campus drop, new stock or special...</span>
                   </div>
 
+                  <input
+                    ref={reelFileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setReelMediaFile(file);
+                        setReelMediaPreview(URL.createObjectURL(file));
+                        setReelForm(prev => ({
+                          ...prev,
+                          media_type: file.type.startsWith('video') ? 'video' : 'image'
+                        }));
+                      }
+                      setShowReelModal(true);
+                      e.target.value = '';
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => reelFileInputRef.current?.click()}
@@ -5812,25 +5858,6 @@ export default function VendorDashboard() {
                     title="Attach photo or video drop"
                     aria-label="Attach photo or video drop"
                   >
-                    <input
-                      ref={reelFileInputRef}
-                      type="file"
-                      accept="image/*,video/*"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          setReelMediaFile(file);
-                          setReelMediaPreview(URL.createObjectURL(file));
-                          setReelForm(prev => ({
-                            ...prev,
-                            media_type: file.type.startsWith('video') ? 'video' : 'image'
-                          }));
-                        }
-                        setShowReelModal(true);
-                        e.target.value = '';
-                      }}
-                    />
                     <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500 pointer-events-none" />
                   </button>
                 </div>
