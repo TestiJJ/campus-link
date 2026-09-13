@@ -431,6 +431,8 @@ export default function StudentDashboard() {
   // Student Profile Modal State
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const profileCacheRef = useRef({});
 
   // Orders State (SWR Instant Load)
   const [orderModalItem, setOrderModalItem] = useState(null);
@@ -2739,15 +2741,41 @@ export default function StudentDashboard() {
     }
   };
 
-  // 5. Open Full Profile Modal
-  const handleViewProfile = async (userId) => {
-    try {
-      const res = await API.get(`/students/${userId}`);
-      setSelectedProfile(res.data);
+  // 5. Open Full Profile Modal (Instant 0ms UI Response with In-Memory Cache)
+  const handleViewProfile = (userId, optimisticData = null) => {
+    const uid = String(userId || '');
+    if (!uid) return;
+
+    if (profileCacheRef.current[uid]) {
+      setSelectedProfile(profileCacheRef.current[uid]);
       setProfileModalOpen(true);
-    } catch (err) {
-      alert('Could not load student profile.');
+      setIsProfileLoading(false);
+      return;
     }
+
+    if (optimisticData) {
+      setSelectedProfile({ user_id: uid, ...optimisticData });
+      setProfileModalOpen(true);
+      setIsProfileLoading(true);
+    } else {
+      setSelectedProfile(null);
+      setProfileModalOpen(true);
+      setIsProfileLoading(true);
+    }
+
+    API.get(`/students/${uid}`)
+      .then((res) => {
+        if (res.data) {
+          profileCacheRef.current[uid] = res.data;
+          setSelectedProfile(res.data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load student profile:', err);
+      })
+      .finally(() => {
+        setIsProfileLoading(false);
+      });
   };
 
   // 6. Start Chat from Profile or Student Card (Instant Cache Render)
@@ -3371,7 +3399,7 @@ export default function StudentDashboard() {
                   </span>
                   {(currentUser?.university_name || universityName) && (
                     <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
-                      🎓 {(currentUser?.university_name || universityName).split(' ')[0]}
+                      {(currentUser?.university_name || universityName).split(' ')[0]}
                     </span>
                   )}
                 </div>
@@ -3749,6 +3777,15 @@ export default function StudentDashboard() {
                 >
                   <span className="truncate">Share a campus drop...</span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickPostModalOpen(true)}
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  title="Add photo or video drop"
+                >
+                  <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
+                </button>
               </div>
             </div>
 
@@ -3940,34 +3977,30 @@ export default function StudentDashboard() {
                           <>
                             <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
                             <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                              {isAuthor && (
-                                <button type="button" onClick={() => handleDeleteReel(reel.id)}
-                                  className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                                  <Trash2 className="w-4 h-4 text-rose-500" />
-                                  <span>Delete Post</span>
-                                </button>
-                              )}
-                              <button type="button" onClick={() => handleCopyPostLink(reel)}
-                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                                <Copy className="w-4 h-4 text-slate-400" />
-                                <span>Copy Link</span>
-                              </button>
-                              {reel.user_id && (
-                                <button type="button" onClick={() => { setActivePostMenuId(null); handleViewProfile(reel.user_id); }}
-                                  className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                              {(reel.user_id || reel.author_id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActivePostMenuId(null);
+                                    handleViewProfile(reel.user_id || reel.author_id, {
+                                      full_name: reel.author_name,
+                                      profile_picture_url: reel.author_avatar,
+                                      role: reel.author_role || 'student'
+                                    });
+                                  }}
+                                  className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                >
                                   <User className="w-4 h-4 text-slate-400" />
-                                  <span>View Profile</span>
+                                  <span>View Creator</span>
                                 </button>
                               )}
-                              <button type="button" onClick={() => handleHidePost(reel.id)}
-                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
+                              <button
+                                type="button"
+                                onClick={() => handleHidePost(reel.id)}
+                                className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                              >
                                 <EyeOff className="w-4 h-4 text-slate-400" />
-                                <span>Hide Post</span>
-                              </button>
-                              <button type="button" onClick={() => handleReportPost(reel.id)}
-                                className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer">
-                                <Flag className="w-4 h-4 text-slate-400" />
-                                <span>Report Post</span>
+                                <span>Hide Drop</span>
                               </button>
                             </div>
                           </>
@@ -6951,7 +6984,7 @@ export default function StudentDashboard() {
 
       {/* --- STUDENT FULL PROFILE POPUP MODAL (Mobile Bottom Sheet Drawer) --- */}
       <AnimatePresence>
-        {profileModalOpen && selectedProfile && (
+        {profileModalOpen && (selectedProfile || isProfileLoading) && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
@@ -6975,43 +7008,49 @@ export default function StudentDashboard() {
                 </button>
               </div>
 
-              {/* Profile Card Body */}
-              <div className="p-6 pt-0 relative">
-                {/* Avatar */}
-                <div className="-mt-12 mb-4 flex items-end justify-between">
-                  {selectedProfile.profile_picture_url ? (
-                    <SafeImage
-                      src={selectedProfile.profile_picture_url}
-                      alt={selectedProfile.full_name}
-                      fallbackType="avatar"
-                      className="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-md"
-                    />
-                  ) : (
-                    <div className="w-24 h-24 rounded-2xl bg-sky-500 border-4 border-white text-white font-black text-3xl flex items-center justify-center shadow-md">
-                      {selectedProfile.full_name.charAt(0)}
-                    </div>
-                  )}
-
-                  <div className="flex flex-col items-end space-y-1">
-                    {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
-                      <span className="text-[11px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-2xs animate-pulse">
-                        <MessageSquare className="w-3 h-3 text-rose-500" />
-                        <span>{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new chat{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 1 ? 's' : ''}</span>
-                      </span>
-                    )}
-                    {selectedProfile.role === 'vendor' || selectedProfile.is_seller ? (
-                      <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full flex items-center space-x-1">
-                        <ShoppingBag className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Campus Seller</span>
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full flex items-center space-x-1">
-                        <GraduationCap className="w-3.5 h-3.5 text-sky-600" />
-                        <span>Verified Student</span>
-                      </span>
-                    )}
-                  </div>
+              {!selectedProfile ? (
+                <div className="p-10 text-center flex flex-col items-center justify-center space-y-3">
+                  <div className="w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs text-slate-500 font-bold">Loading student profile...</p>
                 </div>
+              ) : (
+                /* Profile Card Body */
+                <div className="p-6 pt-0 relative">
+                  {/* Avatar */}
+                  <div className="-mt-12 mb-4 flex items-end justify-between">
+                    {selectedProfile.profile_picture_url ? (
+                      <SafeImage
+                        src={selectedProfile.profile_picture_url}
+                        alt={selectedProfile.full_name}
+                        fallbackType="avatar"
+                        className="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-md"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 rounded-2xl bg-sky-500 border-4 border-white text-white font-black text-3xl flex items-center justify-center shadow-md">
+                        {(selectedProfile.full_name || 'U').charAt(0)}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col items-end space-y-1">
+                      {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                        <span className="text-[11px] font-black text-rose-700 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-full flex items-center space-x-1 shadow-2xs animate-pulse">
+                          <MessageSquare className="w-3 h-3 text-rose-500" />
+                          <span>{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new chat{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 1 ? 's' : ''}</span>
+                        </span>
+                      )}
+                      {selectedProfile.role === 'vendor' || selectedProfile.is_seller ? (
+                        <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full flex items-center space-x-1">
+                          <ShoppingBag className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Campus Seller</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full flex items-center space-x-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
+                          <span>Verified Student</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                 {/* Name & Academic / Store info */}
                 <h3 className="text-xl font-black text-slate-900">{selectedProfile.full_name}</h3>
@@ -7153,6 +7192,7 @@ export default function StudentDashboard() {
                 )}
 
               </div>
+              )}
             </motion.div>
           </div>
         )}
@@ -7625,7 +7665,7 @@ export default function StudentDashboard() {
                 <div>
                   <h4 className="text-xs font-black text-slate-900">{currentUser?.full_name || 'Campus Student'}</h4>
                   <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-sky-50 text-[10px] font-bold text-sky-700 mt-0.5 border border-sky-100">
-                    <span>🎓 Campus Community Feed</span>
+                    <span>Campus Community Feed</span>
                   </div>
                 </div>
               </div>

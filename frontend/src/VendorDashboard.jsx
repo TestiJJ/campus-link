@@ -369,6 +369,8 @@ export default function VendorDashboard() {
   // Selected Profile Modal State (viewing profile of students or other vendors)
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const profileCacheRef = useRef({});
 
   // Reels States (SWR Instant-Load Cache)
   const [allReels, setAllReels] = useState(() => getCachedData('allReels', []));
@@ -1334,15 +1336,41 @@ export default function VendorDashboard() {
     }
   };
 
-  // --- PROFILE MODAL ACTIONS ---
-  const handleOpenProfile = async (targetUserId) => {
-    try {
-      const res = await API.get(`/students/${targetUserId}`);
-      setSelectedProfile(res.data);
+  // --- PROFILE MODAL ACTIONS (Instant 0ms Response with In-Memory Cache) ---
+  const handleOpenProfile = (targetUserId, optimisticData = null) => {
+    const uid = String(targetUserId || '');
+    if (!uid) return;
+
+    if (profileCacheRef.current[uid]) {
+      setSelectedProfile(profileCacheRef.current[uid]);
       setProfileModalOpen(true);
-    } catch (err) {
-      showToast('Failed to load user profile.', 'error');
+      setIsProfileLoading(false);
+      return;
     }
+
+    if (optimisticData) {
+      setSelectedProfile({ user_id: uid, ...optimisticData });
+      setProfileModalOpen(true);
+      setIsProfileLoading(true);
+    } else {
+      setSelectedProfile(null);
+      setProfileModalOpen(true);
+      setIsProfileLoading(true);
+    }
+
+    API.get(`/students/${uid}`)
+      .then((res) => {
+        if (res.data) {
+          profileCacheRef.current[uid] = res.data;
+          setSelectedProfile(res.data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load user profile:', err);
+      })
+      .finally(() => {
+        setIsProfileLoading(false);
+      });
   };
 
   // --- STATUS STORIES ACTIONS ---
@@ -2756,13 +2784,18 @@ export default function VendorDashboard() {
     }
   };
 
-  // Create Reel (with file upload)
+  // Create Reel / Campus Drop
   const handleCreateReel = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
+    const content = (reelForm.description || reelForm.title || '').trim();
+    if (!reelMediaFile && !content) {
+      showToast('Please add a photo, video or write some text to share!', 'info');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      let mediaUrl = 'https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=800&q=80';
-      let mediaType = reelForm.media_type;
+      let mediaUrl = null;
+      let mediaType = 'text';
 
       if (reelMediaFile) {
         mediaUrl = await uploadFile(reelMediaFile);
@@ -2770,25 +2803,25 @@ export default function VendorDashboard() {
       }
 
       await API.post('/reels', {
-        title: reelForm.title.trim(),
-        description: reelForm.description.trim(),
+        title: reelForm.title?.trim() || content.slice(0, 60),
+        description: content,
         media_url: mediaUrl,
         media_type: mediaType,
-        location: reelForm.location.trim() || vendorStore?.location || 'Campus SUB'
+        location: reelForm.location?.trim() || vendorStore?.location || 'Campus'
       });
 
       setShowReelModal(false);
       setReelForm({ title: '', description: '', media_type: 'image', location: '' });
       setReelMediaFile(null);
       setReelMediaPreview(null);
-      showToast('Promotional Drop published to Campus Reels feed!', 'success');
+      showToast('Campus drop published successfully!', 'success');
       API.get('/reels').then(res => {
         const fresh = res.data || [];
         setAllReels(fresh);
         setCachedData('allReels', fresh);
       }).catch(() => { });
     } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to post reel.', 'error');
+      showToast(err.response?.data?.detail || 'Failed to publish drop.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -2961,12 +2994,12 @@ export default function VendorDashboard() {
                   Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
                 </span>
                 {isVerified ? (
-                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 border border-amber-300 shadow-2xs flex items-center space-x-0.5">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-slate-950 fill-amber-300" />
+                  <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
                     <span>Verified</span>
                   </span>
                 ) : (
-                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-800 border border-blue-200/60">
+                  <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                     Vendor
                   </span>
                 )}
@@ -2989,17 +3022,17 @@ export default function VendorDashboard() {
                 <div className="flex items-center space-x-1">
                   <span className="text-xs font-bold text-slate-900 truncate">{vendorStore?.business_name || 'Vendor Store'}</span>
                   {isVerified && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-500 fill-amber-300 shrink-0" title="Verified Campus Vendor" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="Verified Campus Vendor" />
                   )}
                 </div>
                 {isVerified ? (
-                  <span className="text-[10px] text-amber-700 font-bold flex items-center space-x-1 mt-0.5">
-                    <CheckCircle2 className="w-3 h-3 text-amber-500" />
-                    <span>Verified Vendor</span>
+                  <span className="text-[10px] text-emerald-700 font-medium flex items-center space-x-1 mt-0.5">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Verified Store</span>
                   </span>
                 ) : (
-                  <span className="text-[10px] text-amber-600 font-bold flex items-center space-x-1 mt-0.5">
-                    <Clock className="w-3 h-3" />
+                  <span className="text-[10px] text-amber-600 font-medium flex items-center space-x-1 mt-0.5">
+                    <Clock className="w-3 h-3 text-amber-500" />
                     <span>Pending Verification</span>
                   </span>
                 )}
@@ -3137,18 +3170,18 @@ export default function VendorDashboard() {
                   Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
                 </span>
                 {isVerified ? (
-                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 border border-amber-300 shadow-2xs inline-flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3 text-slate-950 fill-amber-300" />
-                    <span>Verified Vendor</span>
+                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <span>Verified</span>
                   </span>
                 ) : (
-                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200/60">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
                     Vendor
                   </span>
                 )}
                 {(vendorStore?.university_abbr || vendorStore?.university_name) && (
-                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
-                    🎓 {(vendorStore?.university_abbr || vendorStore?.university_name).split(' ')[0]}
+                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200/80">
+                    {(vendorStore?.university_abbr || vendorStore?.university_name).split(' ')[0]}
                   </span>
                 )}
               </div>
@@ -4278,7 +4311,7 @@ export default function VendorDashboard() {
                                       </span>
                                     )}
                                     <span className="text-[10px] text-slate-400">
-                                      {c.role === 'vendor' ? '🏪 Vendor' : '🎓 Student'}
+                                      {c.role === 'vendor' ? 'Vendor' : 'Student'}
                                     </span>
                                   </div>
                                 </div>
@@ -5702,35 +5735,15 @@ export default function VendorDashboard() {
               {/* Header */}
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight truncate">
-                    Campus Home & Drops
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                    Campus Feed
                   </h1>
                   <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                    Discover trending student clips, food drops, new stock & share promotional drops.
+                    Discover trending student clips, food drops, new stock & campus updates.
                   </p>
                 </div>
 
                 <div className="flex items-center space-x-2 shrink-0">
-                  {/* Filter Pills */}
-                  <div className="bg-white p-1 rounded-2xl border border-slate-200 flex items-center space-x-1 text-xs font-bold shadow-2xs">
-                    <button
-                      type="button"
-                      onClick={() => setReelFeedFilter('all')}
-                      className={`px-3 py-1.5 rounded-xl cursor-pointer transition-all ${reelFeedFilter === 'all' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                      All Campus ({allReels.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReelFeedFilter('my_drops')}
-                      className={`px-3 py-1.5 rounded-xl cursor-pointer transition-all ${reelFeedFilter === 'my_drops' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                    >
-                      My Store Drops
-                    </button>
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => {
@@ -5741,10 +5754,11 @@ export default function VendorDashboard() {
                         showToast('Feed refreshed!', 'info');
                       }).catch(() => { });
                     }}
-                    className="p-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl transition-all shadow-xs cursor-pointer"
+                    className="p-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl transition-all shadow-xs cursor-pointer flex items-center space-x-1.5 text-xs font-semibold"
                     title="Refresh Feed"
                   >
                     <RefreshCw className="w-4 h-4 text-sky-500" />
+                    <span className="hidden sm:inline">Refresh</span>
                   </button>
                 </div>
               </div>
@@ -5894,7 +5908,7 @@ export default function VendorDashboard() {
                     onClick={() => setShowReelModal(true)}
                     className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
                   >
-                    <span className="truncate">Share a promo drop, new stock or food special...</span>
+                    <span className="truncate">Share a campus drop, new stock or special...</span>
                   </div>
 
                   <button
@@ -5971,55 +5985,30 @@ export default function VendorDashboard() {
                               <>
                                 <div className="fixed inset-0 z-20" onClick={() => setActivePostMenuId(null)} />
                                 <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                                  {isMine && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setActivePostMenuId(null);
-                                        handleDeleteReel(reel.id);
-                                      }}
-                                      className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                                    >
-                                      <Trash2 className="w-4 h-4 text-rose-500" />
-                                      <span>Delete Drop</span>
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCopyPostLink(reel)}
-                                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                                  >
-                                    <Copy className="w-4 h-4 text-slate-400" />
-                                    <span>Copy Link</span>
-                                  </button>
                                   {(reel.author_id || reel.user_id) && (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setActivePostMenuId(null);
-                                        handleOpenProfile(reel.author_id || reel.user_id);
+                                        handleOpenProfile(reel.author_id || reel.user_id, {
+                                          full_name: reel.author_name,
+                                          profile_picture_url: reel.author_avatar,
+                                          role: reel.author_role || 'vendor'
+                                        });
                                       }}
-                                      className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                      className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
                                     >
-                                      <Eye className="w-4 h-4 text-slate-400" />
+                                      <User className="w-4 h-4 text-slate-400" />
                                       <span>View Creator</span>
                                     </button>
                                   )}
                                   <button
                                     type="button"
                                     onClick={() => handleHidePost(reel.id)}
-                                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                                    className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
                                   >
                                     <EyeOff className="w-4 h-4 text-slate-400" />
                                     <span>Hide Drop</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleReportPost(reel.id)}
-                                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
-                                  >
-                                    <Flag className="w-4 h-4 text-slate-400" />
-                                    <span>Report Drop</span>
                                   </button>
                                 </div>
                               </>
@@ -7004,23 +6993,23 @@ export default function VendorDashboard() {
                       {/* 1. Document Type Selector */}
                       <div>
                         <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                          Select Identification / Business Document Type
+                          Identification / Business Document Type
                         </label>
                         <select
                           value={verificationForm.id_card_type}
                           onChange={(e) => setVerificationForm({ ...verificationForm, id_card_type: e.target.value })}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 font-medium"
+                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 font-medium transition-colors"
                         >
-                          <option value="national_id">🇳🇬 National Identity Number (NIN / NIMC Slip)</option>
-                          <option value="voter_card">🪪 Permanent Voter's Card (INEC)</option>
-                          <option value="driver_license">🚗 Driver's License (FRSC)</option>
-                          <option value="graduate_cert">📜 Graduate Degree / NYSC Discharge Certificate (Alumni Vendor)</option>
-                          <option value="cac_permit">🏢 CAC Business Certificate / Campus Cafeteria Lease Agreement / Stall Permit</option>
-                          <option value="student_id">🎓 Student ID Card (Undergraduate Merchant)</option>
+                          <option value="national_id">National Identity Number (NIN / NIMC Slip)</option>
+                          <option value="voter_card">Permanent Voter's Card (INEC)</option>
+                          <option value="driver_license">Driver's License (FRSC)</option>
+                          <option value="graduate_cert">Graduate Degree / NYSC Discharge Certificate (Alumni Vendor)</option>
+                          <option value="cac_permit">CAC Business Certificate / Campus Cafeteria Lease / Stall Permit</option>
+                          <option value="student_id">Student ID Card (Undergraduate Merchant)</option>
                         </select>
                       </div>
 
-                      {/* 2. Document Identification Number (Optional) */}
+                      {/* 2. Document Identification Number */}
                       <div>
                         <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
                           Document Number (NIN, CAC RC, Lease No., or License No.)
@@ -7030,60 +7019,107 @@ export default function VendorDashboard() {
                           placeholder="e.g. 12345678901 (NIN) or RC-987654 (CAC)"
                           value={verificationForm.id_card_number}
                           onChange={(e) => setVerificationForm({ ...verificationForm, id_card_number: e.target.value })}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 transition-colors"
                         />
                       </div>
 
-                      {/* 3. Front Photo / Document Page 1 File Picker */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                          Front of ID / Document Page 1 (Upload Photo or PDF scan)
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                              setIdFrontFile(file);
-                              setIdFrontPreview(URL.createObjectURL(file));
-                            }
-                          }}
-                          className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100 cursor-pointer"
-                        />
-                        {idFrontPreview && (
-                          <div className="mt-2 h-44 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                            <SafeImage src={idFrontPreview} alt="Front ID Preview" fallbackType="product" className="max-h-44 w-full object-contain" />
-                          </div>
-                        )}
-                      </div>
+                      {/* 3 & 4. Responsive Front and Back ID Upload Dropzones */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                        {/* Front Photo Card */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">
+                            Front of Document (Page 1)
+                          </label>
+                          {idFrontPreview ? (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                              <div className="h-40 w-full rounded-xl overflow-hidden bg-white border border-slate-200/80 flex items-center justify-center">
+                                <SafeImage src={idFrontPreview} alt="Front ID Preview" fallbackType="product" className="max-h-40 w-full object-contain" />
+                              </div>
+                              <div className="flex items-center justify-between text-xs px-1">
+                                <span className="text-slate-600 font-semibold truncate max-w-[140px]">{idFrontFile?.name || 'Front Document'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => { setIdFrontFile(null); setIdFrontPreview(null); }}
+                                  className="text-rose-600 hover:text-rose-700 font-bold cursor-pointer transition-colors"
+                                >
+                                  Change
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <label className="border-2 border-dashed border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 rounded-2xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all bg-slate-50/60 min-h-[160px]">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    setIdFrontFile(file);
+                                    setIdFrontPreview(URL.createObjectURL(file));
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                              <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mb-2 shadow-2xs">
+                                <Camera className="w-5 h-5" />
+                              </div>
+                              <span className="text-xs font-bold text-slate-800">
+                                Upload Front Photo
+                              </span>
+                              <span className="text-[10px] text-slate-400 mt-0.5">JPG or PNG document photo</span>
+                            </label>
+                          )}
+                        </div>
 
-                      {/* 4. Back Photo / Document Page 2 File Picker */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                          Back of ID / Document Page 2 (Upload Photo or PDF scan)
-                        </label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (file) {
-                              setIdBackFile(file);
-                              setIdBackPreview(URL.createObjectURL(file));
-                            }
-                          }}
-                          className="w-full text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100 cursor-pointer"
-                        />
-                        {idBackPreview && (
-                          <div className="mt-2 h-44 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                            <SafeImage src={idBackPreview} alt="Back ID Preview" fallbackType="product" className="max-h-44 w-full object-contain" />
-                          </div>
-                        )}
+                        {/* Back Photo Card */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">
+                            Back of Document (Page 2)
+                          </label>
+                          {idBackPreview ? (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                              <div className="h-40 w-full rounded-xl overflow-hidden bg-white border border-slate-200/80 flex items-center justify-center">
+                                <SafeImage src={idBackPreview} alt="Back ID Preview" fallbackType="product" className="max-h-40 w-full object-contain" />
+                              </div>
+                              <div className="flex items-center justify-between text-xs px-1">
+                                <span className="text-slate-600 font-semibold truncate max-w-[140px]">{idBackFile?.name || 'Back Document'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => { setIdBackFile(null); setIdBackPreview(null); }}
+                                  className="text-rose-600 hover:text-rose-700 font-bold cursor-pointer transition-colors"
+                                >
+                                  Change
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <label className="border-2 border-dashed border-slate-200 hover:border-sky-400 hover:bg-sky-50/50 rounded-2xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all bg-slate-50/60 min-h-[160px]">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    setIdBackFile(file);
+                                    setIdBackPreview(URL.createObjectURL(file));
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                              <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mb-2 shadow-2xs">
+                                <Camera className="w-5 h-5" />
+                              </div>
+                              <span className="text-xs font-bold text-slate-800">
+                                Upload Back Photo
+                              </span>
+                              <span className="text-[10px] text-slate-400 mt-0.5">JPG or PNG document photo</span>
+                            </label>
+                          )}
+                        </div>
                       </div>
 
                       {/* 5. Stall Location & Phone */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                         <div>
                           <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Campus Stall / Cafeteria Spot</label>
                           <input
@@ -7092,7 +7128,7 @@ export default function VendorDashboard() {
                             placeholder="e.g. SUB Cafeteria Wing B"
                             value={verificationForm.location}
                             onChange={(e) => setVerificationForm({ ...verificationForm, location: e.target.value })}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 transition-colors"
                           />
                         </div>
                         <div>
@@ -7103,7 +7139,7 @@ export default function VendorDashboard() {
                             placeholder="+234 801 234 5678"
                             value={verificationForm.phone}
                             onChange={(e) => setVerificationForm({ ...verificationForm, phone: e.target.value })}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500"
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 transition-colors"
                           />
                         </div>
                       </div>
@@ -7111,7 +7147,7 @@ export default function VendorDashboard() {
                       <button
                         type="submit"
                         disabled={isSubmitting}
-                        className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all disabled:opacity-50"
+                        className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all disabled:opacity-50 mt-2"
                       >
                         {isSubmitting ? 'Uploading Documents...' : 'Submit Documents for Admin Verification'}
                       </button>
@@ -7570,7 +7606,7 @@ export default function VendorDashboard() {
       {/* --- SELECTED USER PROFILE MODAL (FOR VIEWING STUDENTS OR VENDORS) --- */}
       {/* ========================================================================= */}
       <AnimatePresence>
-        {profileModalOpen && selectedProfile && (
+        {profileModalOpen && (selectedProfile || isProfileLoading) && (
           <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
@@ -7591,149 +7627,158 @@ export default function VendorDashboard() {
                 <X className="w-5 h-5" />
               </button>
 
-              {/* Profile Avatar */}
-              <div className="w-20 h-20 rounded-2xl mx-auto mb-3 overflow-hidden bg-sky-100 text-sky-700 font-black text-2xl flex items-center justify-center border-2 border-sky-400 shadow-md">
-                {selectedProfile.profile_picture_url ? (
-                  <SafeImage src={selectedProfile.profile_picture_url} alt={selectedProfile.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
-                ) : (
-                  selectedProfile.full_name?.charAt(0) || 'U'
-                )}
-              </div>
-
-              {/* Full Name & Role */}
-              <div className="flex items-center justify-center space-x-2">
-                <h3 className="text-lg font-black text-slate-900">{selectedProfile.full_name}</h3>
-                {(selectedProfile.is_verified || selectedProfile.is_vendor_verified || selectedProfile.verification_status === 'approved') && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/20 via-yellow-400/20 to-amber-500/20 text-amber-900 border border-amber-300 text-[10px] font-black shadow-2xs" title="Verified Campus Vendor">
-                    <Award className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
-                    <span>Verified</span>
-                  </span>
-                )}
-                {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-xs font-black shadow-xs animate-pulse">
-                    {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center justify-center space-x-2 mt-1">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  {selectedProfile.role === 'vendor' ? '🏪 Campus Vendor' : '🎓 Student'}
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  {selectedProfile.university_name || 'Campus University'}
-                </span>
-              </div>
-
-              {/* Bio */}
-              <p className="text-xs text-slate-600 mt-3 px-3 italic bg-slate-50 py-2.5 rounded-2xl border border-slate-100">
-                "{selectedProfile.bio || (selectedProfile.role === 'vendor' ? 'Verified campus vendor offering quality items.' : 'Student on CampusLink connecting with peers and vendors.')}"
-              </p>
-
-              {/* Metadata Badges */}
-              <div className="grid grid-cols-2 gap-2 text-xs mt-4 text-left">
-                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                    {selectedProfile.role === 'vendor' ? 'Stall Spot' : 'Department / Room'}
-                  </span>
-                  <span className="font-bold text-slate-800 truncate block mt-0.5">
-                    {selectedProfile.hostel || selectedProfile.department || 'On Campus'}
-                  </span>
+              {!selectedProfile ? (
+                <div className="py-12 text-center flex flex-col items-center justify-center space-y-3">
+                  <div className="w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-xs text-slate-500 font-bold">Loading profile...</p>
                 </div>
-                <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Connections</span>
-                  <span className="font-bold text-sky-700 truncate block mt-0.5">
-                    {selectedProfile.friends_count || 0} Friends
-                  </span>
-                </div>
-              </div>
+              ) : (
+                <>
+                  {/* Profile Avatar */}
+                  <div className="w-20 h-20 rounded-2xl mx-auto mb-3 overflow-hidden bg-sky-100 text-sky-700 font-black text-2xl flex items-center justify-center border-2 border-sky-400 shadow-md">
+                    {selectedProfile.profile_picture_url ? (
+                      <SafeImage src={selectedProfile.profile_picture_url} alt={selectedProfile.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      selectedProfile.full_name?.charAt(0) || 'U'
+                    )}
+                  </div>
 
-              {/* Phone / WhatsApp if available */}
-              {selectedProfile.phone_number && (
-                <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs flex items-center justify-between">
-                  <span className="font-bold flex items-center space-x-1.5">
-                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{selectedProfile.phone_number}</span>
-                  </span>
-                  <a
-                    href={`https://wa.me/${selectedProfile.phone_number.replace(/\D/g, '')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-2.5 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg hover:bg-emerald-500 transition-colors cursor-pointer"
-                  >
-                    WhatsApp
-                  </a>
-                </div>
-              )}
+                  {/* Full Name & Role */}
+                  <div className="flex items-center justify-center space-x-2">
+                    <h3 className="text-lg font-black text-slate-900">{selectedProfile.full_name}</h3>
+                    {(selectedProfile.is_verified || selectedProfile.is_vendor_verified || selectedProfile.verification_status === 'approved') && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/20 via-yellow-400/20 to-amber-500/20 text-amber-900 border border-amber-300 text-[10px] font-black shadow-2xs" title="Verified Campus Vendor">
+                        <Award className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                        <span>Verified</span>
+                      </span>
+                    )}
+                    {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                      <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-xs font-black shadow-xs animate-pulse">
+                        {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-center space-x-2 mt-1">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                      {selectedProfile.role === 'vendor' ? 'Campus Vendor' : 'Student'}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {selectedProfile.university_name || 'Campus University'}
+                    </span>
+                  </div>
 
-              {/* Friendship & Chat Action Buttons */}
-              <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col space-y-2">
-                <div className="flex items-center space-x-2">
-                  {selectedProfile.friendship_status === 'none' && (
-                    <button
-                      onClick={() => handleSendFriendRequest(selectedProfile.user_id || selectedProfile.id)}
-                      className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center justify-center space-x-1"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      <span>Send Friend Request</span>
-                    </button>
-                  )}
-
-                  {selectedProfile.friendship_status === 'request_sent' && (
-                    <button
-                      onClick={() => handleRemoveFriend(selectedProfile.user_id || selectedProfile.id)}
-                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
-                    >
-                      Request Sent (Cancel)
-                    </button>
-                  )}
-
-                  {selectedProfile.friendship_status === 'request_received' && (
-                    <button
-                      onClick={() => handleAcceptFriendRequest(selectedProfile.request_id)}
-                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
-                    >
-                      Accept Friend Request
-                    </button>
-                  )}
-
-                  {selectedProfile.friendship_status === 'friends' && (
-                    <>
-                      <button
-                        onClick={() => handleRemoveFriend(selectedProfile.user_id || selectedProfile.id)}
-                        className="py-2.5 px-3 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl cursor-pointer"
-                        title="Remove Friend"
-                      >
-                        <UserX className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          const pid = selectedProfile.user_id || selectedProfile.id;
-                          setSelectedPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role });
-                          setProfileModalOpen(false);
-                          setActiveTab('messages');
-                          setMessageSubtab('chats');
-                          handleSelectPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role });
-                        }}
-                        className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center justify-center space-x-1"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                        <span>Chat Now</span>
-                        {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
-                          <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
-                            {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
-                          </span>
-                        )}
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {selectedProfile.friendship_status !== 'friends' && (
-                  <p className="text-[11px] text-slate-400 italic">
-                    Direct chatting unlocks once you and {selectedProfile.full_name} are connected as friends.
+                  {/* Bio */}
+                  <p className="text-xs text-slate-600 mt-3 px-3 italic bg-slate-50 py-2.5 rounded-2xl border border-slate-100">
+                    "{selectedProfile.bio || (selectedProfile.role === 'vendor' ? 'Verified campus vendor offering quality items.' : 'Student on CampusLink connecting with peers and vendors.')}"
                   </p>
-                )}
-              </div>
+
+                  {/* Metadata Badges */}
+                  <div className="grid grid-cols-2 gap-2 text-xs mt-4 text-left">
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        {selectedProfile.role === 'vendor' ? 'Stall Spot' : 'Department / Room'}
+                      </span>
+                      <span className="font-bold text-slate-800 truncate block mt-0.5">
+                        {selectedProfile.hostel || selectedProfile.department || 'On Campus'}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Connections</span>
+                      <span className="font-bold text-sky-700 truncate block mt-0.5">
+                        {selectedProfile.friends_count || 0} Friends
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Phone / WhatsApp if available */}
+                  {selectedProfile.phone_number && (
+                    <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs flex items-center justify-between">
+                      <span className="font-bold flex items-center space-x-1.5">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{selectedProfile.phone_number}</span>
+                      </span>
+                      <a
+                        href={`https://wa.me/${selectedProfile.phone_number.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg hover:bg-emerald-500 transition-colors cursor-pointer"
+                      >
+                        WhatsApp
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Friendship & Chat Action Buttons */}
+                  <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col space-y-2">
+                    <div className="flex items-center space-x-2">
+                      {selectedProfile.friendship_status === 'none' && (
+                        <button
+                          onClick={() => handleSendFriendRequest(selectedProfile.user_id || selectedProfile.id)}
+                          className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center justify-center space-x-1"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                          <span>Send Friend Request</span>
+                        </button>
+                      )}
+
+                      {selectedProfile.friendship_status === 'request_sent' && (
+                        <button
+                          onClick={() => handleRemoveFriend(selectedProfile.user_id || selectedProfile.id)}
+                          className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                        >
+                          Request Sent (Cancel)
+                        </button>
+                      )}
+
+                      {selectedProfile.friendship_status === 'request_received' && (
+                        <button
+                          onClick={() => handleAcceptFriendRequest(selectedProfile.request_id)}
+                          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                        >
+                          Accept Friend Request
+                        </button>
+                      )}
+
+                      {selectedProfile.friendship_status === 'friends' && (
+                        <>
+                          <button
+                            onClick={() => handleRemoveFriend(selectedProfile.user_id || selectedProfile.id)}
+                            className="py-2.5 px-3 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-bold text-xs rounded-xl cursor-pointer"
+                            title="Remove Friend"
+                          >
+                            <UserX className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              const pid = selectedProfile.user_id || selectedProfile.id;
+                              setSelectedPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role });
+                              setProfileModalOpen(false);
+                              setActiveTab('messages');
+                              setMessageSubtab('chats');
+                              handleSelectPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role });
+                            }}
+                            className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center justify-center space-x-1"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                            <span>Chat Now</span>
+                            {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                              <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
+                                {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
+                              </span>
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
+
+                    {selectedProfile.friendship_status !== 'friends' && (
+                      <p className="text-[11px] text-slate-400 italic">
+                        Direct chatting unlocks once you and {selectedProfile.full_name} are connected as friends.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}
@@ -8405,72 +8450,166 @@ export default function VendorDashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- ADD REEL MODAL --- */}
+      {/* --- QUICK CREATE DROP MODAL (MATCHING STUDENT DASHBOARD) --- */}
       <AnimatePresence>
         {showReelModal && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
             <motion.div
-              initial={{ opacity: 0, y: 30, scale: 0.98 }}
+              initial={{ opacity: 0, y: 40, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 30, scale: 0.98 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-8 shadow-2xl relative border border-slate-200 my-0 sm:my-auto max-h-[90dvh] overflow-y-auto safe-drawer-bottom"
+              exit={{ opacity: 0, y: 40, scale: 0.98 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl border border-slate-200/80 max-h-[90dvh] flex flex-col safe-drawer-bottom"
             >
-              <div className="drawer-handle sm:hidden" />
-              <button
-                onClick={() => setShowReelModal(false)}
-                className="absolute top-4 right-4 min-tap-target-sm flex items-center justify-center text-slate-400 hover:text-slate-800 cursor-pointer rounded-full hover:bg-slate-100 transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <h3 className="text-lg font-black text-slate-900 mb-1">Post Campus Promo Drop</h3>
-              <p className="text-xs text-slate-500 mb-4">Share video drops, product unboxings or photo stories.</p>
+              {/* Mobile Drawer Handle */}
+              <div className="drawer-handle sm:hidden -mt-1 mb-2" />
 
-              <form onSubmit={handleCreateReel} className="space-y-3.5 text-xs">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Reel / Drop Title</label>
-                  <input type="text" required placeholder="e.g. New Sneaker Drop at SUB Quad" value={reelForm.title} onChange={(e) => setReelForm({ ...reelForm, title: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500" />
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3.5">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
+                    CL
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">Create Campus Drop</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Post updates, stock drops, or campus offers</p>
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Upload Video or Photo</label>
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (file) {
-                        setReelMediaFile(file);
-                        setReelMediaPreview(URL.createObjectURL(file));
-                      }
-                    }}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 cursor-pointer"
-                  />
-                  {reelMediaPreview && (
-                    <div className="mt-2 h-40 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 flex items-center justify-center">
-                      {reelMediaFile?.type?.startsWith('video') ? (
-                        <video src={getMediaUrl(reelMediaPreview)} controls className="h-40 w-full object-contain" />
-                      ) : (
-                        <SafeImage src={reelMediaPreview} alt="Preview" fallbackType="product" className="h-40 w-full object-contain" />
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Campus Hotspot Tag</label>
-                  <input type="text" placeholder="e.g. UNILAG SUB Quad" value={reelForm.location} onChange={(e) => setReelForm({ ...reelForm, location: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500" />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Caption</label>
-                  <textarea rows={2} placeholder="Add details, size availability or discounts..." value={reelForm.description} onChange={(e) => setReelForm({ ...reelForm, description: e.target.value })} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500" />
-                </div>
-
-                <button type="submit" disabled={isSubmitting} className="w-full min-tap-target py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50 active:scale-98 transition-all">
-                  {isSubmitting ? 'Uploading & Posting...' : 'Post to Campus Reels Feed'}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowReelModal(false);
+                    setReelMediaFile(null);
+                    setReelMediaPreview(null);
+                    setReelForm({ title: '', description: '', media_type: 'image', location: '' });
+                  }}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
                 </button>
-              </form>
+              </div>
+
+              {/* Author Row */}
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="relative">
+                  <SafeImage
+                    src={vendorStore?.logo_url || user?.profile_picture_url}
+                    alt={vendorStore?.store_name || user?.full_name || 'Vendor'}
+                    fallbackType="avatar"
+                    className="w-10 h-10 rounded-2xl object-cover border border-slate-200"
+                  />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900">{vendorStore?.store_name || user?.full_name || 'Campus Vendor'}</h4>
+                  <div className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-sky-50 text-[10px] font-bold text-sky-700 mt-0.5 border border-sky-100">
+                    <span>Campus Community Feed</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Text Input Area */}
+              <div className="flex-1 overflow-y-auto mb-3 pr-1">
+                <textarea
+                  value={reelForm.description}
+                  onChange={(e) => setReelForm({ ...reelForm, description: e.target.value })}
+                  placeholder="What's happening at your store? Share new stock, flash sales, campus drops, or updates..."
+                  className="w-full h-24 text-sm text-slate-800 placeholder:text-slate-400 border-0 focus:ring-0 resize-none p-0 focus:outline-none leading-relaxed"
+                  autoFocus
+                />
+
+                {/* Media Preview Box */}
+                {reelMediaPreview && (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-950 mt-2 group max-h-56 flex items-center justify-center">
+                    {reelMediaFile?.type?.startsWith('video') ? (
+                      <video
+                        src={getMediaUrl(reelMediaPreview)}
+                        controls
+                        className="max-h-56 w-full object-contain"
+                      />
+                    ) : (
+                      <SafeImage
+                        src={reelMediaPreview}
+                        alt="Preview"
+                        fallbackType="product"
+                        className="max-h-56 w-full object-contain"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReelMediaFile(null);
+                        setReelMediaPreview(null);
+                      }}
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white flex items-center justify-center transition-colors shadow-md cursor-pointer"
+                      title="Remove attachment"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Tag Toolbar (Sleek Campus Action Pills) */}
+              <div className="p-2.5 border border-slate-200/80 rounded-2xl mb-3 flex items-center justify-between bg-slate-50/80 gap-2">
+                <span className="text-[11px] font-bold text-slate-500 hidden xs:inline">Attach to Drop:</span>
+                <div className="flex items-center space-x-2">
+                  <label className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200/90 hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer transition-colors shadow-2xs">
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setReelMediaFile(file);
+                          setReelMediaPreview(URL.createObjectURL(file));
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <Camera className="w-3.5 h-3.5 text-sky-500" />
+                    <span>Photo / Video</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const loc = prompt('Enter campus pickup location or stall (e.g. SUB Quad, Faculty Gate, Hostel B):', reelForm.location || vendorStore?.location || '');
+                      if (loc !== null) setReelForm({ ...reelForm, location: loc.trim() });
+                    }}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white border text-xs font-semibold cursor-pointer transition-colors shadow-2xs ${reelForm.location ? 'border-sky-300 text-sky-700 bg-sky-50' : 'border-slate-200/90 text-slate-700 hover:bg-slate-100'}`}
+                    title="Tag Location"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                    <span>{reelForm.location ? 'Location Set' : 'Location'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {reelForm.location && (
+                <div className="flex items-center justify-between text-[11px] font-bold text-sky-700 bg-sky-50 px-3 py-1.5 rounded-xl mb-3 border border-sky-200/60">
+                  <span className="truncate">📍 {reelForm.location}</span>
+                  <button type="button" onClick={() => setReelForm({ ...reelForm, location: '' })} className="text-sky-500 hover:text-sky-800 ml-2">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Submit Post Button */}
+              <button
+                type="button"
+                disabled={isSubmitting || (!reelMediaFile && !reelForm.description?.trim())}
+                onClick={handleCreateReel}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800 active:scale-98 disabled:opacity-50 text-white font-bold text-xs rounded-2xl shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Sharing to Campus...</span>
+                  </>
+                ) : (
+                  <span>Share Campus Drop 🚀</span>
+                )}
+              </button>
             </motion.div>
           </div>
         )}

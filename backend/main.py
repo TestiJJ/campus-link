@@ -1263,48 +1263,12 @@ def send_test_push(
 
     return {"message": f"Test push dispatched to {subs_count} device(s)!"}
 
+
 @app.get("/api/notifications")
 def get_user_notifications(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    # If the student has zero notifications, seed starter campus notifications
-    if db.query(models.Notification).filter(models.Notification.user_id == current_user.user_id).count() == 0:
-        peer = db.query(models.User).filter(
-            models.User.university_id == current_user.university_id,
-            models.User.user_id != current_user.user_id
-        ).first()
-        peer_id = peer.user_id if peer else None
-        peer_name = peer.full_name if peer else "Chioma Adeleke"
-
-        create_notification(
-            db=db,
-            user_id=current_user.user_id,
-            actor_id=peer_id,
-            notification_type="friend_request",
-            title="New Campus Friend Connection",
-            message=f"{peer_name} sent you a campus friend connection request.",
-            reference_id=peer_id
-        )
-        create_notification(
-            db=db,
-            user_id=current_user.user_id,
-            actor_id=peer_id,
-            notification_type="like",
-            title="New Like on your Reel",
-            message=f"{peer_name} liked your campus life clip!",
-            reference_id="1"
-        )
-        create_notification(
-            db=db,
-            user_id=current_user.user_id,
-            actor_id=peer_id,
-            notification_type="notice",
-            title="🔍 Campus Lost & Found Alert",
-            message="Faculty of Engineering: Blue Scientific Calculator & Keys found near Lecture Theater 2.",
-            reference_id="notice"
-        )
-
     notifs = db.query(models.Notification).filter(
         models.Notification.user_id == current_user.user_id
     ).order_by(models.Notification.created_at.desc()).limit(60).all()
