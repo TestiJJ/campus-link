@@ -1341,6 +1341,25 @@ export default function VendorDashboard() {
     const uid = String(targetUserId || '');
     if (!uid) return;
 
+    // Instant 0ms view for current vendor profile
+    if (uid === String(user?.id || user?.user_id || vendorStore?.user_id || '')) {
+      setSelectedProfile({
+        user_id: uid,
+        full_name: vendorStore?.store_name || user?.full_name || 'Campus Vendor',
+        profile_picture_url: vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url,
+        role: 'vendor',
+        bio: vendorStore?.description || user?.bio || 'Verified campus vendor offering quality items.',
+        hostel: vendorStore?.location || 'On Campus',
+        phone_number: vendorStore?.phone_number || user?.phone_number || '',
+        university_name: vendorStore?.university_name || 'Campus University',
+        is_verified: vendorStore?.verification_status === 'approved' || vendorStore?.is_verified,
+        friendship_status: 'self'
+      });
+      setProfileModalOpen(true);
+      setIsProfileLoading(false);
+      return;
+    }
+
     if (profileCacheRef.current[uid]) {
       setSelectedProfile(profileCacheRef.current[uid]);
       setProfileModalOpen(true);
@@ -5731,35 +5750,56 @@ export default function VendorDashboard() {
           {/* --- TAB 5: CAMPUS HOME & PROMO DROPS (MATCHING STUDENT FEED) --- */}
           {/* ========================================================================= */}
           {(activeTab === 'home' || activeTab === 'reels') && (
-            <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
-              {/* Header */}
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
-                    Campus Feed
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-0.5 hidden sm:block">
-                    Discover trending student clips, food drops, new stock & campus updates.
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      API.get('/reels').then(res => {
-                        const fresh = res.data || [];
-                        setAllReels(fresh);
-                        setCachedData('allReels', fresh);
-                        showToast('Feed refreshed!', 'info');
-                      }).catch(() => { });
-                    }}
-                    className="p-2 bg-white hover:bg-sky-50 border border-slate-200 hover:border-sky-300 text-slate-700 hover:text-sky-600 rounded-xl transition-all shadow-xs cursor-pointer flex items-center space-x-1.5 text-xs font-semibold"
-                    title="Refresh Feed"
+            <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-4">
+              {/* Campus Drop Composer (Facebook Lite format - directly at the top) */}
+              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-2.5 sm:p-3 shadow-xs">
+                <div className="flex items-center space-x-2.5 sm:space-x-3">
+                  <div
+                    onClick={() => handleOpenProfile(user?.user_id || user?.id || vendorStore?.user_id)}
+                    className="relative cursor-pointer shrink-0"
+                    title="Your Store Profile"
                   >
-                    <RefreshCw className="w-4 h-4 text-sky-500" />
-                    <span className="hidden sm:inline">Refresh</span>
-                  </button>
+                    {vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url ? (
+                      <SafeImage
+                        src={vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url}
+                        alt="Store"
+                        fallbackType="avatar"
+                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                        {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
+                  </div>
+
+                  <div
+                    onClick={() => setShowReelModal(true)}
+                    className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
+                  >
+                    <span className="truncate">Share a campus drop, new stock or special...</span>
+                  </div>
+
+                  <label
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                    title="Attach photo or video drop"
+                  >
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setReelMediaFile(file);
+                          setReelMediaPreview(URL.createObjectURL(file));
+                          setShowReelModal(true);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
+                  </label>
                 </div>
               </div>
 
@@ -5795,9 +5835,9 @@ export default function VendorDashboard() {
                               : 'border-2 border-dashed border-slate-300 group-hover:border-sky-400'
                             }`}>
                             <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
-                              {user?.profile_picture_url || vendorStore?.logo ? (
+                              {vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url ? (
                                 <SafeImage
-                                  src={user?.profile_picture_url || vendorStore?.logo}
+                                  src={vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url}
                                   alt="Your Story"
                                   fallbackType="avatar"
                                   className="w-full h-full object-cover rounded-full group-hover:scale-105 transition-transform duration-200"
@@ -5878,47 +5918,6 @@ export default function VendorDashboard() {
                         </div>
                       );
                     })}
-                </div>
-              </div>
-
-              {/* Campus Drop Composer (Clean single bar matching StudentDashboard) */}
-              <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-2.5 sm:p-3 shadow-xs">
-                <div className="flex items-center space-x-3">
-                  <div
-                    onClick={() => handleOpenProfile(user?.user_id || user?.id)}
-                    className="relative cursor-pointer shrink-0"
-                    title="Store Profile"
-                  >
-                    {user?.profile_picture_url || vendorStore?.logo ? (
-                      <SafeImage
-                        src={user?.profile_picture_url || vendorStore?.logo}
-                        alt="Store"
-                        fallbackType="avatar"
-                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white font-bold flex items-center justify-center text-sm">
-                        {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
-                      </div>
-                    )}
-                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white ring-1 ring-emerald-500/30" />
-                  </div>
-
-                  <div
-                    onClick={() => setShowReelModal(true)}
-                    className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
-                  >
-                    <span className="truncate">Share a campus drop, new stock or special...</span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowReelModal(true)}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                    title="Add promo photo or video drop"
-                  >
-                    <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
-                  </button>
                 </div>
               </div>
 

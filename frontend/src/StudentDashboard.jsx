@@ -3778,14 +3778,21 @@ export default function StudentDashboard() {
                   <span className="truncate">Share a campus drop...</span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setQuickPostModalOpen(true)}
+                <label
                   className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
                   title="Add photo or video drop"
                 >
+                  <input
+                    type="file"
+                    accept="image/*,video/*"
+                    onChange={(e) => {
+                      handleReelFileSelect(e);
+                      setQuickPostModalOpen(true);
+                    }}
+                    className="hidden"
+                  />
                   <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
-                </button>
+                </label>
               </div>
             </div>
 
