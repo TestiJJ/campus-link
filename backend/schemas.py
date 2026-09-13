@@ -92,11 +92,6 @@ class UserAccountDeleteRequest(BaseModel):
     confirm_text: Optional[str] = None
     reason: Optional[str] = None
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    user: UserOut
-
 # --- Vendor & Verification ---
 class VendorVerificationSubmit(BaseModel):
     id_card_front: str
@@ -140,6 +135,12 @@ class VendorOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserOut
+    vendor_store: Optional[VendorOut] = None
 
 # --- Product ---
 class ProductCreate(BaseModel):

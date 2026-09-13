@@ -62,7 +62,13 @@ export function renderCategoryIcon(name) {
 // Stale-While-Revalidate Caching Utilities
 export function getCachedData(key, fallback) {
   try {
-    const raw = localStorage.getItem(`cl_cache_${key}`);
+    let raw = localStorage.getItem(`cl_cache_${key}`);
+    if (!raw) {
+      if (key === 'reels') raw = localStorage.getItem('cl_cache_vendor_allReels');
+      else if (key === 'products') raw = localStorage.getItem('cl_cache_vendor_marketplace_products');
+      else if (key === 'services') raw = localStorage.getItem('cl_cache_vendor_marketplace_services');
+      else raw = localStorage.getItem(`cl_cache_vendor_${key}`);
+    }
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -3177,14 +3183,26 @@ export default function StudentDashboard() {
 
   const handleLogout = () => {
     try {
-      const keysToRemove = [];
-      for (let i = 0; i < localStorage.length; i++) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('campuslink_token');
+      localStorage.removeItem('campuslink_student_tab');
+      // Purge private user-scoped data, but preserve public reels, products, categories, etc.
+      const privatePrefixes = [
+        'cl_cache_notifications',
+        'cl_cache_conversations',
+        'cl_cache_myOrders',
+        'cl_cache_unreadCount',
+        'cl_cache_myFriends',
+        'cl_cache_pendingRequests',
+        'campus_ai_'
+      ];
+      for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_') || k === 'token' || k === 'user' || k === 'campuslink_student_tab')) {
-          keysToRemove.push(k);
+        if (k && privatePrefixes.some(p => k.startsWith(p))) {
+          localStorage.removeItem(k);
         }
       }
-      keysToRemove.forEach(k => localStorage.removeItem(k));
     } catch {}
     setAiMessages([]);
     navigate('/login');

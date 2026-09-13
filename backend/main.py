@@ -784,10 +784,43 @@ def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.ge
 
     access_token = auth.create_access_token(data={"sub": user.user_id, "role": user.role})
     
+    vendor_store = None
+    if user.role in ["vendor", "admin"]:
+        vendor = db.query(models.Vendor).options(
+            joinedload(models.Vendor.university),
+            joinedload(models.Vendor.category)
+        ).filter(models.Vendor.user_id == user.user_id).first()
+        if vendor:
+            vendor_store = {
+                "id": vendor.id,
+                "user_id": vendor.user_id,
+                "business_name": vendor.business_name,
+                "business_description": vendor.business_description,
+                "category_id": vendor.category_id,
+                "university_id": vendor.university_id,
+                "state": vendor.state,
+                "location": vendor.location,
+                "phone": vendor.phone or user.phone_number,
+                "email": vendor.email or user.email,
+                "logo": vendor.logo,
+                "cover_image": vendor.cover_image,
+                "verification_status": vendor.verification_status,
+                "id_card_type": getattr(vendor, "id_card_type", "national_id"),
+                "id_card_number": getattr(vendor, "id_card_number", None),
+                "id_card_front": vendor.id_card_front,
+                "id_card_back": vendor.id_card_back,
+                "rejection_reason": vendor.rejection_reason,
+                "created_at": vendor.created_at,
+                "user_name": user.full_name,
+                "university_name": vendor.university.name if vendor.university else "Campus",
+                "category_name": vendor.category.name if vendor.category else "General"
+            }
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": user
+        "user": user,
+        "vendor_store": vendor_store
     }
 
 @app.get("/api/me", response_model=schemas.UserOut)

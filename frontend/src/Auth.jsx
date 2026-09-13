@@ -326,6 +326,17 @@ export default function Auth() {
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('user', JSON.stringify(data.user));
 
+        if (data.vendor_store) {
+          try {
+            localStorage.setItem('cl_cache_vendor_store', JSON.stringify(data.vendor_store));
+          } catch {}
+        }
+        if (data.user) {
+          try {
+            localStorage.setItem('cl_cache_student_user', JSON.stringify(data.user));
+          } catch {}
+        }
+
         if (localStorage.getItem('campuslink_new_signup_pending') === 'true') {
           localStorage.setItem('campuslink_show_profile_completion_prompt', 'true');
           localStorage.removeItem('campuslink_new_signup_pending');
