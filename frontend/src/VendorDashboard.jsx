@@ -3140,7 +3140,22 @@ export default function VendorDashboard() {
               <span>Campus Marketplace</span>
             </button>
 
-            {/* 4. Direct Messages */}
+            {/* 4. Campus Friends & Network */}
+            <button
+              onClick={() => setActiveTab('friends')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'friends' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Campus Friends</span>
+              {pendingRequests.length > 0 && (
+                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs">
+                  {pendingRequests.length}
+                </span>
+              )}
+            </button>
+
+            {/* 5. Direct Messages */}
             <button
               onClick={() => setActiveTab('messages')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -3151,21 +3166,6 @@ export default function VendorDashboard() {
               {totalUnreadChatCount > 0 && (
                 <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs animate-pulse">
                   {totalUnreadChatCount}
-                </span>
-              )}
-            </button>
-
-            {/* 5. Campus Friends & Network */}
-            <button
-              onClick={() => setActiveTab('friends')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'friends' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Campus Network</span>
-              {pendingRequests.length > 0 && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs">
-                  {pendingRequests.length}
                 </span>
               )}
             </button>
@@ -3251,22 +3251,6 @@ export default function VendorDashboard() {
                 <InstallAppButton variant="header" />
               </div>
 
-              {/* Notification Bell Button */}
-              <button
-                type="button"
-                onClick={() => setActiveTab('notifications')}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 relative cursor-pointer transition-all"
-                title="Notifications"
-                aria-label="Notifications"
-              >
-                <Bell className="w-5 h-5" />
-                {unreadNotifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center ring-2 ring-white">
-                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                  </span>
-                )}
-              </button>
-
               {/* Profile / Menu Drawer Button */}
               <button
                 type="button"
@@ -3291,15 +3275,15 @@ export default function VendorDashboard() {
             </div>
           </div>
 
-          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, My Store, Marketplace, Chats, Network, Notifications) */}
+          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, My Store, Marketplace, Network, Chats, Notifications) */}
           <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
               {[
                 { id: 'home', icon: Home, label: 'Home' },
                 { id: 'inventory', icon: Store, label: 'My Store', badge: (products.length + services.length) },
                 { id: 'marketplace', icon: ShoppingBag, label: 'Marketplace' },
+                { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
                 { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
-                { id: 'friends', icon: Users, label: 'Network', badge: pendingRequests.length },
                 { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadNotifCount }
               ].map((tab) => {
                 const Icon = tab.icon;
@@ -5821,25 +5805,34 @@ export default function VendorDashboard() {
                     <span className="truncate">Share a campus drop, new stock or special...</span>
                   </div>
 
-                  <label
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  <button
+                    type="button"
+                    onClick={() => reelFileInputRef.current?.click()}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
                     title="Attach photo or video drop"
+                    aria-label="Attach photo or video drop"
                   >
                     <input
+                      ref={reelFileInputRef}
                       type="file"
                       accept="image/*,video/*"
+                      style={{ display: 'none' }}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
                           setReelMediaFile(file);
                           setReelMediaPreview(URL.createObjectURL(file));
-                          setShowReelModal(true);
+                          setReelForm(prev => ({
+                            ...prev,
+                            media_type: file.type.startsWith('video') ? 'video' : 'image'
+                          }));
                         }
+                        setShowReelModal(true);
+                        e.target.value = '';
                       }}
-                      className="hidden"
                     />
-                    <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500" />
-                  </label>
+                    <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500 pointer-events-none" />
+                  </button>
                 </div>
               </div>
 
@@ -5932,7 +5925,7 @@ export default function VendorDashboard() {
                           className="flex flex-col items-center shrink-0 cursor-pointer group active:scale-95 transition-transform"
                         >
                           <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${isUnviewed
-                              ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 shadow-sm'
+                              ? 'bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 shadow-sm'
                               : 'bg-slate-200'
                             }`}>
                             <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
@@ -8961,8 +8954,8 @@ export default function VendorDashboard() {
             { id: 'home', icon: Home, label: 'Home' },
             { id: 'inventory', icon: Store, label: 'Store' },
             { id: 'marketplace', icon: ShoppingBag, label: 'Market' },
-            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
+            { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadNotifCount }
           ].map((tab) => {
             const Icon = tab.icon;

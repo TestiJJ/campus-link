@@ -3905,7 +3905,7 @@ export default function StudentDashboard() {
                       >
                         <div className={`w-15 h-15 sm:w-17 sm:h-17 rounded-full p-[2.5px] transition-all ${
                           isUnviewed
-                            ? 'bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 shadow-sm'
+                            ? 'bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 shadow-sm'
                             : 'bg-slate-200'
                         }`}>
                           <div className="w-full h-full rounded-full p-[2px] bg-white overflow-hidden">
