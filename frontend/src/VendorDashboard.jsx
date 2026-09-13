@@ -1208,130 +1208,154 @@ export default function VendorDashboard() {
 
   const loadStoreData = async () => {
     try {
-      let storeData = null;
-      try {
-        const storeRes = await API.get('/vendor/my-store');
-        storeData = storeRes.data;
-        setVendorStore(storeData);
-        setCachedData('store', storeData);
-        setVerificationForm({
-          id_card_type: storeData.id_card_type || 'national_id',
-          id_card_number: storeData.id_card_number || '',
-          id_card_front: storeData.id_card_front || '',
-          id_card_back: storeData.id_card_back || '',
-          location: storeData.location || '',
-          phone: storeData.phone || '',
-          business_name: storeData.business_name || ''
+      // 1. Fetch store profile and release loading gate immediately
+      API.get('/vendor/my-store')
+        .then((storeRes) => {
+          const storeData = storeRes.data;
+          if (storeData) {
+            setVendorStore(storeData);
+            setCachedData('store', storeData);
+            setVerificationForm({
+              id_card_type: storeData.id_card_type || 'national_id',
+              id_card_number: storeData.id_card_number || '',
+              id_card_front: storeData.id_card_front || '',
+              id_card_back: storeData.id_card_back || '',
+              location: storeData.location || '',
+              phone: storeData.phone || '',
+              business_name: storeData.business_name || ''
+            });
+            if (storeData.id_card_front) setIdFrontPreview(storeData.id_card_front);
+            if (storeData.id_card_back) setIdBackPreview(storeData.id_card_back);
+
+            setProfileForm({
+              full_name: storeData.user_name || user?.full_name || '',
+              phone_number: storeData.phone || user?.phone_number || '',
+              business_name: storeData.business_name || '',
+              business_description: storeData.business_description || '',
+              location: storeData.location || '',
+              category_id: storeData.category_id || 1,
+              bio: user?.bio || ''
+            });
+
+            if (storeData.id) {
+              API.get(`/vendors/${storeData.id}/reviews`)
+                .then((revRes) => {
+                  const revs = revRes.data || [];
+                  setVendorReviews(revs);
+                  setCachedData('reviews', revs);
+                })
+                .catch(() => {});
+            }
+          }
+        })
+        .catch((storeErr) => {
+          console.warn('Vendor store profile warning:', storeErr);
+        })
+        .finally(() => {
+          setIsStoreLoading(false);
         });
-        if (storeData.id_card_front) setIdFrontPreview(storeData.id_card_front);
-        if (storeData.id_card_back) setIdBackPreview(storeData.id_card_back);
 
-        setProfileForm({
-          full_name: storeData.user_name || user?.full_name || '',
-          phone_number: storeData.phone || user?.phone_number || '',
-          business_name: storeData.business_name || '',
-          business_description: storeData.business_description || '',
-          location: storeData.location || '',
-          category_id: storeData.category_id || 1,
-          bio: user?.bio || ''
-        });
-      } catch (storeErr) {
-        console.warn('Vendor store profile warning:', storeErr);
-      }
+      // 2. High-priority Home & Commerce Streams (populate feed & products instantly)
+      API.get('/reels')
+        .then((res) => {
+          const rls = res.data || [];
+          setAllReels(rls);
+          setCachedData('allReels', rls);
+        })
+        .catch(() => {});
 
-      const storeId = storeData?.id;
-
-      // Concurrent fetch of all dashboard & community assets
-      const results = await Promise.allSettled([
-        API.get('/products'),
-        API.get('/services'),
-        storeId ? API.get(`/vendors/${storeId}/reviews`) : Promise.resolve({ data: [] }),
-        API.get('/conversations'),
-        API.get('/reels'),
-        API.get('/friends'),
-        API.get('/friends/requests/pending'),
-        API.get('/students'),
-        API.get('/campus/statuses'),
-        API.get('/universities'),
-        API.get('/notifications')
-      ]);
-
-      if (results[0].status === 'fulfilled') {
-        const allProds = results[0].value.data || [];
-        setMarketplaceProducts(allProds);
-        setCachedData('marketplace_products', allProds);
-        const myProds = allProds.filter(p => {
-          if (storeId && p.vendor_id === storeId) return true;
+      API.get('/products')
+        .then((res) => {
+          const allProds = res.data || [];
+          setMarketplaceProducts(allProds);
+          setCachedData('marketplace_products', allProds);
           const currentUserId = String(user?.id || user?.user_id || '');
-          if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
-          return false;
-        });
-        setProducts(myProds);
-        setCachedData('products', myProds);
-      }
-      if (results[1].status === 'fulfilled') {
-        const allSvcs = results[1].value.data || [];
-        setMarketplaceServices(allSvcs);
-        setCachedData('marketplace_services', allSvcs);
-        const mySvcs = allSvcs.filter(s => {
-          if (storeId && s.vendor_id === storeId) return true;
+          const myProds = allProds.filter((p) => {
+            if (vendorStore?.id && p.vendor_id === vendorStore.id) return true;
+            if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
+            return false;
+          });
+          setProducts(myProds);
+          setCachedData('products', myProds);
+        })
+        .catch(() => {});
+
+      API.get('/services')
+        .then((res) => {
+          const allSvcs = res.data || [];
+          setMarketplaceServices(allSvcs);
+          setCachedData('marketplace_services', allSvcs);
           const currentUserId = String(user?.id || user?.user_id || '');
-          if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
-          return false;
-        });
-        setServices(mySvcs);
-        setCachedData('services', mySvcs);
-      }
-      if (results[2].status === 'fulfilled') {
-        const revs = results[2].value.data || [];
-        setVendorReviews(revs);
-        setCachedData('reviews', revs);
-      }
-      if (results[3].status === 'fulfilled') {
-        const convs = results[3].value.data || [];
-        setConversations(convs);
-        setCachedData('conversations', convs);
-        prefetchRecentConversations(convs);
-      }
-      if (results[4].status === 'fulfilled') {
-        const rls = results[4].value.data || [];
-        setAllReels(rls);
-        setCachedData('allReels', rls);
-      }
-      if (results[5].status === 'fulfilled') {
-        const frnds = results[5].value.data || [];
-        setFriendsList(frnds);
-        setCachedData('friendsList', frnds);
-      }
-      if (results[6].status === 'fulfilled') {
-        const pnd = results[6].value.data || [];
-        setPendingRequests(pnd);
-        setCachedData('pendingRequests', pnd);
-      }
-      if (results[7].status === 'fulfilled') {
-        const stds = results[7].value.data || [];
-        setCommunityUsers(stds);
-        setCachedData('communityUsers', stds);
-      }
-      if (results[8].status === 'fulfilled') {
-        const stats = results[8].value.data || [];
-        setStatusGroups(stats);
-        setCachedData('statusGroups', stats);
-      }
-      if (results[9].status === 'fulfilled') {
-        setUniversities(results[9].value.data || []);
-      }
-      if (results[10].status === 'fulfilled') {
-        const notifData = results[10].value.data || {};
-        const list = notifData.notifications || (Array.isArray(notifData) ? notifData : []);
-        const unread = notifData.unread_count ?? list.filter(n => !n.is_read).length;
-        setNotifications(list);
-        setUnreadNotifCount(unread);
-        setCachedData('notifications', list);
-      }
+          const mySvcs = allSvcs.filter((s) => {
+            if (vendorStore?.id && s.vendor_id === vendorStore.id) return true;
+            if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
+            return false;
+          });
+          setServices(mySvcs);
+          setCachedData('services', mySvcs);
+        })
+        .catch(() => {});
+
+      API.get('/notifications')
+        .then((res) => {
+          const notifData = res.data || {};
+          const list = notifData.notifications || (Array.isArray(notifData) ? notifData : []);
+          const unread = notifData.unread_count ?? list.filter((n) => !n.is_read).length;
+          setNotifications(list);
+          setUnreadNotifCount(unread);
+          setCachedData('notifications', list);
+        })
+        .catch(() => {});
+
+      API.get('/conversations')
+        .then((res) => {
+          const convs = res.data || [];
+          setConversations(convs);
+          setCachedData('conversations', convs);
+          prefetchRecentConversations(convs);
+        })
+        .catch(() => {});
+
+      // 3. Secondary background streams
+      API.get('/campus/statuses')
+        .then((res) => {
+          const stats = res.data || [];
+          setStatusGroups(stats);
+          setCachedData('statusGroups', stats);
+        })
+        .catch(() => {});
+
+      API.get('/friends')
+        .then((res) => {
+          const frnds = res.data || [];
+          setFriendsList(frnds);
+          setCachedData('friendsList', frnds);
+        })
+        .catch(() => {});
+
+      API.get('/friends/requests/pending')
+        .then((res) => {
+          const pnd = res.data || [];
+          setPendingRequests(pnd);
+          setCachedData('pendingRequests', pnd);
+        })
+        .catch(() => {});
+
+      API.get('/students')
+        .then((res) => {
+          const stds = res.data || [];
+          setCommunityUsers(stds);
+          setCachedData('communityUsers', stds);
+        })
+        .catch(() => {});
+
+      API.get('/universities')
+        .then((res) => {
+          setUniversities(res.data || []);
+        })
+        .catch(() => {});
     } catch (err) {
       console.error('Error loading vendor dashboard data:', err);
-    } finally {
       setIsStoreLoading(false);
     }
   };

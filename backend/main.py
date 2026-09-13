@@ -2067,7 +2067,10 @@ def get_my_vendor_store(
     current_user: models.User = Depends(require_role(["vendor", "admin"])),
     db: Session = Depends(database.get_db)
 ):
-    vendor = db.query(models.Vendor).filter(models.Vendor.user_id == current_user.user_id).first()
+    vendor = db.query(models.Vendor).options(
+        joinedload(models.Vendor.university),
+        joinedload(models.Vendor.category)
+    ).filter(models.Vendor.user_id == current_user.user_id).first()
     if not vendor:
         vendor = models.Vendor(
             user_id=current_user.user_id,
@@ -2181,7 +2184,14 @@ def get_products(
     university_id: Optional[int] = None,
     db: Session = Depends(database.get_db)
 ):
-    query = db.query(models.Product).order_by(models.Product.created_at.desc())
+    query = (
+        db.query(models.Product)
+        .options(
+            joinedload(models.Product.vendor).joinedload(models.Vendor.university),
+            joinedload(models.Product.university)
+        )
+        .order_by(models.Product.created_at.desc())
+    )
     if category_id:
         query = query.filter(models.Product.category_id == category_id)
     if university_id:
@@ -2190,7 +2200,7 @@ def get_products(
         s = f"%{search.strip()}%"
         query = query.filter((models.Product.name.ilike(s)) | (models.Product.description.ilike(s)))
 
-    products = query.all()
+    products = query.limit(100).all()
     results = []
     for p in products:
         u = p.university or (p.vendor.university if p.vendor else None)
@@ -2366,14 +2376,20 @@ def get_services(
     search: Optional[str] = None,
     db: Session = Depends(database.get_db)
 ):
-    query = db.query(models.Service).order_by(models.Service.created_at.desc())
+    query = (
+        db.query(models.Service)
+        .options(
+            joinedload(models.Service.vendor).joinedload(models.Vendor.university)
+        )
+        .order_by(models.Service.created_at.desc())
+    )
     if category_id:
         query = query.filter(models.Service.category_id == category_id)
     if search:
         s = f"%{search.strip()}%"
         query = query.filter((models.Service.name.ilike(s)) | (models.Service.description.ilike(s)))
 
-    services = query.all()
+    services = query.limit(100).all()
     results = []
     for svc in services:
         results.append({
@@ -2472,15 +2488,25 @@ def get_reels(request: Request, db: Session = Depends(database.get_db)):
         if payload:
             caller_user_id = payload.get("sub")
 
-    reels = db.query(models.Reel).order_by(models.Reel.created_at.desc()).all()
+    liked_reel_ids = set()
+    if caller_user_id:
+        liked_rows = db.query(models.ReelLike.reel_id).filter(models.ReelLike.user_id == caller_user_id).all()
+        liked_reel_ids = {lr[0] for lr in liked_rows}
+
+    reels = (
+        db.query(models.Reel)
+        .options(
+            joinedload(models.Reel.vendor).joinedload(models.Vendor.university),
+            joinedload(models.Reel.user).joinedload(models.User.university),
+            joinedload(models.Reel.comments).joinedload(models.ReelComment.user)
+        )
+        .order_by(models.Reel.created_at.desc())
+        .limit(60)
+        .all()
+    )
     results = []
     for r in reels:
-        has_liked = False
-        if caller_user_id:
-            has_liked = db.query(models.ReelLike).filter(
-                models.ReelLike.reel_id == r.id,
-                models.ReelLike.user_id == caller_user_id
-            ).first() is not None
+        has_liked = r.id in liked_reel_ids
 
         comments_list = []
         for c in (r.comments or []):
@@ -3762,8 +3788,13 @@ def discover_community_users(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    query = db.query(models.User).filter(
-        models.User.user_id != current_user.user_id
+    query = (
+        db.query(models.User)
+        .options(
+            joinedload(models.User.vendor_profile),
+            joinedload(models.User.university)
+        )
+        .filter(models.User.user_id != current_user.user_id)
     )
 
     if role and role.lower() in ["student", "vendor"]:
@@ -3780,15 +3811,23 @@ def discover_community_users(
         )
 
     users = query.limit(60).all()
+    if not users:
+        return []
+
+    target_user_ids = [u.user_id for u in users]
+    friendships = db.query(models.Friendship).filter(
+        ((models.Friendship.user_id == current_user.user_id) & (models.Friendship.friend_id.in_(target_user_ids))) |
+        ((models.Friendship.user_id.in_(target_user_ids)) & (models.Friendship.friend_id == current_user.user_id))
+    ).all()
+
+    friendship_map = {}
+    for f in friendships:
+        other_id = f.friend_id if f.user_id == current_user.user_id else f.user_id
+        friendship_map[other_id] = f
+
     results = []
-
     for u in users:
-        # Determine friendship status with current_user
-        f = db.query(models.Friendship).filter(
-            ((models.Friendship.user_id == current_user.user_id) & (models.Friendship.friend_id == u.user_id)) |
-            ((models.Friendship.user_id == u.user_id) & (models.Friendship.friend_id == current_user.user_id))
-        ).first()
-
+        f = friendship_map.get(u.user_id)
         status_str = "none"
         req_id = None
         if f:
