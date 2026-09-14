@@ -289,6 +289,9 @@ export default function StudentDashboard() {
   const [postingComment, setPostingComment] = useState(false);
   const [activePostMenuId, setActivePostMenuId] = useState(null);
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
+  const [highlightedReelId, setHighlightedReelId] = useState(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState(null);
+  const [recentlyAcceptedFriends, setRecentlyAcceptedFriends] = useState({});
   const reelFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
 
@@ -1227,6 +1230,7 @@ export default function StudentDashboard() {
   };
 
   const handleNotificationClick = (notif) => {
+    if (!notif) return;
     if (!notif.is_read) {
       setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
@@ -1236,19 +1240,58 @@ export default function StudentDashboard() {
     const t = (notif.notification_type || notif.type || '').toLowerCase();
     if (t.includes('reel') || t.includes('like') || t.includes('comment') || t === 'status_view') {
       setActiveTab('reels');
+      const ref = String(notif.reference_id || '');
+      const [rIdStr, cIdStr] = ref.includes(':') ? ref.split(':') : [ref, null];
+      const targetReelId = parseInt(rIdStr, 10);
+      const targetCommentId = cIdStr ? parseInt(cIdStr, 10) : null;
+
+      if (targetReelId) {
+        if (t.includes('comment') || targetCommentId) {
+          setActiveCommentsReelId(targetReelId);
+        }
+        setHighlightedReelId(targetReelId);
+        if (targetCommentId) {
+          setHighlightedCommentId(targetCommentId);
+        }
+
+        // Smooth scroll to target element with visual highlight
+        setTimeout(() => {
+          const targetEl = targetCommentId ? document.getElementById(`comment-${targetCommentId}`) : document.getElementById(`reel-${targetReelId}`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            const rEl = document.getElementById(`reel-${targetReelId}`);
+            if (rEl) rEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 350);
+
+        setTimeout(() => {
+          setHighlightedReelId(null);
+          setHighlightedCommentId(null);
+        }, 5000);
+      }
     } else if (t.includes('friend')) {
       setActiveTab('friends');
       if (t === 'friend_request') setFriendsTabFilter('all');
       else if (t === 'friend_accept') setFriendsTabFilter('friends');
+      const partnerId = notif.actor_id || notif.reference_id;
+      if (partnerId) {
+        handleViewProfile(partnerId);
+      }
     } else if (t.includes('message') || t.includes('reaction') || t.includes('chat')) {
       setActiveTab('messages');
-      const partnerId = notif.actor_id || notif.sender_id || notif.user_id;
+      const partnerId = notif.reference_id || notif.actor_id || notif.sender_id || notif.user_id;
       if (partnerId) {
-        setSelectedPartner({
-          partner_id: partnerId,
-          full_name: notif.actor_name || notif.sender_name || 'Campus Member',
-          profile_picture_url: notif.actor_avatar || notif.sender_avatar
-        });
+        const existing = (conversations || []).find(c => String(c.partner_id) === String(partnerId));
+        if (existing) {
+          handleSelectPartner(existing);
+        } else {
+          handleSelectPartner({
+            partner_id: String(partnerId),
+            partner_name: notif.actor_name || notif.sender_name || 'Campus Peer',
+            profile_picture_url: notif.actor_avatar || notif.sender_avatar
+          });
+        }
       }
     } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
       setActiveTab('campus');
@@ -2633,8 +2676,19 @@ export default function StudentDashboard() {
     const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
     const senderId = targetReq?.sender_id;
 
-    // 0ms INSTANT OPTIMISTIC UPDATE: Remove card from pending list immediately
-    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+    // 0ms INSTANT OPTIMISTIC UPDATE: Mark request as accepted and record celebration state
+    if (targetReq) {
+      setRecentlyAcceptedFriends(prev => ({
+        ...prev,
+        [requestId]: {
+          sender_id: targetReq.sender_id,
+          sender_name: targetReq.sender_name,
+          sender_avatar: targetReq.sender_avatar,
+          sender_department: targetReq.sender_department,
+          sender_university: targetReq.sender_university
+        }
+      }));
+    }
 
     setCampusStudents(prev => prev.map(s => 
       (s.request_id === requestId || (senderId && (s.user_id === senderId || s.id === senderId)))
@@ -3967,7 +4021,7 @@ export default function StudentDashboard() {
                                    currentUser?.role === 'admin';
 
                   return (
-                  <div key={reel.id} className="bg-white rounded-3xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md transition-all duration-200">
+                  <div key={reel.id} id={`reel-${reel.id}`} className={`bg-white rounded-3xl border ${highlightedReelId === reel.id ? 'ring-4 ring-sky-400 border-sky-500 shadow-xl' : 'border-slate-200/90'} overflow-hidden shadow-2xs hover:shadow-md transition-all duration-300`}>
                     {/* Post Header */}
                     <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
                       <div className="flex items-start space-x-2.5 min-w-0">
@@ -4143,7 +4197,7 @@ export default function StudentDashboard() {
                                                        isAuthor || currentUser?.role === 'admin';
 
                               return (
-                              <div key={comment.id || idx} className="p-3 bg-white rounded-2xl border border-slate-100 shadow-2xs text-xs">
+                              <div key={comment.id || idx} id={`comment-${comment.id}`} className={`p-3 bg-white rounded-2xl border ${highlightedCommentId === comment.id ? 'ring-3 ring-sky-400 border-sky-400 bg-sky-50/70 shadow-md' : 'border-slate-100'} shadow-2xs text-xs transition-all duration-300`}>
                                 <div className="flex items-center justify-between mb-1 gap-2">
                                   <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                     <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
@@ -4648,23 +4702,56 @@ export default function StudentDashboard() {
                             </span>
                           </div>
 
-                          {/* Confirm & Delete Buttons */}
-                          <div className="flex items-center space-x-2 mt-2.5">
-                            <button
-                              type="button"
-                              onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
-                              className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
-                              className="flex-1 py-2 px-4 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                          {/* Confirm & Delete Buttons OR Celebratory You're now friends */}
+                          {recentlyAcceptedFriends[req.request_id || req.id] ? (
+                            <div className="mt-2.5 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 animate-in fade-in">
+                              <span className="text-[11px] font-bold text-emerald-800 flex items-center space-x-1 mb-2">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>You're now friends with {req.sender_name}!</span>
+                              </span>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => req.sender_id && handleViewProfile(req.sender_id)}
+                                  className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-2xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                                >
+                                  <User className="w-3.5 h-3.5 text-slate-500" />
+                                  <span>View Profile</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartChatWithStudent({
+                                    user_id: req.sender_id,
+                                    full_name: req.sender_name,
+                                    profile_picture_url: req.sender_avatar,
+                                    department: req.sender_department,
+                                    university_name: req.sender_university
+                                  })}
+                                  className="flex-1 py-1.5 px-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>Send Message</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2 mt-2.5">
+                              <button
+                                type="button"
+                                onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
+                                className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
+                                className="flex-1 py-2 px-4 bg-slate-200 hover:bg-slate-300 active:scale-95 text-slate-800 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -5831,7 +5918,8 @@ export default function StudentDashboard() {
                             </div>
 
                             <div className="flex items-center space-x-2 shrink-0">
-                              {(selectedPartner.phone || selectedPartner.whatsapp_phone) && (
+                              {/* Strictly for Vendors: Students never expose WhatsApp contact */}
+                              {((selectedPartner.role === 'vendor' || selectedPartner.partner_role === 'vendor' || selectedPartner.partner_role === 'Vendor' || selectedPartner.partner_role === 'Seller') && (selectedPartner.phone || selectedPartner.whatsapp_phone)) && (
                                 <a
                                   href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
                                   target="_blank"
@@ -7171,8 +7259,8 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                {/* Direct Phone / Contact Bar */}
-                {selectedProfile.phone_number && (
+                {/* Direct Phone / Contact Bar: Strictly for Verified Vendors / Sellers */}
+                {(selectedProfile.role === 'vendor' || selectedProfile.is_seller) && selectedProfile.phone_number && (
                   <div className="mt-4 p-3 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between text-xs">
                     <div className="flex items-center space-x-2 text-slate-700 font-medium">
                       <Phone className="w-4 h-4 text-slate-400" />
@@ -7186,6 +7274,27 @@ export default function StudentDashboard() {
                     >
                       <span>WhatsApp</span>
                     </a>
+                  </div>
+                )}
+
+                {/* You're now friends banner */}
+                {selectedProfile.friendship_status === 'friends' && (
+                  <div className="mt-3.5 p-3 rounded-2xl bg-emerald-50 border border-emerald-200/90 flex items-center justify-between text-xs animate-in fade-in">
+                    <div className="flex items-center space-x-2 text-emerald-900 font-bold">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>You're now friends 🤝</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileModalOpen(false);
+                        handleStartChatWithStudent(selectedProfile);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center space-x-1 cursor-pointer transition-transform"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Send Message</span>
+                    </button>
                   </div>
                 )}
 

@@ -203,6 +203,7 @@ class ServiceOut(ServiceCreate):
     created_at: Optional[datetime] = None
     vendor_name: Optional[str] = None
     vendor_user_id: Optional[str] = None
+    user_id: Optional[str] = None
     vendor_phone: Optional[str] = None
     is_vendor_verified: Optional[bool] = False
 

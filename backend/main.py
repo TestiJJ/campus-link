@@ -1970,7 +1970,7 @@ def get_all_vendors_admin(
     return out
 
 @app.post("/api/admin/vendors/{vendor_id}/action")
-def admin_vendor_action(
+async def admin_vendor_action(
     vendor_id: int,
     action_data: schemas.AdminVendorAction,
     current_user: models.User = Depends(require_role(["admin"])),
@@ -1996,6 +1996,35 @@ def admin_vendor_action(
         raise HTTPException(status_code=400, detail="Invalid action. Use 'approve', 'reject', or 'revoke'.")
 
     db.commit()
+    db.refresh(vendor)
+
+    # 1. In-app notification for vendor
+    if vendor.user_id:
+        try:
+            create_notification(
+                db=db,
+                user_id=vendor.user_id,
+                actor_id=current_user.user_id,
+                notification_type="vendor_verification",
+                title="Vendor Verification Status Updated",
+                message=message,
+                reference_id=str(vendor.id)
+            )
+        except Exception as _notif_err:
+            print(f"[Notification] Vendor status notice: {_notif_err}")
+
+        # 2. Instant real-time WebSocket push event
+        try:
+            await ws_manager.broadcast_to_user(str(vendor.user_id), {
+                "type": "vendor_status_updated",
+                "verification_status": vendor.verification_status,
+                "rejection_reason": vendor.rejection_reason,
+                "business_name": vendor.business_name,
+                "message": message
+            })
+        except Exception as _ws_err:
+            print(f"[WebSocket] Vendor status broadcast notice: {_ws_err}")
+
     return {"message": message, "verification_status": vendor.verification_status}
 
 @app.get("/api/admin/users")
@@ -2524,6 +2553,7 @@ def get_services(
             "created_at": svc.created_at,
             "vendor_name": svc.vendor.business_name if svc.vendor else "Campus Provider",
             "vendor_user_id": svc.vendor.user_id if svc.vendor else None,
+            "user_id": svc.vendor.user_id if svc.vendor else None,
             "vendor_phone": svc.vendor.phone if svc.vendor else None,
             "is_vendor_verified": svc.vendor.verification_status == "verified" if svc.vendor else False
         })
@@ -2573,6 +2603,9 @@ def create_service(
         "availability": new_svc.availability,
         "created_at": new_svc.created_at,
         "vendor_name": vendor.business_name,
+        "vendor_user_id": vendor.user_id,
+        "user_id": vendor.user_id,
+        "vendor_phone": vendor.phone,
         "is_vendor_verified": True
     }
 
@@ -2797,7 +2830,7 @@ def add_reel_comment(
             notification_type="comment",
             title="New Comment on your Post",
             message=f"{current_user.full_name} commented: \"{content[:60]}\"",
-            reference_id=str(reel.id)
+            reference_id=f"{reel.id}:{comment.id}"
         )
 
     # 2. Notify replied commenter if someone replied to their comment
@@ -2809,7 +2842,7 @@ def add_reel_comment(
             notification_type="comment",
             title="Reply to your Comment",
             message=f"{current_user.full_name} replied to your comment: \"{content[:60]}\"",
-            reference_id=str(reel.id)
+            reference_id=f"{reel.id}:{comment.id}"
         )
 
     return {

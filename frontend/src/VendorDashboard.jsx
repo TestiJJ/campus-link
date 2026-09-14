@@ -387,6 +387,9 @@ export default function VendorDashboard() {
   const [isPostingComment, setIsPostingComment] = useState(false);
   const [activePostMenuId, setActivePostMenuId] = useState(null);
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
+  const [highlightedReelId, setHighlightedReelId] = useState(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState(null);
+  const [recentlyAcceptedFriends, setRecentlyAcceptedFriends] = useState({});
   const commentInputRef = useRef(null);
 
   // Settings & Sound State
@@ -566,9 +569,7 @@ export default function VendorDashboard() {
 
   const isVerified = Boolean(
     vendorStore?.verification_status === 'approved' ||
-    vendorStore?.verification_status === 'verified' ||
-    user?.is_verified === true ||
-    user?.verification_status === 'verified'
+    vendorStore?.verification_status === 'verified'
   );
   useEffect(() => {
     const handlePopState = () => {
@@ -822,6 +823,30 @@ export default function VendorDashboard() {
               } catch {}
               alert(data.message || 'Your account has been suspended by platform administration.');
               window.location.replace('/login');
+              return;
+            }
+
+            if (data.type === 'vendor_status_updated') {
+              const newStatus = data.verification_status;
+              setVendorStore(prev => {
+                const updated = prev ? { ...prev, verification_status: newStatus, rejection_reason: data.rejection_reason || '' } : { verification_status: newStatus };
+                setCachedData('store', updated);
+                return updated;
+              });
+              try {
+                const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+                storedUser.verification_status = newStatus;
+                storedUser.is_verified = (newStatus === 'approved' || newStatus === 'verified');
+                localStorage.setItem('user', JSON.stringify(storedUser));
+                setUser(storedUser);
+              } catch (_) {}
+              showToast(data.message || `Vendor verification updated: ${newStatus}`, (newStatus === 'approved' || newStatus === 'verified') ? 'success' : 'error');
+              API.get('/vendor/my-store').then(res => {
+                if (res.data) {
+                  setVendorStore(res.data);
+                  setCachedData('store', res.data);
+                }
+              }).catch(() => {});
               return;
             }
 
@@ -1124,6 +1149,14 @@ export default function VendorDashboard() {
           setUnreadNotifCount(unread);
         })
         .catch(() => { });
+      API.get('/vendor/my-store')
+        .then(res => {
+          if (res.data) {
+            setVendorStore(res.data);
+            setCachedData('store', res.data);
+          }
+        })
+        .catch(() => { });
     };
 
     interval = setInterval(syncVendorData, 8000);
@@ -1171,18 +1204,72 @@ export default function VendorDashboard() {
       API.post(`/notifications/${notif.id}/read`).catch(() => {});
     }
     const t = (notif.notification_type || notif.type || '').toLowerCase();
-    if (t.includes('reel') || t.includes('like') || t.includes('comment') || t === 'status_view') {
-      setActiveTab('home');
+    const ref = notif.reference_id ? String(notif.reference_id) : '';
+
+    if (t.includes('reel') || t.includes('comment') || t.includes('like')) {
+      setActiveTab('reels');
+      let targetReelId = null;
+      let targetCommentId = null;
+
+      if (ref) {
+        if (ref.includes(':')) {
+          const [rId, cId] = ref.split(':');
+          targetReelId = parseInt(rId, 10) || rId;
+          targetCommentId = parseInt(cId, 10) || cId;
+        } else {
+          targetReelId = parseInt(ref, 10) || ref;
+        }
+      }
+
+      if (targetReelId) {
+        if (t.includes('comment') || targetCommentId) {
+          setActiveCommentsReelId(targetReelId);
+        }
+        setHighlightedReelId(targetReelId);
+        if (targetCommentId) {
+          setHighlightedCommentId(targetCommentId);
+        }
+
+        setTimeout(() => {
+          if (targetCommentId) {
+            const commentEl = document.getElementById(`comment-${targetCommentId}`);
+            if (commentEl) {
+              commentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              return;
+            }
+          }
+          const reelEl = document.getElementById(`reel-${targetReelId}`);
+          if (reelEl) {
+            reelEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 350);
+
+        setTimeout(() => {
+          setHighlightedReelId(null);
+          setHighlightedCommentId(null);
+        }, 3500);
+      }
+    } else if (t === 'status_view') {
+      setActiveTab('reels');
     } else if (t.includes('friend')) {
       setActiveTab('friends');
       if (t === 'friend_request') setFriendsTabFilter('all');
       else if (t === 'friend_accept') setFriendsTabFilter('friends');
+      const partnerId = notif.actor_id || notif.sender_id || ref;
+      if (partnerId) {
+        handleOpenProfile(partnerId);
+      }
     } else if (t === 'message' || t.includes('chat') || t.includes('inquiry') || t.includes('reaction')) {
       setActiveTab('messages');
-      const partnerId = notif.reference_id || notif.actor_id || notif.sender_id;
+      const partnerId = ref || notif.actor_id || notif.sender_id;
       if (partnerId) {
-        const p = (conversations || []).find(c => String(c.partner_id) === String(partnerId));
-        if (p) setSelectedPartner(p);
+        const p = (conversations || []).find(c => String(c.partner_id) === String(partnerId) || String(c.user_id) === String(partnerId));
+        if (p) {
+          setSelectedPartner(p);
+          handleSelectPartner(p);
+        } else {
+          handleSelectPartner({ partner_id: partnerId });
+        }
       }
     } else if (t.includes('verification')) {
       setActiveTab('verification');
@@ -2431,8 +2518,15 @@ export default function VendorDashboard() {
     const targetReq = pendingRequests.find(r => r.request_id === requestId || r.id === requestId);
     const senderId = targetReq?.sender_id;
 
-    // 0ms instant optimistic UI update
-    setPendingRequests(prev => prev.filter(r => r.request_id !== requestId && r.id !== requestId));
+    if (targetReq) {
+      setRecentlyAcceptedFriends(prev => ({
+        ...prev,
+        [requestId]: targetReq,
+        [targetReq.id]: targetReq,
+        ...(targetReq.request_id ? { [targetReq.request_id]: targetReq } : {})
+      }));
+    }
+
     setCommunityUsers(prev => prev.map(u =>
       (u.request_id === requestId || (senderId && (u.user_id === senderId || u.id === senderId)))
         ? { ...u, friendship_status: 'friends' }
@@ -2467,7 +2561,12 @@ export default function VendorDashboard() {
         API.get('/students')
       ]).then(([frRes, pendRes, commRes]) => {
         setFriendsList(frRes.data || []);
-        setPendingRequests(pendRes.data || []);
+        if (targetReq) {
+          const freshPending = pendRes.data || [];
+          setPendingRequests([targetReq, ...freshPending.filter(r => r.id !== targetReq.id && r.request_id !== targetReq.request_id)]);
+        } else {
+          setPendingRequests(pendRes.data || []);
+        }
         setCommunityUsers(commRes.data || []);
       }).catch(() => { });
     } catch (err) {
@@ -3924,10 +4023,22 @@ export default function VendorDashboard() {
 
                     {/* Render Services */}
                     {filteredServices.map((s) => {
+                      const serviceUserId = s.vendor_user_id || s.user_id;
                       const isFriendWithSeller = (myFriends || []).some(
-                        f => String(f.user_id || f.id) === String(s.user_id)
+                        f => serviceUserId && String(f.user_id || f.id) === String(serviceUserId)
                       );
-                      const isOwnService = String(s.user_id) === String(user?.user_id || user?.id);
+                      const isOwnService = Boolean(
+                        serviceUserId && (
+                          String(serviceUserId) === String(user?.user_id || user?.id || vendorStore?.user_id)
+                        )
+                      );
+                      const isRequestSent = Boolean(
+                        serviceUserId && (
+                          (communityUsers || []).some(
+                            u => String(u.user_id || u.id) === String(serviceUserId) && u.friendship_status === 'request_sent'
+                          )
+                        )
+                      );
 
                       return (
                         <div
@@ -3978,7 +4089,12 @@ export default function VendorDashboard() {
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenProfile(s.user_id)}
+                                  onClick={() => handleOpenProfile(serviceUserId, {
+                                    full_name: s.vendor_name,
+                                    role: 'vendor',
+                                    profile_picture_url: s.image,
+                                    hostel: s.location
+                                  })}
                                   className="text-[10px] font-bold text-slate-600 hover:text-emerald-600 flex items-center space-x-1 truncate max-w-[120px] cursor-pointer"
                                   title={s.vendor_name || 'Provider Profile'}
                                 >
@@ -3990,7 +4106,12 @@ export default function VendorDashboard() {
                               <div className="grid grid-cols-2 gap-1.5 pt-1">
                                 <button
                                   type="button"
-                                  onClick={() => handleOpenProfile(s.user_id)}
+                                  onClick={() => handleOpenProfile(serviceUserId, {
+                                    full_name: s.vendor_name,
+                                    role: 'vendor',
+                                    profile_picture_url: s.image,
+                                    hostel: s.location
+                                  })}
                                   className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
                                 >
                                   Profile
@@ -4000,6 +4121,7 @@ export default function VendorDashboard() {
                                     type="button"
                                     onClick={() => {
                                       setActiveTab('inventory');
+                                      setCatalogType('services');
                                     }}
                                     className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
                                   >
@@ -4009,20 +4131,26 @@ export default function VendorDashboard() {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const sid = s.user_id;
-                                      setSelectedPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor' });
+                                      const sid = serviceUserId;
+                                      setSelectedPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor', is_friend: true });
                                       setActiveTab('messages');
-                                      handleSelectPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor' });
+                                      setMessageSubtab('chats');
+                                      handleSelectPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor', is_friend: true });
                                     }}
                                     className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl text-center cursor-pointer shadow-xs transition-colors flex items-center justify-center space-x-1"
                                   >
                                     <MessageSquare className="w-3 h-3" />
                                     <span>Chat</span>
                                   </button>
+                                ) : isRequestSent ? (
+                                  <span className="py-1.5 px-2 bg-slate-100 text-slate-500 text-[11px] font-bold rounded-xl text-center flex items-center justify-center space-x-1">
+                                    <Clock className="w-3 h-3 text-slate-400" />
+                                    <span>Pending</span>
+                                  </span>
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={() => handleSendFriendRequest(s.user_id)}
+                                    onClick={() => handleSendFriendRequest(serviceUserId)}
                                     className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors flex items-center justify-center space-x-1"
                                   >
                                     <UserPlus className="w-3 h-3" />
@@ -5518,39 +5646,78 @@ export default function VendorDashboard() {
                   {pendingRequests.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                       {pendingRequests.map((req) => (
-                        <div key={req.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
-                          <div
-                            onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
-                            className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
-                          >
-                            <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                              {req.sender_name?.charAt(0) || 'U'}
+                        recentlyAcceptedFriends[req.id || req.request_id] ? (
+                          <div key={req.id} className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col space-y-2.5 animate-in fade-in">
+                            <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>You're now friends with {req.sender_name}!</span>
                             </div>
-                            <div className="min-w-0">
-                              <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">{req.sender_name}</h4>
-                              <p className="text-[10px] text-slate-500 truncate">{req.sender_department || 'Campus Student'}</p>
-                              <span className="text-[9px] text-slate-400 block truncate">{req.sender_hostel || 'Hostel Resident'}</span>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
+                                className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-2xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                              >
+                                <User className="w-3.5 h-3.5 text-slate-500" />
+                                <span>View Profile</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const partnerObj = {
+                                    partner_id: req.sender_id || req.user_id,
+                                    partner_name: req.sender_name,
+                                    partner_avatar: req.sender_avatar,
+                                    department: req.sender_department,
+                                    is_friend: true
+                                  };
+                                  setSelectedPartner(partnerObj);
+                                  setActiveTab('messages');
+                                  setMessageSubtab('chats');
+                                  handleSelectPartner(partnerObj);
+                                }}
+                                className="flex-1 py-1.5 px-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Send Message</span>
+                              </button>
                             </div>
                           </div>
+                        ) : (
+                          <div key={req.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
+                            <div
+                              onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
+                              className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
+                            >
+                              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                {req.sender_name?.charAt(0) || 'U'}
+                              </div>
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">{req.sender_name}</h4>
+                                <p className="text-[10px] text-slate-500 truncate">{req.sender_department || 'Campus Student'}</p>
+                                <span className="text-[9px] text-slate-400 block truncate">{req.sender_hostel || 'Hostel Resident'}</span>
+                              </div>
+                            </div>
 
-                          <div className="flex items-center space-x-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleAcceptFriendRequest(req.id)}
-                              className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeclineFriendRequest(req.id)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
-                              title="Decline"
-                            >
-                              <UserX className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAcceptFriendRequest(req.id)}
+                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeclineFriendRequest(req.id)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
+                                title="Decline"
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
+                        )
                       ))}
                     </div>
                   ) : (
@@ -6001,7 +6168,15 @@ export default function VendorDashboard() {
                     const isMine = (reel.author_id === user?.user_id || reel.user_id === user?.user_id || reel.author_id === user?.id);
 
                     return (
-                      <div key={reel.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-xs">
+                      <div
+                        key={reel.id}
+                        id={`reel-${reel.id}`}
+                        className={`bg-white rounded-2xl sm:rounded-3xl border overflow-hidden shadow-xs transition-all duration-500 ${
+                          highlightedReelId === reel.id
+                            ? 'border-sky-500 ring-4 ring-sky-300 shadow-xl'
+                            : 'border-slate-200'
+                        }`}
+                      >
                         {/* Post Header */}
                         <div className="p-3.5 sm:p-4 flex items-start justify-between gap-2 relative">
                           <div className="flex items-start space-x-2.5 min-w-0">
@@ -6157,7 +6332,15 @@ export default function VendorDashboard() {
                                     isMine;
 
                                   return (
-                                    <div key={comment.id || idx} className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs text-xs">
+                                    <div
+                                      key={comment.id || idx}
+                                      id={`comment-${comment.id}`}
+                                      className={`p-3 bg-white rounded-xl border shadow-2xs text-xs transition-all duration-500 ${
+                                        highlightedCommentId === comment.id
+                                          ? 'border-sky-500 ring-2 ring-sky-300 bg-sky-50/70'
+                                          : 'border-slate-100'
+                                      }`}
+                                    >
                                       <div className="flex items-center justify-between mb-1 gap-2">
                                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                                           <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
@@ -7761,8 +7944,8 @@ export default function VendorDashboard() {
                     </div>
                   </div>
 
-                  {/* Phone / WhatsApp if available */}
-                  {selectedProfile.phone_number && (
+                  {/* Direct Phone / Contact Bar: Strictly for Verified Vendors / Sellers */}
+                  {(selectedProfile.role === 'vendor' || selectedProfile.is_seller) && selectedProfile.phone_number && (
                     <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs flex items-center justify-between">
                       <span className="font-bold flex items-center space-x-1.5">
                         <Phone className="w-3.5 h-3.5 text-emerald-600" />
@@ -7776,6 +7959,31 @@ export default function VendorDashboard() {
                       >
                         WhatsApp
                       </a>
+                    </div>
+                  )}
+
+                  {/* You're now friends banner */}
+                  {selectedProfile.friendship_status === 'friends' && (
+                    <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between animate-in fade-in">
+                      <div className="flex items-center space-x-1.5 font-bold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>You're now friends 🤝</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const pid = selectedProfile.user_id || selectedProfile.id;
+                          setSelectedPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role, is_friend: true });
+                          setProfileModalOpen(false);
+                          setActiveTab('messages');
+                          setMessageSubtab('chats');
+                          handleSelectPartner({ partner_id: pid, partner_name: selectedProfile.full_name, role: selectedProfile.role, is_friend: true });
+                        }}
+                        className="px-2.5 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg hover:bg-emerald-700 transition-all cursor-pointer flex items-center space-x-1 shadow-2xs"
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        <span>Send Message</span>
+                      </button>
                     </div>
                   )}
 
