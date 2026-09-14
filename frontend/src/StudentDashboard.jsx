@@ -4112,9 +4112,9 @@ export default function StudentDashboard() {
 
                 <div
                   onClick={() => setQuickPostModalOpen(true)}
-                  className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
+                  className="flex-1 min-w-0 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
                 >
-                  <span className="truncate">Share a campus drop...</span>
+                  <span className="truncate">Share a campus update...</span>
                 </div>
 
                 <input
@@ -4429,10 +4429,6 @@ export default function StudentDashboard() {
                           <span className="hidden sm:inline">Share</span>
                         </button>
                       </div>
-
-                      <span className="text-[10px] font-bold text-slate-400 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100">
-                        {reel.media_type === 'video' ? '🎬 Video Drop' : reel.media_url ? '📸 Photo Drop' : '💬 Campus Gist'}
-                      </span>
                     </div>
 
                     {/* Interactive Comments Drawer */}

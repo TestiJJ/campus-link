@@ -622,36 +622,6 @@ export default function Auth() {
             </button>
           </div>
 
-          {/* Test Server Connection Status Indicator */}
-          <div className="mb-4 flex items-center justify-between px-3.5 py-2 bg-slate-50 border border-slate-200/80 rounded-2xl text-[11px]">
-            <div className="flex items-center space-x-2">
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${serverStatus === 'online'
-                  ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
-                  : serverStatus === 'waking' || serverStatus === 'checking'
-                    ? 'bg-amber-500 shadow-xs shadow-amber-500/50 animate-pulse'
-                    : 'bg-rose-500'
-                }`} />
-              <span className="font-semibold text-slate-700">
-                {serverStatus === 'online'
-                  ? `Server Online (${serverPingMs || 0}ms)`
-                  : serverStatus === 'waking'
-                    ? 'Server Waking Up (Cold Start)...'
-                    : serverStatus === 'checking'
-                      ? 'Pinging Server...'
-                      : 'Server Offline'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => checkServerHealth(false)}
-              disabled={isCheckingHealth}
-              className="flex items-center space-x-1 text-sky-600 hover:text-sky-700 font-bold cursor-pointer disabled:opacity-50 transition-colors"
-              title="Ping CampusLink server health endpoint"
-            >
-              <RefreshCw className={`w-3 h-3 ${isCheckingHealth ? 'animate-spin' : ''}`} />
-              <span>Test Connection</span>
-            </button>
-          </div>
 
           {/* Alerts */}
           {errorMessage && (

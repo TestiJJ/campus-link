@@ -3254,181 +3254,8 @@ export default function VendorDashboard() {
         onDismiss={() => setInAppBanner(null)}
       />
 
-      {/* --- DESKTOP SIDEBAR (Visible md and up) --- */}
-      <aside className="hidden md:flex md:w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs h-full overflow-y-auto">
-        <div>
-          <button
-            type="button"
-            onClick={() => setActiveTab('home')}
-            className="flex items-center space-x-2.5 mb-6 cursor-pointer text-left group"
-          >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center font-black text-sm text-white shadow-xs group-hover:scale-105 transition-transform">
-              CL
-            </div>
-            <div>
-              <div className="flex items-baseline space-x-1">
-                <span className="text-base font-black tracking-tight text-slate-900 block leading-tight">
-                  Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
-                </span>
-                {isVerified ? (
-                  <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-                    <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
-                    <span>Verified</span>
-                  </span>
-                ) : (
-                  <span className="text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                    Vendor
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">Vendor Portal</span>
-            </div>
-          </button>
-
-          {/* Business Badge & Operational Status */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 mb-6">
-            <div className="flex items-center space-x-3 mb-2.5">
-              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-600 font-bold flex items-center justify-center text-sm shrink-0 overflow-hidden">
-                {vendorStore?.logo ? (
-                  <SafeImage src={vendorStore.logo} alt="Logo" fallbackType="store" className="w-full h-full object-cover" />
-                ) : (
-                  <Store className="w-5 h-5" />
-                )}
-              </div>
-              <div className="overflow-hidden">
-                <div className="flex items-center space-x-1">
-                  <span className="text-xs font-bold text-slate-900 truncate">{vendorStore?.business_name || 'Vendor Store'}</span>
-                  {isVerified && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" title="Verified Campus Vendor" />
-                  )}
-                </div>
-                {isVerified ? (
-                  <span className="text-[10px] text-emerald-700 font-medium flex items-center space-x-1 mt-0.5">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                    <span>Verified Store</span>
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-amber-600 font-medium flex items-center space-x-1 mt-0.5">
-                    <Clock className="w-3 h-3 text-amber-500" />
-                    <span>Pending Verification</span>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Campus Dispatch Info */}
-            <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-[11px]">
-              <span className="text-slate-400 font-medium">Campus:</span>
-              <span className="font-bold text-sky-700 truncate max-w-[130px] flex items-center space-x-1">
-                <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
-                <span className="truncate">{vendorStore?.university_abbr || vendorStore?.university_name || 'Main Campus'}</span>
-              </span>
-            </div>
-          </div>
-
-          <nav className="space-y-1 text-xs font-semibold">
-            {/* 1. Home & Feed */}
-            <button
-              onClick={() => setActiveTab('home')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'home' || activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <Home className="w-4 h-4" />
-              <span>Home & Feed</span>
-            </button>
-
-            {/* 2. My Store & Services */}
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'inventory' || activeTab === 'services' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <Store className="w-4 h-4" />
-              <span>My Store & Items</span>
-              <span className="ml-auto text-[10px] font-bold">{products.length + services.length}</span>
-            </button>
-
-            {/* 3. Campus Marketplace */}
-            <button
-              onClick={() => setActiveTab('marketplace')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'marketplace' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Campus Marketplace</span>
-            </button>
-
-            {/* 4. Campus Friends & Network */}
-            <button
-              onClick={() => setActiveTab('friends')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'friends' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Campus Friends</span>
-              {pendingRequests.length > 0 && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs">
-                  {pendingRequests.length}
-                </span>
-              )}
-            </button>
-
-            {/* 5. Direct Messages */}
-            <button
-              onClick={() => setActiveTab('messages')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Direct Messages</span>
-              {totalUnreadChatCount > 0 && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs animate-pulse">
-                  {totalUnreadChatCount}
-                </span>
-              )}
-            </button>
-
-            {/* 6. Notifications */}
-            <button
-              onClick={() => setActiveTab('notifications')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'notifications' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <Bell className="w-4 h-4" />
-              <span>Notifications</span>
-              {unreadNotifCount > 0 && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-xs">
-                  {unreadNotifCount}
-                </span>
-              )}
-            </button>
-
-            {/* 7. ID Verification */}
-            <button
-              onClick={() => setActiveTab('verification')}
-              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${activeTab === 'verification' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>ID & Verification</span>
-            </button>
-          </nav>
-        </div>
-
-        <div className="pt-4 border-t border-slate-200 space-y-2">
-          <InstallAppButton variant="header" className="w-full justify-center" />
-          <button
-            onClick={handleLogout}
-            className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Log Out</span>
-          </button>
-        </div>
-      </aside>
-
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
+      <main className={`flex-1 w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
 
         {/* --- BESPOKE CAMPUS HEADER & MODERN CAPSULE NAVIGATION --- */}
         <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
@@ -3473,22 +3300,25 @@ export default function VendorDashboard() {
               <button
                 type="button"
                 onClick={() => setMenuDrawerOpen(true)}
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-2xs overflow-hidden border border-slate-200/70 p-0.5"
-                title="Menu & Profile"
+                className="h-8 sm:h-9 px-2 sm:px-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95 shadow-2xs border border-slate-200/70"
+                title="Store Menu & Settings"
                 aria-label="Menu"
               >
                 {user?.profile_picture_url || vendorStore?.logo ? (
-                  <SafeImage
-                    src={user?.profile_picture_url || vendorStore?.logo}
-                    alt="Menu"
-                    fallbackType="avatar"
-                    className="w-full h-full object-cover rounded-lg"
-                  />
+                  <div className="w-6 h-6 rounded-lg overflow-hidden">
+                    <SafeImage
+                      src={user?.profile_picture_url || vendorStore?.logo}
+                      alt="Menu"
+                      fallbackType="avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
                 ) : (
-                  <div className="w-full h-full rounded-lg bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-xs">
-                    {vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}
+                  <div className="w-6 h-6 rounded-lg bg-sky-500 text-white font-black flex items-center justify-center text-[10px]">
+                    <Store className="w-3.5 h-3.5" />
                   </div>
                 )}
+                <MoreVertical className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               </button>
             </div>
           </div>
@@ -6228,9 +6058,9 @@ export default function VendorDashboard() {
 
                   <div
                     onClick={() => setShowReelModal(true)}
-                    className="flex-1 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-4 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
+                    className="flex-1 min-w-0 bg-slate-100/90 hover:bg-slate-200/70 rounded-full px-3.5 py-2.5 text-xs sm:text-sm text-slate-500 font-medium cursor-pointer transition-colors"
                   >
-                    <span className="truncate">Share a campus drop, new stock or special...</span>
+                    <span className="truncate block">Share a campus update, new stock or special...</span>
                   </div>
 
                   <input
@@ -6256,8 +6086,8 @@ export default function VendorDashboard() {
                     type="button"
                     onClick={() => reelFileInputRef.current?.click()}
                     className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-600 flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs"
-                    title="Attach photo or video drop"
-                    aria-label="Attach photo or video drop"
+                    title="Attach photo or video"
+                    aria-label="Attach photo or video"
                   >
                     <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-sky-500 pointer-events-none" />
                   </button>
