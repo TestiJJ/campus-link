@@ -108,6 +108,14 @@ def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
+@app.get("/ping", status_code=status.HTTP_200_OK)
+@app.get("/api/ping", status_code=status.HTTP_200_OK)
+def ping():
+    return {
+        "status": 200,
+        "message": "successfully pinged"
+    }
+
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
