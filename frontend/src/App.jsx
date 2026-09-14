@@ -38,6 +38,35 @@ function PageLoading() {
   );
 }
 
+function PingPage() {
+  const jsonResponse = {
+    status: 200,
+    message: "successfully pinged"
+  };
+
+  useEffect(() => {
+    document.title = 'CampusLink Ping';
+    // Immediately redirect to backend ping endpoint so client receives raw JSON
+    window.location.replace('https://campus-link-backend-vhxr.onrender.com/ping');
+  }, []);
+
+  return (
+    <pre style={{
+      margin: 0,
+      padding: '20px',
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      background: '#ffffff',
+      color: '#0f172a',
+      minHeight: '100vh',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word'
+    }}>
+      {JSON.stringify(jsonResponse)}
+    </pre>
+  );
+}
+
 // Error boundary to prevent white blank screens and auto-recover from transient errors
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -260,6 +289,10 @@ export default function App() {
                 <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
                 <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
                 <Route path="/messages" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
+
+                {/* Direct Health / Ping Route for Monitor Services & Browser Queries */}
+                <Route path="/ping" element={<PingPage />} />
+                <Route path="/api/ping" element={<PingPage />} />
 
                 {/* Fallback Route */}
                 <Route path="*" element={<Navigate to="/" replace />} />

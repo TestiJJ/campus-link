@@ -1,1 +1,3 @@
-/*    /index.html   200
+/ping       https://campus-link-backend-vhxr.onrender.com/ping       200
+/api/ping   https://campus-link-backend-vhxr.onrender.com/api/ping   200
+/*          /index.html                                              200

@@ -4785,7 +4785,7 @@ export default function VendorDashboard() {
                             e.preventDefault();
                             handleSendAiMessage();
                           }}
-                          className="p-3 bg-white border-t border-slate-200 flex items-end space-x-2"
+                          className="p-3 bg-white border-t border-slate-200 safe-chat-bottom flex items-end space-x-2"
                         >
                           <textarea
                             rows={1}
@@ -5174,292 +5174,257 @@ export default function VendorDashboard() {
                           <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Direct Messaging Area (Only if connected friends or AI) */}
-                        {(() => {
-                          const isConnectedFriend = Boolean(
-                            selectedPartner?.is_ai ||
-                            selectedPartner?.partner_id === 'campus_ai' ||
-                            (myFriends || []).some(f => String(f.user_id || f.id) === String(selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id)) ||
-                            selectedPartner?.is_friend === true
-                          );
+                        {/* Direct Messaging Area */}
+                        <>
+                          {/* Vendor Quick-Action Chips */}
+                          <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center space-x-2 text-[11px] overflow-x-auto scrollbar-none">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Quick:</span>
+                            <button
+                              type="button"
+                              onClick={() => handleSendChatMessage(`📍 You can pick up or inspect at our stall: ${vendorStore?.location || 'SUB Food Court'}.`)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs transition-colors"
+                            >
+                              📍 Stall Pickup
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSendChatMessage(`💳 Bank details for transfer: ${bankInfo.bank_name} - ${bankInfo.account_number} (${bankInfo.account_name})`)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs transition-colors"
+                            >
+                              💳 Send Bank Info
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSendChatMessage(`✅ Your order is confirmed and currently being prepared for hostel dispatch!`)}
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs transition-colors"
+                            >
+                              📦 Order Confirmed
+                            </button>
+                          </div>
 
-                          if (!isConnectedFriend) {
-                            return (
-                              <div className="p-5 sm:p-6 bg-slate-50 border-t border-slate-200 text-center space-y-3">
-                                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mx-auto shadow-xs">
-                                  <Lock className="w-5 h-5" />
+                          {/* Message Input Form */}
+                          <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 safe-chat-bottom shrink-0">
+                            {/* Quoted Swipe-to-Reply Banner */}
+                            {replyingToMessage && (
+                              <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
+                                <div className="flex items-center space-x-2.5 min-w-0">
+                                  <div className="w-1 h-7 rounded-full bg-blue-500 shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center space-x-1 text-blue-700 font-bold text-[11px]">
+                                      <Reply className="w-3 h-3" />
+                                      <span>Replying to {replyingToMessage.sender_name}</span>
+                                    </div>
+                                    <p className="text-slate-600 truncate text-[11px]">
+                                      {replyingToMessage.preview}
+                                    </p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <h4 className="text-xs sm:text-sm font-bold text-slate-900">Direct Messaging Locked</h4>
-                                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-0.5">
-                                    You and {selectedPartner.partner_name} are not connected as friends yet. You can view their profile or send a friend request to unlock direct chatting.
-                                  </p>
-                                </div>
-                                <div className="flex items-center justify-center space-x-2 pt-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl cursor-pointer transition-colors"
-                                  >
-                                    View Profile
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSendFriendRequest(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                                    className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors flex items-center space-x-1.5"
-                                  >
-                                    <UserPlus className="w-3.5 h-3.5" />
-                                    <span>Send Friend Request</span>
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <>
-                              {/* Vendor Quick-Action Chips */}
-                              <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center space-x-2 text-[11px] overflow-x-auto">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Quick:</span>
                                 <button
-                                  onClick={() => handleSendChatMessage(`📍 You can pick up or inspect at our stall: ${vendorStore?.location || 'SUB Food Court'}.`)}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
+                                  type="button"
+                                  onClick={() => setReplyingToMessage(null)}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
+                                  title="Cancel reply"
                                 >
-                                  📍 Stall Pickup
-                                </button>
-                                <button
-                                  onClick={() => handleSendChatMessage(`💳 Bank details for transfer: ${bankInfo.bank_name} - ${bankInfo.account_number} (${bankInfo.account_name})`)}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
-                                >
-                                  💳 Send Bank Info
-                                </button>
-                                <button
-                                  onClick={() => handleSendChatMessage(`✅ Your order is confirmed and currently being prepared for hostel dispatch!`)}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs"
-                                >
-                                  📦 Order Confirmed
+                                  <X className="w-4 h-4" />
                                 </button>
                               </div>
+                            )}
 
-                              {/* Message Input Form */}
-                              <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200">
-                                {/* Quoted Swipe-to-Reply Banner */}
-                                {replyingToMessage && (
-                                  <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
-                                    <div className="flex items-center space-x-2.5 min-w-0">
-                                      <div className="w-1 h-7 rounded-full bg-blue-500 shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="flex items-center space-x-1 text-blue-700 font-bold text-[11px]">
-                                          <Reply className="w-3 h-3" />
-                                          <span>Replying to {replyingToMessage.sender_name}</span>
-                                        </div>
-                                        <p className="text-slate-600 truncate text-[11px]">
-                                          {replyingToMessage.preview}
-                                        </p>
-                                      </div>
+                            {/* Quoted Edit-Message Banner */}
+                            {editingMessage && (
+                              <div className="flex items-center justify-between px-3.5 py-2 bg-amber-50 border border-amber-200 rounded-2xl mb-2 text-xs shadow-2xs">
+                                <div className="flex items-center space-x-2.5 min-w-0">
+                                  <div className="w-1 h-7 rounded-full bg-amber-500 shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center space-x-1 text-amber-800 font-bold text-[11px]">
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Editing Sent Message</span>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => setReplyingToMessage(null)}
-                                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
-                                      title="Cancel reply"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </button>
+                                    <p className="text-slate-600 truncate text-[11px]">
+                                      {editingMessage.content}
+                                    </p>
                                   </div>
-                                )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMessage}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
+                                  title="Cancel editing"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
 
-                                {/* Quoted Edit-Message Banner */}
-                                {editingMessage && (
-                                  <div className="flex items-center justify-between px-3.5 py-2 bg-amber-50 border border-amber-200 rounded-2xl mb-2 text-xs shadow-2xs">
-                                    <div className="flex items-center space-x-2.5 min-w-0">
-                                      <div className="w-1 h-7 rounded-full bg-amber-500 shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="flex items-center space-x-1 text-amber-800 font-bold text-[11px]">
-                                          <Edit3 className="w-3 h-3" />
-                                          <span>Editing Sent Message</span>
-                                        </div>
-                                        <p className="text-slate-600 truncate text-[11px]">
-                                          {editingMessage.content}
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={handleCancelEditMessage}
-                                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80 transition-colors cursor-pointer shrink-0 ml-2"
-                                      title="Cancel editing"
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                )}
-
-                                {/* Multi-Image Selected Thumbnail Carousel */}
-                                {pendingMediaFiles.length > 0 && (
-                                  <div className="mb-2.5 p-2 bg-slate-100/90 rounded-2xl border border-slate-200">
-                                    <div className="flex items-center justify-between mb-1.5 px-1">
-                                      <span className="text-[11px] font-bold text-slate-700">
-                                        {pendingMediaFiles.length} photo{pendingMediaFiles.length > 1 ? 's' : ''} selected
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          pendingMediaFiles.forEach(f => {
-                                            if (f.previewUrl) {
-                                              try { URL.revokeObjectURL(f.previewUrl); } catch { }
-                                            }
-                                          });
-                                          setPendingMediaFiles([]);
-                                        }}
-                                        className="text-[10px] text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
-                                      >
-                                        Clear all
-                                      </button>
-                                    </div>
-                                    <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
-                                      {pendingMediaFiles.map((item, idx) => (
-                                        <div key={item.id} className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-2xs group">
-                                          {item.type === 'video' ? (
-                                            <div className="w-full h-full bg-slate-800 flex items-center justify-center text-white">
-                                              <Film className="w-5 h-5 opacity-80" />
-                                            </div>
-                                          ) : (
-                                            <img
-                                              src={item.previewUrl}
-                                              alt={`Preview ${idx + 1}`}
-                                              className="w-full h-full object-cover"
-                                            />
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleRemovePendingMedia(item.id)}
-                                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
-                                            title="Remove"
-                                          >
-                                            <X className="w-3 h-3" />
-                                          </button>
-                                          <span className="absolute bottom-0.5 left-0.5 px-1 bg-black/60 text-white rounded text-[9px] font-bold">
-                                            #{idx + 1}
-                                          </span>
-                                        </div>
-                                      ))}
-                                      {pendingMediaFiles.length < 10 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => chatMediaInputRef.current?.click()}
-                                          className="w-16 h-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-500 bg-white/80 hover:bg-sky-50 flex flex-col items-center justify-center text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
-                                          title="Add more photos"
-                                        >
-                                          <Plus className="w-5 h-5" />
-                                          <span className="text-[9px] font-bold mt-0.5">Add</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {isRecordingAudio ? (
-                                  <div className="flex items-center justify-between p-2.5 bg-rose-50 border border-rose-200 rounded-2xl animate-pulse">
-                                    <div className="flex items-center space-x-2.5">
-                                      <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
-                                      <Mic className="w-4 h-4 text-rose-600" />
-                                      <span className="text-xs font-bold text-rose-700">
-                                        Recording VN: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                      <button
-                                        type="button"
-                                        onClick={handleCancelRecordingAudio}
-                                        className="p-2 text-rose-600 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer"
-                                        title="Cancel recording"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={handleStopAndSendAudio}
-                                        className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                                      >
-                                        <Send className="w-3.5 h-3.5" />
-                                        <span>Send VN</span>
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <form
-                                    onSubmit={(e) => {
-                                      e.preventDefault();
-                                      handleSendChatMessage();
+                            {/* Multi-Image Selected Thumbnail Carousel */}
+                            {pendingMediaFiles.length > 0 && (
+                              <div className="mb-2.5 p-2 bg-slate-100/90 rounded-2xl border border-slate-200">
+                                <div className="flex items-center justify-between mb-1.5 px-1">
+                                  <span className="text-[11px] font-bold text-slate-700">
+                                    {pendingMediaFiles.length} photo{pendingMediaFiles.length > 1 ? 's' : ''} selected
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      pendingMediaFiles.forEach(f => {
+                                        if (f.previewUrl) {
+                                          try { URL.revokeObjectURL(f.previewUrl); } catch { }
+                                        }
+                                      });
+                                      setPendingMediaFiles([]);
                                     }}
-                                    className="flex items-end space-x-2"
+                                    className="text-[10px] text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
                                   >
-                                    <input
-                                      ref={chatMediaInputRef}
-                                      type="file"
-                                      accept="image/*,video/*"
-                                      multiple
-                                      onChange={handleChatMediaSelect}
-                                      className="hidden"
-                                    />
+                                    Clear all
+                                  </button>
+                                </div>
+                                <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
+                                  {pendingMediaFiles.map((item, idx) => (
+                                    <div key={item.id} className="relative shrink-0 w-16 h-16 rounded-xl overflow-hidden border border-slate-300 shadow-2xs group">
+                                      {item.type === 'video' ? (
+                                        <div className="w-full h-full bg-slate-800 flex items-center justify-center text-white">
+                                          <Film className="w-5 h-5 opacity-80" />
+                                        </div>
+                                      ) : (
+                                        <img
+                                          src={item.previewUrl}
+                                          alt={`Preview ${idx + 1}`}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemovePendingMedia(item.id)}
+                                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+                                        title="Remove"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                      <span className="absolute bottom-0.5 left-0.5 px-1 bg-black/60 text-white rounded text-[9px] font-bold">
+                                        #{idx + 1}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {pendingMediaFiles.length < 10 && (
                                     <button
                                       type="button"
                                       onClick={() => chatMediaInputRef.current?.click()}
-                                      className="w-11 h-11 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
-                                      title="Attach photos or video"
+                                      className="w-16 h-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-sky-500 bg-white/80 hover:bg-sky-50 flex flex-col items-center justify-center text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                      title="Add more photos"
                                     >
-                                      <Camera className="w-5 h-5" />
+                                      <Plus className="w-5 h-5" />
+                                      <span className="text-[9px] font-bold mt-0.5">Add</span>
                                     </button>
-                                    <textarea
-                                      ref={chatInputRef}
-                                      rows={1}
-                                      placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
-                                      value={newMsgText}
-                                      onChange={(e) => {
-                                        setNewMsgText(e.target.value);
-                                        e.target.style.height = 'auto';
-                                        e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-                                      }}
-                                      onKeyDown={(e) => {
-                                        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-                                        if (e.key === 'Enter') {
-                                          if (isTouch) return;
-                                          if (e.shiftKey || e.altKey) return;
-                                          e.preventDefault();
-                                          if (newMsgText.trim() || pendingMediaFiles.length > 0) {
-                                            handleSendChatMessage();
-                                          }
-                                        }
-                                      }}
-                                      className={`flex-1 min-h-[44px] max-h-36 overflow-y-auto p-2.5 bg-slate-50 border rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none resize-none leading-relaxed transition-colors ${editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500 focus:bg-white'
-                                        }`}
-                                    />
-                                    {!editingMessage && (
-                                      <button
-                                        type="button"
-                                        onClick={handleStartRecordingAudio}
-                                        className="w-11 h-11 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
-                                        title="Record Voice Note"
-                                      >
-                                        <Mic className="w-5 h-5" />
-                                      </button>
-                                    )}
-                                    <button
-                                      type="submit"
-                                      disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
-                                      className={`w-11 h-11 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5 active:scale-95 ${editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
-                                        }`}
-                                      title={editingMessage ? 'Save edited message' : 'Send message'}
-                                    >
-                                      {editingMessage ? <Check className="w-5 h-5" /> : <Send className="w-5 h-5" />}
-                                    </button>
-                                  </form>
-                                )}
+                                  )}
+                                </div>
                               </div>
-                            </>
-                          );
-                        })()}
+                            )}
+
+                            {isRecordingAudio ? (
+                              <div className="flex items-center justify-between p-2.5 bg-rose-50 border border-rose-200 rounded-2xl animate-pulse">
+                                <div className="flex items-center space-x-2.5">
+                                  <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+                                  <Mic className="w-4 h-4 text-rose-600" />
+                                  <span className="text-xs font-bold text-rose-700">
+                                    Recording VN: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleCancelRecordingAudio}
+                                    className="p-2 text-rose-600 hover:bg-rose-100 rounded-xl transition-colors cursor-pointer"
+                                    title="Cancel recording"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleStopAndSendAudio}
+                                    className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                                  >
+                                    <Send className="w-3.5 h-3.5" />
+                                    <span>Send VN</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  handleSendChatMessage();
+                                }}
+                                className="flex items-end space-x-1.5 sm:space-x-2"
+                              >
+                                <input
+                                  ref={chatMediaInputRef}
+                                  type="file"
+                                  accept="image/*,video/*"
+                                  multiple
+                                  onChange={handleChatMediaSelect}
+                                  className="hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => chatMediaInputRef.current?.click()}
+                                  className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                                  title="Attach photos or video"
+                                >
+                                  <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
+                                </button>
+                                <textarea
+                                  ref={chatInputRef}
+                                  rows={1}
+                                  placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
+                                  value={newMsgText}
+                                  onChange={(e) => {
+                                    setNewMsgText(e.target.value);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      if (e.shiftKey || e.altKey || e.ctrlKey) return;
+                                      const isSmallMobile = typeof window !== 'undefined' && window.innerWidth < 640 && ('ontouchstart' in window);
+                                      if (isSmallMobile) return;
+                                      e.preventDefault();
+                                      if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                        handleSendChatMessage();
+                                      }
+                                    }
+                                  }}
+                                  className={`flex-1 min-h-[38px] sm:min-h-[42px] max-h-36 overflow-y-auto p-2 sm:p-2.5 bg-slate-50 border rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none resize-none leading-relaxed transition-colors ${editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500 focus:bg-white'
+                                    }`}
+                                />
+                                {!editingMessage && (!newMsgText.trim() || window.innerWidth >= 640) && (
+                                  <button
+                                    type="button"
+                                    onClick={handleStartRecordingAudio}
+                                    className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
+                                    title="Record Voice Note"
+                                  >
+                                    <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="submit"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                      handleSendChatMessage();
+                                    }
+                                  }}
+                                  disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
+                                  className={`w-9 h-9 sm:w-10 sm:h-10 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5 active:scale-95 ${editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
+                                    }`}
+                                  title={editingMessage ? 'Save edited message' : 'Send message'}
+                                >
+                                  {editingMessage ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : <Send className="w-4 h-4 sm:w-5 sm:h-5" />}
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </>
 
                         {/* WhatsApp-Style Message Options Bottom Sheet / Modal */}
                         {actionModalMsg && (
@@ -6314,17 +6279,24 @@ export default function VendorDashboard() {
                           </div>
                         </div>
 
-                        {/* Content: Title & Description */}
-                        <div className="px-4 pb-3">
-                          {reel.title && (
-                            <h4 className="font-extrabold text-sm text-slate-900 mb-1">{reel.title}</h4>
-                          )}
-                          {reel.description && (
-                            <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-line font-medium">
-                              {reel.description}
-                            </p>
-                          )}
-                        </div>
+                        {/* Content: Clean Post Caption (No Bold Heading) */}
+                        {(!reel.media_url || isVideo === false && reel.media_type === 'text') ? (
+                          (reel.description || (reel.title && !['Campus Post', 'Campus Moment', 'Post'].includes(reel.title))) && (
+                            <div className="px-4 pb-3.5 pt-1">
+                              <p className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed whitespace-pre-line">
+                                {reel.description && reel.description.trim() ? reel.description : reel.title}
+                              </p>
+                            </div>
+                          )
+                        ) : (
+                          (reel.description || (reel.title && !['Campus Post', 'Campus Moment', 'Post'].includes(reel.title))) && (
+                            <div className="px-4 pb-2.5 pt-1">
+                              <p className="text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-line font-medium">
+                                {reel.description && reel.description.trim() ? reel.description : reel.title}
+                              </p>
+                            </div>
+                          )
+                        )}
 
                         {/* Media Display */}
                         {reel.media_url && (

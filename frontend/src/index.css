@@ -115,6 +115,10 @@ button, [role="button"], a {
   padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 }
 
+.safe-chat-bottom {
+  padding-bottom: max(calc(0.75rem + env(safe-area-inset-bottom, 0px)), 1.5rem);
+}
+
 /* 44px Minimum Touch Target Standard for Accessibility & Mobile Ergonomics */
 .min-tap-target {
   min-height: 44px;

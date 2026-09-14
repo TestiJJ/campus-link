@@ -6049,7 +6049,7 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Input Bar */}
-                          <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-drawer-bottom">
+                          <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-chat-bottom">
                             <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-2">
                               <input
                                 type="text"
@@ -6495,7 +6495,7 @@ export default function StudentDashboard() {
                         ) : (
                           <>
                             {/* Message Input Form & VN Voice Recorder */}
-                            <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-drawer-bottom">
+                            <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-chat-bottom">
                               {/* Quoted Swipe-to-Reply Banner */}
                               {replyingToMessage && (
                                 <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
@@ -6671,8 +6671,9 @@ export default function StudentDashboard() {
                                     }}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter') {
-                                        const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-                                        if (isTouch) {
+                                        // Only suppress Enter on small mobile touchscreens where on-screen keyboards provide return
+                                        const isMobileTouch = ('ontouchstart' in window) && (window.innerWidth < 640);
+                                        if (isMobileTouch) {
                                           return; // Allow mobile on-screen return key to insert newlines
                                         }
                                         if (e.shiftKey || e.altKey) {
@@ -6700,7 +6701,9 @@ export default function StudentDashboard() {
                                       type="button"
                                       onClick={handleStartRecordingAudio}
                                       title="Record Voice Note"
-                                      className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
+                                      className={`p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer items-center justify-center shrink-0 mb-0.5 ${
+                                        newMsgText.trim() ? 'hidden sm:flex' : 'flex'
+                                      }`}
                                     >
                                       <Mic className="w-4 h-4" />
                                     </button>
@@ -6708,6 +6711,11 @@ export default function StudentDashboard() {
 
                                   <button
                                     type="submit"
+                                    onClick={(e) => {
+                                      if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                        handleSendMessage(e);
+                                      }
+                                    }}
                                     disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
                                     className={`p-2.5 min-tap-target-sm text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95 ${
                                       editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'

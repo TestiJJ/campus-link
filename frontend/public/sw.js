@@ -56,6 +56,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Instant JSON response for /ping and /api/ping health checks
+  if (url.pathname === '/ping' || url.pathname === '/api/ping') {
+    event.respondWith(
+      new Response(JSON.stringify({ status: 200, message: 'successfully pinged' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    return;
+  }
+
   // Bypass API endpoints, auth routes, websockets, uploads, and backend origins entirely
   if (
     url.pathname.startsWith('/api') ||

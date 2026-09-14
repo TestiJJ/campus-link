@@ -8,6 +8,40 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function pingPlugin() {
+  const pingJson = JSON.stringify({ status: 200, message: 'successfully pinged' });
+  return {
+    name: 'ping-plugin',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const parsedUrl = req.url ? req.url.split('?')[0] : '';
+        if (parsedUrl === '/ping' || parsedUrl === '/api/ping') {
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 200;
+          res.end(pingJson);
+          return;
+        }
+        next();
+      });
+    },
+    closeBundle() {
+      const distDir = path.resolve(__dirname, 'dist');
+      if (!fs.existsSync(distDir)) return;
+
+      // Ensure /ping and /api/ping return JSON format on static hosting
+      const pingPaths = [
+        path.join(distDir, 'ping'),
+        path.join(distDir, 'api', 'ping'),
+      ];
+      for (const p of pingPaths) {
+        const parent = path.dirname(p);
+        if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
+        fs.writeFileSync(p, pingJson);
+      }
+    }
+  };
+}
+
 function spaFallbackPlugin() {
   return {
     name: 'spa-fallback-plugin',
@@ -38,6 +72,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    pingPlugin(),
     spaFallbackPlugin(),
   ],
   build: {
