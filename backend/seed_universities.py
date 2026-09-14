@@ -9,6 +9,7 @@ NIGERIAN_INSTITUTIONS = [
     {"name": "Bayero University, Kano", "state": "Kano", "type": "Federal"},
     {"name": "Federal University of Agriculture, Abeokuta", "state": "Ogun", "type": "Federal"},
     {"name": "Federal University of Technology, Akure", "state": "Ondo", "type": "Federal"},
+    {"name": "Federal University of Technology, Ikot Abasi", "state": "Akwa Ibom", "type": "Federal", "abbreviation": "FUTIA"},
     {"name": "Federal University of Technology, Minna", "state": "Niger", "type": "Federal"},
     {"name": "Federal University of Technology, Owerri", "state": "Imo", "type": "Federal"},
     {"name": "Federal University, Oye-Ekiti", "state": "Ekiti", "type": "Federal"},
@@ -29,6 +30,7 @@ NIGERIAN_INSTITUTIONS = [
     # State Universities
     {"name": "Adekunle Ajasin University, Akungba-Akoko", "state": "Ondo", "type": "State"},
     {"name": "Ambrose Alli University, Ekpoma", "state": "Edo", "type": "State"},
+    {"name": "Bamidele Olumilua University of Education, Science and Technology, Ikere-Ekiti", "state": "Ekiti", "type": "State", "abbreviation": "BOUESTI"},
     {"name": "Ekiti State University, Ado-Ekiti", "state": "Ekiti", "type": "State"},
     {"name": "Kwara State University, Malete", "state": "Kwara", "type": "State"},
     {"name": "Ladoke Akintola University of Technology", "state": "Oyo", "type": "State"},
@@ -73,28 +75,26 @@ DEFAULT_CATEGORIES = [
 def seed_database():
     db: Session = SessionLocal()
     try:
-        # Fast-path check: if already seeded, skip redundant network roundtrips
-        existing_uni_count = db.query(models.University).count()
-        existing_cat_count = db.query(models.Category).count()
-        if existing_uni_count >= len(NIGERIAN_INSTITUTIONS) and existing_cat_count >= len(DEFAULT_CATEGORIES):
-            print(f"[Database] Universities ({existing_uni_count}) and Categories ({existing_cat_count}) already seeded.")
-            return
-
-        print("Seeding Nigerian Universities, Polytechnics & Marketplace Categories...")
         models.Base.metadata.create_all(bind=engine)
         
         # 1. Seed Institutions
         uni_count = 0
-        existing_unis = {u.name for u in db.query(models.University.name).all()}
+        existing_unis = {u.name: u for u in db.query(models.University).all()}
         for item in NIGERIAN_INSTITUTIONS:
             if item["name"] not in existing_unis:
                 uni = models.University(
                     name=item["name"],
                     state=item.get("state", "Nigeria"),
-                    type=item.get("type", "Public")
+                    type=item.get("type", "Public"),
+                    abbreviation=item.get("abbreviation")
                 )
                 db.add(uni)
                 uni_count += 1
+            else:
+                # Update abbreviation if present in config but missing in DB
+                existing_uni = existing_unis[item["name"]]
+                if item.get("abbreviation") and not existing_uni.abbreviation:
+                    existing_uni.abbreviation = item["abbreviation"]
 
         # 2. Seed Categories
         cat_count = 0
@@ -109,8 +109,12 @@ def seed_database():
                 db.add(category_entry)
                 cat_count += 1
 
-        db.commit()
-        print(f"Successfully seeded {uni_count} institutions and {cat_count} categories into database!")
+        if uni_count > 0 or cat_count > 0:
+            db.commit()
+            print(f"Successfully seeded {uni_count} institutions and {cat_count} categories into database!")
+        else:
+            db.commit()
+            print(f"[Database] Universities ({len(existing_unis)}) and Categories ({len(existing_cats)}) are up to date.")
 
     except Exception as e:
         db.rollback()

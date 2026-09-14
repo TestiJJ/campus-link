@@ -3161,12 +3161,12 @@ def get_vendor_reviews(vendor_id: int, db: Session = Depends(database.get_db)):
 
 @app.get("/api/universities", response_model=List[schemas.UniversityOut])
 def get_universities(db: Session = Depends(database.get_db)):
-    if db.query(models.University).count() == 0:
-        try:
-            import seed_universities
+    try:
+        import seed_universities
+        if db.query(models.University).count() < len(seed_universities.NIGERIAN_INSTITUTIONS):
             seed_universities.seed_database()
-        except Exception as _e:
-            print(f"[CampusLink] On-demand university seed error: {_e}")
+    except Exception as _e:
+        print(f"[CampusLink] On-demand university seed error: {_e}")
     return db.query(models.University).order_by(models.University.name.asc()).all()
 
 @app.get("/api/categories", response_model=List[schemas.CategoryOut])
