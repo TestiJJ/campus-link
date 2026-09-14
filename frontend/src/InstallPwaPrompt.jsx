@@ -1,6 +1,6 @@
 // src/InstallPwaPrompt.jsx
 import React, { useState } from 'react';
-import { Download, X, Share, PlusSquare, Smartphone, Sparkles, RefreshCw } from 'lucide-react';
+import { Download, X, Share, PlusSquare, Smartphone } from 'lucide-react';
 import { usePwa } from './context/PwaContext';
 
 export default function InstallPwaPrompt() {
@@ -8,19 +8,14 @@ export default function InstallPwaPrompt() {
     isInstalled,
     isIos,
     isAndroid,
-    updateNeeded,
-    isUpdating,
-    latestVersion,
     showIosGuide,
     setShowIosGuide,
-    installApp,
-    applyUpdate
+    installApp
   } = usePwa();
 
   const [dismissedInstall, setDismissedInstall] = useState(
     () => sessionStorage.getItem('campuslink_pwa_dismissed') === 'true'
   );
-  const [dismissedUpdate, setDismissedUpdate] = useState(false);
 
   const handleDismissInstall = () => {
     setDismissedInstall(true);
@@ -29,54 +24,8 @@ export default function InstallPwaPrompt() {
 
   return (
     <>
-      {/* 1. PRIORITY FLOATING UPDATE BANNER (Shows when updateNeeded is true) */}
-      {updateNeeded && !dismissedUpdate && (
-        <div className="fixed top-4 left-4 right-4 md:left-auto md:right-6 md:max-w-md z-[9999] animate-in fade-in slide-in-from-top-4 duration-300">
-          <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white rounded-3xl p-4 shadow-2xl shadow-orange-500/30 flex items-center justify-between gap-3 border-2 border-amber-300">
-            <div className="flex items-center space-x-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-                <Sparkles className="w-6 h-6 text-white animate-pulse" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
-                  <h4 className="text-xs font-black tracking-tight text-white uppercase">
-                    Update Needed
-                  </h4>
-                  <span className="text-[9px] bg-white text-orange-600 px-1.5 py-0.2 rounded-full font-black">
-                    v{latestVersion}
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-100 truncate mt-0.5 font-medium">
-                  Click to update CampusLink immediately.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={applyUpdate}
-                disabled={isUpdating}
-                className="px-3.5 py-2 bg-white hover:bg-amber-50 text-orange-700 text-xs font-black rounded-xl shadow-sm transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isUpdating ? 'animate-spin' : ''}`} />
-                <span>{isUpdating ? 'Updating...' : 'Update Now'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDismissedUpdate(true)}
-                className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-                title="Dismiss banner"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2. FLOATING INSTALL BANNER (Shows when not installed and not dismissed) */}
-      {!isInstalled && !updateNeeded && !dismissedInstall && (
+      {/* FLOATING INSTALL BANNER (Shows when not installed and not dismissed) */}
+      {!isInstalled && !dismissedInstall && (
         <div className="fixed bottom-18 md:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-sm md:max-w-md z-40 animate-in fade-in slide-in-from-bottom-5 duration-300">
           <div className="bg-white/95 backdrop-blur-md border border-sky-300 rounded-2xl p-2.5 sm:p-3 shadow-xl shadow-sky-500/15 flex items-center justify-between gap-2.5 relative">
             <div className="flex items-center space-x-2.5 min-w-0">

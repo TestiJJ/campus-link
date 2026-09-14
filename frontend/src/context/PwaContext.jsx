@@ -1,5 +1,5 @@
 // src/context/PwaContext.jsx
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const PwaContext = createContext(null);
 
@@ -17,11 +17,7 @@ export function PwaProvider({ children }) {
   const [isIos, setIsIos] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
-  const [updateNeeded, setUpdateNeeded] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [latestVersion, setLatestVersion] = useState('2.4.1');
   const [swRegistration, setSwRegistration] = useState(null);
-  const waitingWorkerRef = useRef(null);
 
   // 1. Check install status & platform
   useEffect(() => {
@@ -63,93 +59,30 @@ export function PwaProvider({ children }) {
     };
   }, []);
 
-  // 2. Service Worker lifecycle & update detection
-  const checkForUpdates = useCallback(async () => {
-    try {
-      // A. Check Service Worker registration
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.getRegistration();
+  // 2. Silent Service Worker lifecycle - auto activate in background without prompts
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then((reg) => {
         if (reg) {
           setSwRegistration(reg);
-
-          // If a service worker is already waiting, an update is ready right now!
           if (reg.waiting) {
-            waitingWorkerRef.current = reg.waiting;
-            setUpdateNeeded(true);
-            return;
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
           }
-
-          // Trigger background update check
-          try {
-            await reg.update();
-          } catch (updateErr) {
-            console.warn('CampusLink SW reg.update() note:', updateErr);
-          }
-
-          if (reg.waiting) {
-            waitingWorkerRef.current = reg.waiting;
-            setUpdateNeeded(true);
-            return;
-          }
-
-          // Listen if a worker starts installing
           reg.addEventListener('updatefound', () => {
             const installing = reg.installing;
             if (!installing) return;
             installing.addEventListener('statechange', () => {
               if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-                waitingWorkerRef.current = installing;
-                setUpdateNeeded(true);
+                installing.postMessage({ type: 'SKIP_WAITING' });
               }
             });
           });
         }
-      }
-
-      // B. Check version.json for build differences
-      try {
-        const res = await fetch(`/version.json?_t=${Date.now()}`, { cache: 'no-store' });
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.version) {
-            setLatestVersion(data.version);
-            const savedBuild = localStorage.getItem('campuslink_app_build');
-            const currentBuildTime = data.buildTime || data.version;
-
-            if (!savedBuild) {
-              // Initial session baseline
-              localStorage.setItem('campuslink_app_build', String(currentBuildTime));
-            } else if (String(savedBuild) !== String(currentBuildTime)) {
-              console.log('CampusLink: New build detected via version.json:', data.version);
-              setUpdateNeeded(true);
-            }
-          }
-        }
-      } catch (_) {}
-    } catch (err) {
-      console.warn('CampusLink update check warning:', err);
+      }).catch((err) => {
+        console.warn('CampusLink SW registration warning:', err);
+      });
     }
   }, []);
-
-  useEffect(() => {
-    checkForUpdates();
-
-    // Check periodically every 60 seconds
-    const interval = setInterval(checkForUpdates, 60000);
-
-    // Check whenever tab becomes active
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        checkForUpdates();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [checkForUpdates]);
 
   // 3. Immediately implement update upon being clicked
   const applyUpdate = useCallback(async () => {
@@ -203,11 +136,6 @@ export function PwaProvider({ children }) {
 
   // 4. Prompt installation
   const installApp = useCallback(async () => {
-    // If update is needed, clicking it triggers update
-    if (updateNeeded) {
-      return applyUpdate();
-    }
-
     // On iOS Safari
     if (isIos) {
       setShowIosGuide(true);
@@ -231,7 +159,7 @@ export function PwaProvider({ children }) {
     } else {
       setShowIosGuide(true);
     }
-  }, [updateNeeded, isIos, isAndroid, deferredPrompt, applyUpdate]);
+  }, [isIos, isAndroid, deferredPrompt]);
 
   const value = {
     isInstalled,
@@ -239,14 +167,14 @@ export function PwaProvider({ children }) {
     isAndroid,
     canInstall: !isInstalled,
     deferredPrompt,
-    updateNeeded,
-    isUpdating,
-    latestVersion,
+    updateNeeded: false,
+    isUpdating: false,
+    latestVersion: '2.4.1',
     showIosGuide,
     setShowIosGuide,
     installApp,
     applyUpdate,
-    checkForUpdates
+    checkForUpdates: () => {}
   };
 
   return <PwaContext.Provider value={value}>{children}</PwaContext.Provider>;
