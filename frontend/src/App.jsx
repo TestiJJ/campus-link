@@ -38,6 +38,26 @@ function PageLoading() {
   );
 }
 
+// Lightweight Ping handler to respond with 200 JSON directly without dashboard redirects
+function PingPage() {
+  const [data, setData] = React.useState({ status: 200, message: "successfully pinged" });
+
+  React.useEffect(() => {
+    const rawUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'https://campus-link-backend-vhxr.onrender.com';
+    const backendBase = rawUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+    fetch(`${backendBase}/ping`)
+      .then(res => res.json())
+      .then(resData => setData(resData))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <pre style={{ margin: 0, padding: '24px', fontFamily: 'monospace', fontSize: '14px', background: '#0f172a', color: '#38bdf8', minHeight: '100vh' }}>
+      {JSON.stringify(data, null, 2)}
+    </pre>
+  );
+}
+
 // Error boundary to prevent white blank screens and auto-recover from transient errors
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -260,6 +280,10 @@ export default function App() {
                 <Route path="/eateries" element={<PrivateRoute><TabRedirect tab="campus" subtab="eateries" /></PrivateRoute>} />
                 <Route path="/chat" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
                 <Route path="/messages" element={<PrivateRoute><TabRedirect tab="messages" /></PrivateRoute>} />
+
+                {/* Direct Health / Ping Route for Monitor Services */}
+                <Route path="/ping" element={<PingPage />} />
+                <Route path="/api/ping" element={<PingPage />} />
 
                 {/* Fallback Route */}
                 <Route path="*" element={<Navigate to="/" replace />} />
