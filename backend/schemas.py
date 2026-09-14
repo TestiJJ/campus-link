@@ -206,6 +206,9 @@ class ServiceOut(ServiceCreate):
     user_id: Optional[str] = None
     vendor_phone: Optional[str] = None
     is_vendor_verified: Optional[bool] = False
+    university_name: Optional[str] = None
+    university_abbr: Optional[str] = None
+    dispatch_location: Optional[str] = None
 
     class Config:
         from_attributes = True

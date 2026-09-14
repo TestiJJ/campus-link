@@ -2539,6 +2539,13 @@ def get_services(
     services = query.limit(100).all()
     results = []
     for svc in services:
+        u = svc.vendor.university if (svc.vendor and svc.vendor.university) else None
+        u_name = u.name if u else "Campus Wide"
+        u_abbr = u.abbreviation if u else ""
+        u_id = svc.university_id or (svc.vendor.university_id if svc.vendor else None)
+        v_loc = svc.location or (svc.vendor.location if svc.vendor else "On Campus")
+        disp_loc = f"{u_abbr or u_name} • {v_loc}" if (u_abbr or u_name) else v_loc
+
         results.append({
             "id": svc.id,
             "vendor_id": svc.vendor_id,
@@ -2546,8 +2553,8 @@ def get_services(
             "description": svc.description,
             "price": svc.price,
             "category_id": svc.category_id,
-            "university_id": svc.university_id,
-            "location": svc.location,
+            "university_id": u_id,
+            "location": v_loc,
             "image": svc.image,
             "availability": svc.availability,
             "created_at": svc.created_at,
@@ -2555,7 +2562,10 @@ def get_services(
             "vendor_user_id": svc.vendor.user_id if svc.vendor else None,
             "user_id": svc.vendor.user_id if svc.vendor else None,
             "vendor_phone": svc.vendor.phone if svc.vendor else None,
-            "is_vendor_verified": svc.vendor.verification_status == "verified" if svc.vendor else False
+            "is_vendor_verified": svc.vendor.verification_status == "verified" if svc.vendor else False,
+            "university_name": u_name,
+            "university_abbr": u_abbr,
+            "dispatch_location": disp_loc
         })
     return results
 

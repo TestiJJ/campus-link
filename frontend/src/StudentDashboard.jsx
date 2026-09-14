@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -267,6 +267,11 @@ export default function StudentDashboard() {
   const [categories, setCategories] = useState(() => getCachedData('categories', []));
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUniversityFilter, setSelectedUniversityFilter] = useState('all');
+  const [marketUniversities, setMarketUniversities] = useState(() => getCachedData('universities', []));
+  const [showMarketUniDropdown, setShowMarketUniDropdown] = useState(false);
+  const [marketUniSearch, setMarketUniSearch] = useState('');
+  const marketUniDropdownRef = useRef(null);
   
   // Instant render: zero-delay load if cached products/categories are already present
   const [loading, setLoading] = useState(() => {
@@ -1099,6 +1104,9 @@ export default function StudentDashboard() {
         const u = res.data;
         setCurrentUser(u);
         localStorage.setItem('user', JSON.stringify(u));
+        if (u.university_name) {
+          setUniversityName(u.university_name);
+        }
         setProfileForm({
           full_name: u.full_name || '',
           bio: u.bio || '',
@@ -1109,6 +1117,13 @@ export default function StudentDashboard() {
           current_password: ''
         });
       }
+    }).catch(() => {});
+
+    // Stream Universities
+    API.get('/universities').then(res => {
+      const fetched = res.data || [];
+      setMarketUniversities(fetched);
+      setCachedData('universities', fetched);
     }).catch(() => {});
 
     // Stream Notifications
@@ -3282,17 +3297,121 @@ export default function StudentDashboard() {
     window.location.replace('/login');
   };
 
+  // Close campus filter dropdown when clicking outside
+  useEffect(() => {
+    const handleOutsideUniClick = (e) => {
+      if (marketUniDropdownRef.current && !marketUniDropdownRef.current.contains(e.target)) {
+        setShowMarketUniDropdown(false);
+      }
+    };
+    if (showMarketUniDropdown) {
+      document.addEventListener('mousedown', handleOutsideUniClick);
+      document.addEventListener('touchstart', handleOutsideUniClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideUniClick);
+      document.removeEventListener('touchstart', handleOutsideUniClick);
+    };
+  }, [showMarketUniDropdown]);
+
+  // Unique Institutions for Marketplace Filter
+  const availableMarketInstitutions = useMemo(() => {
+    const map = new Map();
+    (marketUniversities || []).forEach(u => {
+      if (u && (u.name || u.abbreviation)) {
+        map.set(String(u.id || u.name), {
+          id: u.id,
+          name: u.name,
+          abbreviation: u.abbreviation || u.abbr || ''
+        });
+      }
+    });
+    // Supplement from products & services if any have university info not yet in list
+    [...(products || []), ...(services || [])].forEach(item => {
+      if (item.university_id && !map.has(String(item.university_id))) {
+        map.set(String(item.university_id), {
+          id: item.university_id,
+          name: item.university_name || 'Campus',
+          abbreviation: item.university_abbr || ''
+        });
+      } else if (item.university_name && !map.has(item.university_name)) {
+        map.set(item.university_name, {
+          id: item.university_id || null,
+          name: item.university_name,
+          abbreviation: item.university_abbr || ''
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [marketUniversities, products, services]);
+
+  const filteredMarketInstitutions = useMemo(() => {
+    const q = (marketUniSearch || '').toLowerCase().trim();
+    if (!q) return availableMarketInstitutions;
+    return availableMarketInstitutions.filter(u =>
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.abbreviation && u.abbreviation.toLowerCase().includes(q))
+    );
+  }, [availableMarketInstitutions, marketUniSearch]);
+
+  const matchesUniversityFilter = (item) => {
+    if (selectedUniversityFilter === 'all') return true;
+    const userUniId = currentUser?.university_id;
+    const userUniName = (currentUser?.university_name || currentUser?.university || '').toLowerCase().trim();
+    const userUniAbbr = (currentUser?.university_abbr || '').toLowerCase().trim();
+
+    if (selectedUniversityFilter === 'my_campus') {
+      if (userUniId && item.university_id) {
+        return String(item.university_id) === String(userUniId);
+      }
+      const itemUniName = (item.university_name || '').toLowerCase().trim();
+      const itemUniAbbr = (item.university_abbr || '').toLowerCase().trim();
+      const itemLoc = (item.vendor_location || item.location || item.dispatch_location || '').toLowerCase().trim();
+
+      if (userUniAbbr && (itemUniAbbr === userUniAbbr || itemLoc.includes(userUniAbbr))) return true;
+      if (userUniName && (itemUniName.includes(userUniName) || userUniName.includes(itemUniName) || itemLoc.includes(userUniName))) return true;
+      return false;
+    }
+
+    // Filter by specific university ID or name/abbreviation
+    if (item.university_id && String(item.university_id) === String(selectedUniversityFilter)) {
+      return true;
+    }
+    const target = String(selectedUniversityFilter).toLowerCase().trim();
+    const itemUniName = (item.university_name || '').toLowerCase().trim();
+    const itemUniAbbr = (item.university_abbr || '').toLowerCase().trim();
+    const itemLoc = (item.vendor_location || item.location || item.dispatch_location || '').toLowerCase().trim();
+
+    return (
+      (itemUniName && (itemUniName.includes(target) || target.includes(itemUniName))) ||
+      (itemUniAbbr && (itemUniAbbr === target || target.includes(itemUniAbbr))) ||
+      (itemLoc && itemLoc.includes(target))
+    );
+  };
+
+  const getFilterDisplayLabel = () => {
+    if (selectedUniversityFilter === 'all') return 'All Campuses';
+    if (selectedUniversityFilter === 'my_campus') {
+      return currentUser?.university_abbr || (currentUser?.university_name ? currentUser.university_name.split(' ')[0] : 'My Campus');
+    }
+    const match = availableMarketInstitutions.find(u => String(u.id) === String(selectedUniversityFilter) || u.abbreviation === selectedUniversityFilter || u.name === selectedUniversityFilter);
+    if (match) return match.abbreviation || match.name.split(' ')[0] || match.name;
+    return selectedUniversityFilter;
+  };
+
   // Filtered Lists
   const filteredProducts = products.filter(p => {
     const matchesCat = selectedCategory === 'all' || p.category_id === parseInt(selectedCategory);
     const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCat && matchesSearch;
+    const matchesUni = matchesUniversityFilter(p);
+    return matchesCat && matchesSearch && matchesUni;
   });
 
   const filteredServices = services.filter(s => {
     const matchesCat = selectedCategory === 'all' || s.category_id === parseInt(selectedCategory);
     const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
+    const matchesUni = matchesUniversityFilter(s);
+    return matchesCat && matchesSearch && matchesUni;
   });
 
   const filteredStudents = campusStudents.filter(s => {
@@ -3704,15 +3823,166 @@ export default function StudentDashboard() {
                 ))}
               </div>
 
-              {/* Today's Picks Location Bar (Screenshot 2) */}
-              <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                <span className="font-extrabold text-sm sm:text-base text-slate-900">
-                  Today's picks
-                </span>
-                <span className="text-xs text-blue-600 font-semibold flex items-center space-x-1">
-                  <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{universityName ? universityName.split(' ')[0] : 'Campus'} · Active</span>
-                </span>
+              {/* Today's Picks Location Bar & Campus Selector */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-extrabold text-sm sm:text-base text-slate-900 shrink-0">
+                    Today's picks
+                  </span>
+
+                  {/* Campus / University Dropdown Filter */}
+                  <div className="relative" ref={marketUniDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowMarketUniDropdown(prev => !prev)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs ${
+                        selectedUniversityFilter !== 'all'
+                          ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                      title="Select campus location to filter goods and services"
+                    >
+                      {selectedUniversityFilter === 'all' ? (
+                        <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      ) : (
+                        <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                      )}
+                      <span className="truncate max-w-[130px] sm:max-w-[180px]">
+                        {getFilterDisplayLabel()}
+                      </span>
+                      <ChevronLeft className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${showMarketUniDropdown ? 'rotate-90' : '-rotate-90'}`} />
+                    </button>
+
+                    {showMarketUniDropdown && (
+                      <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in duration-150">
+                        {/* Search institutions */}
+                        <div className="p-1 border-b border-slate-100 mb-1">
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Search institution..."
+                              value={marketUniSearch}
+                              onChange={(e) => setMarketUniSearch(e.target.value)}
+                              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white border border-slate-200 focus:border-sky-400"
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+
+                        <div className="max-h-60 overflow-y-auto space-y-1 scrollbar-thin">
+                          {/* Option: All Campuses */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUniversityFilter('all');
+                              setShowMarketUniDropdown(false);
+                              setMarketUniSearch('');
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2.5 transition-colors cursor-pointer ${
+                              selectedUniversityFilter === 'all' ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-600">
+                              <Globe className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="truncate flex-1">
+                              <div className="font-bold">All Campuses (Nigeria)</div>
+                              <div className="text-[10px] text-slate-400">View items from all universities</div>
+                            </div>
+                            {selectedUniversityFilter === 'all' && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
+                          </button>
+
+                          {/* Option: My Campus */}
+                          {(currentUser?.university_name || currentUser?.university_abbr || currentUser?.university) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedUniversityFilter('my_campus');
+                                setShowMarketUniDropdown(false);
+                                setMarketUniSearch('');
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2.5 transition-colors cursor-pointer ${
+                                selectedUniversityFilter === 'my_campus' ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
+                            >
+                              <div className="w-6 h-6 rounded-full bg-sky-100 flex items-center justify-center shrink-0 text-sky-600">
+                                <MapPin className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="truncate flex-1">
+                                <div className="font-bold flex items-center space-x-1.5">
+                                  <span>My Campus</span>
+                                  <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.2 rounded font-semibold">Current</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate">
+                                  {currentUser?.university_abbr || currentUser?.university_name || currentUser?.university}
+                                </div>
+                              </div>
+                              {selectedUniversityFilter === 'my_campus' && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
+                            </button>
+                          )}
+
+                          {/* Divider */}
+                          <div className="border-t border-slate-100 my-1 px-2 pt-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">All Campuses</span>
+                          </div>
+
+                          {filteredMarketInstitutions.length === 0 ? (
+                            <div className="text-center py-3 text-xs text-slate-400">No institutions found</div>
+                          ) : (
+                            filteredMarketInstitutions.map((uni) => {
+                              const isSelected = String(selectedUniversityFilter) === String(uni.id) || selectedUniversityFilter === uni.name || selectedUniversityFilter === uni.abbreviation;
+                              return (
+                                <button
+                                  key={uni.id || uni.name}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedUniversityFilter(uni.id ? String(uni.id) : (uni.abbreviation || uni.name));
+                                    setShowMarketUniDropdown(false);
+                                    setMarketUniSearch('');
+                                    showToast(`Showing listings in ${uni.abbreviation || uni.name}`, 'info');
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2 transition-colors cursor-pointer ${
+                                    isSelected ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
+                                  }`}
+                                >
+                                  <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-600 font-bold text-[10px]">
+                                    {uni.abbreviation ? uni.abbreviation.slice(0, 3) : (uni.name ? uni.name.slice(0, 2).toUpperCase() : 'UN')}
+                                  </div>
+                                  <div className="truncate flex-1">
+                                    <div className="font-semibold truncate">{uni.name}</div>
+                                    {uni.abbreviation && uni.abbreviation !== uni.name && (
+                                      <div className="text-[10px] text-slate-400">{uni.abbreviation}</div>
+                                    )}
+                                  </div>
+                                  {isSelected && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Active Campus Filter Banner */}
+                {selectedUniversityFilter !== 'all' && (
+                  <div className="flex items-center justify-between bg-sky-50 border border-sky-200 px-3 py-1.5 rounded-xl text-xs text-sky-900 animate-in fade-in duration-150">
+                    <span className="flex items-center space-x-1.5 font-semibold truncate">
+                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                      <span className="truncate">Showing: <strong>{getFilterDisplayLabel()}</strong></span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUniversityFilter('all')}
+                      className="ml-2 text-sky-700 hover:text-sky-900 text-[11px] font-bold hover:underline flex items-center space-x-0.5 shrink-0 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Show All Campuses</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3726,10 +3996,22 @@ export default function StudentDashboard() {
                         {/* Aspect Ratio Container for Zero Cumulative Layout Shift (CLS = 0) */}
                         <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
                           <SafeImage src={p.image} alt={p.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                          <span className="absolute top-2 left-2 bg-white/95 backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100 max-w-[85%] truncate">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const targetVal = p.university_id ? String(p.university_id) : (p.university_abbr || p.university_name);
+                              if (targetVal) {
+                                setSelectedUniversityFilter(targetVal);
+                                showToast(`Filtered to ${p.university_abbr || p.university_name || 'campus'} listings`, 'info');
+                              }
+                            }}
+                            className="absolute top-2 left-2 bg-white/95 hover:bg-sky-50 active:scale-95 transition-all backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100 hover:border-sky-300 max-w-[85%] truncate cursor-pointer z-10"
+                            title={`Click to view goods only in ${p.university_abbr || p.university_name || 'this campus'}`}
+                          >
                             <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-600 shrink-0" />
                             <span className="truncate">{p.university_abbr || p.university_name || p.vendor_location || 'Campus'}</span>
-                          </span>
+                          </button>
                         </div>
 
                         <div className="p-2.5 sm:p-4">
@@ -3778,10 +4060,28 @@ export default function StudentDashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-10">
+                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
                   <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <h4 className="text-base font-bold text-slate-800">No products match your search</h4>
-                  <p className="text-xs text-slate-500 mt-1">Try selecting another category or typing different keywords.</p>
+                  <h4 className="text-base font-bold text-slate-800">
+                    {selectedUniversityFilter !== 'all'
+                      ? `No products found in ${getFilterDisplayLabel()}`
+                      : 'No products match your search'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {selectedUniversityFilter !== 'all'
+                      ? 'Try switching to all campuses or choosing another institution from the dropdown.'
+                      : 'Try selecting another category or typing different keywords.'}
+                  </p>
+                  {selectedUniversityFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUniversityFilter('all')}
+                      className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center space-x-1.5"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Show Goods Across All Campuses</span>
+                    </button>
+                  )}
                 </div>
               )
             )}
@@ -3796,10 +4096,22 @@ export default function StudentDashboard() {
                         {/* Aspect Ratio Container for Zero CLS */}
                         <div className="aspect-[4/3] w-full bg-slate-100 relative overflow-hidden">
                           <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover" />
-                          <span className="absolute top-2 left-2 bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-slate-700 flex items-center space-x-1 max-w-[85%] truncate">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const targetVal = s.university_id ? String(s.university_id) : (s.university_abbr || s.university_name || s.location);
+                              if (targetVal) {
+                                setSelectedUniversityFilter(targetVal);
+                                showToast(`Filtered to ${s.university_abbr || s.university_name || 'campus'} services`, 'info');
+                              }
+                            }}
+                            className="absolute top-2 left-2 bg-white/90 hover:bg-slate-100 active:scale-95 transition-all backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-slate-700 flex items-center space-x-1 max-w-[85%] truncate cursor-pointer shadow-xs border border-slate-200 hover:border-slate-400 z-10"
+                            title={`Click to view services only in ${s.university_abbr || s.university_name || 'this campus'}`}
+                          >
                             <MapPin className="w-2.5 h-2.5 text-slate-500 shrink-0" />
-                            <span className="truncate">{s.location || 'Campus'}</span>
-                          </span>
+                            <span className="truncate">{s.university_abbr || s.university_name || s.location || 'Campus'}</span>
+                          </button>
                         </div>
                         <div className="p-2.5 sm:p-4">
                           <div className="flex items-center justify-between mb-1.5">
@@ -3827,10 +4139,28 @@ export default function StudentDashboard() {
                   ))}
                 </div>
               ) : (
-                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-10">
+                <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
                   <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                  <h4 className="text-base font-bold text-slate-800">No services match your search</h4>
-                  <p className="text-xs text-slate-500 mt-1">Try selecting another category or typing different keywords.</p>
+                  <h4 className="text-base font-bold text-slate-800">
+                    {selectedUniversityFilter !== 'all'
+                      ? `No services found in ${getFilterDisplayLabel()}`
+                      : 'No services match your search'}
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    {selectedUniversityFilter !== 'all'
+                      ? 'Try switching to all campuses or choosing another institution from the dropdown.'
+                      : 'Try selecting another category or typing different keywords.'}
+                  </p>
+                  {selectedUniversityFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUniversityFilter('all')}
+                      className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center space-x-1.5"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Show Services Across All Campuses</span>
+                    </button>
+                  )}
                 </div>
               )
             )}
