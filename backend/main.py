@@ -323,7 +323,7 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
         print("[EMAIL ERROR] Missing recipient address.")
         return False
 
-    sender_email    = os.getenv("SMTP_EMAIL",    "mycampuslinkmail@gmail.com").strip()
+    sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
     sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
     smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
     webhook_url     = get_clean_webhook_url()
@@ -439,15 +439,15 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 
 @app.get("/api/test-email")
 @app.post("/api/test-email")
-def test_email_dispatch(email: str = "mycampuslinkmail@gmail.com"):
+def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
     """
     Diagnostic endpoint to test live email delivery.
     GET /api/test-email?email=anyone@example.com
     """
-    clean_email = (email or "mycampuslinkmail@gmail.com").strip().lower()
+    clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
     test_otp    = str(random.randint(100000, 999999))
     webhook_url = get_clean_webhook_url()
-    sender      = os.getenv("SMTP_EMAIL", "mycampuslinkmail@gmail.com").strip()
+    sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
 
     attempts = []
     urls_to_test = [webhook_url]
