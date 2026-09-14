@@ -871,11 +871,14 @@ export default function Auth() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Stall Location or Campus Hub</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold text-slate-600 uppercase">Stall Location or Campus Hub</label>
+                    <span className="text-[9px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">Optional</span>
+                  </div>
                   <input
                     type="text"
                     name="hostel"
-                    placeholder="e.g. SUB Food Court Stall 4"
+                    placeholder="e.g. SUB Food Court Stall 4 (optional)"
                     value={formData.hostel}
                     onChange={handleInputChange}
                     className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-sky-500"
@@ -888,22 +891,28 @@ export default function Auth() {
             {!isLogin && role === 'student' && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Department</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase">Department</label>
+                    <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">Optional</span>
+                  </div>
                   <input
                     type="text"
                     name="department"
-                    placeholder="e.g. Computer Science"
+                    placeholder="e.g. Computer Science (optional)"
                     value={formData.department}
                     onChange={handleInputChange}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel Room</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase">Hostel Room</label>
+                    <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">Optional</span>
+                  </div>
                   <input
                     type="text"
                     name="hostel"
-                    placeholder="e.g. Moremi Hall B12"
+                    placeholder="e.g. Moremi Hall B12 (optional)"
                     value={formData.hostel}
                     onChange={handleInputChange}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"

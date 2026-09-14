@@ -7019,10 +7019,13 @@ export default function StudentDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Department</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase">Department</label>
+                    <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">Optional</span>
+                  </div>
                   <input
                     type="text"
-                    placeholder="e.g. Computer Science / Biochemistry"
+                    placeholder="e.g. Computer Science / Biochemistry (optional)"
                     value={profileForm.department}
                     onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
@@ -7030,10 +7033,13 @@ export default function StudentDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Hostel Room / Campus Delivery Location</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase">Hostel Room / Campus Delivery Location</label>
+                    <span className="text-[10px] text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">Optional</span>
+                  </div>
                   <input
                     type="text"
-                    placeholder="e.g. Queen Amina Hall, Room B12"
+                    placeholder="e.g. Queen Amina Hall, Room B12 (optional)"
                     value={profileForm.hostel}
                     onChange={(e) => setProfileForm({ ...profileForm, hostel: e.target.value })}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
