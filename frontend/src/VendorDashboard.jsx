@@ -23,6 +23,7 @@ import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import InstallAppButton from './components/InstallAppButton';
+import CampusSelectModal from './components/CampusSelectModal';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -308,6 +309,7 @@ export default function VendorDashboard() {
   const [marketplaceSelectedItem, setMarketplaceSelectedItem] = useState(null);
   const [marketplaceLoading, setMarketplaceLoading] = useState(false);
   const [marketplaceUniFilter, setMarketplaceUniFilter] = useState('all');
+  const [isCampusModalOpen, setIsCampusModalOpen] = useState(false);
   const [showMarketplaceUniDropdown, setShowMarketplaceUniDropdown] = useState(false);
   const [marketplaceUniSearch, setMarketplaceUniSearch] = useState('');
   const marketplaceUniDropdownRef = useRef(null);
@@ -3896,140 +3898,29 @@ export default function VendorDashboard() {
                     ))}
                   </div>
 
-                  {/* Campus Selector Dropdown */}
-                  <div className="relative" ref={marketplaceUniDropdownRef}>
-                    <button
-                      type="button"
-                      onClick={() => setShowMarketplaceUniDropdown(prev => !prev)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs ${
-                        marketplaceUniFilter !== 'all'
-                          ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
-                          : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                      }`}
-                      title="Filter listings by campus"
-                    >
-                      {marketplaceUniFilter === 'all' ? (
-                        <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                      ) : (
-                        <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                      )}
-                      <span className="truncate max-w-[120px] sm:max-w-[160px]">
-                        {getMarketplaceUniFilterLabel()}
-                      </span>
-                      <ChevronLeft className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${showMarketplaceUniDropdown ? 'rotate-90' : '-rotate-90'}`} />
-                    </button>
-
-                    {showMarketplaceUniDropdown && (
-                      <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in duration-150">
-                        {/* Search institutions */}
-                        <div className="p-1 border-b border-slate-100 mb-1">
-                          <div className="relative">
-                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                            <input
-                              type="text"
-                              placeholder="Search institution..."
-                              value={marketplaceUniSearch}
-                              onChange={(e) => setMarketplaceUniSearch(e.target.value)}
-                              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white border border-slate-200 focus:border-sky-400"
-                              autoFocus
-                            />
-                          </div>
-                        </div>
-
-                        <div className="max-h-60 overflow-y-auto space-y-1 scrollbar-thin">
-                          {/* Option: All Campuses */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMarketplaceUniFilter('all');
-                              setShowMarketplaceUniDropdown(false);
-                              setMarketplaceUniSearch('');
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2.5 transition-colors cursor-pointer ${
-                              marketplaceUniFilter === 'all' ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
-                            }`}
-                          >
-                            <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-600">
-                              <Globe className="w-3.5 h-3.5" />
-                            </div>
-                            <div className="truncate flex-1">
-                              <div className="font-bold">All Campuses (Nigeria)</div>
-                              <div className="text-[10px] text-slate-400">View items from all universities</div>
-                            </div>
-                            {marketplaceUniFilter === 'all' && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
-                          </button>
-
-                          {/* Option: My Campus */}
-                          {(vendorStore?.university_name || vendorStore?.university_abbr || user?.university_name) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMarketplaceUniFilter('my_campus');
-                                setShowMarketplaceUniDropdown(false);
-                                setMarketplaceUniSearch('');
-                              }}
-                              className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2.5 transition-colors cursor-pointer ${
-                                marketplaceUniFilter === 'my_campus' ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
-                              }`}
-                            >
-                              <div className="w-6 h-6 rounded-full bg-sky-100 flex items-center justify-center shrink-0 text-sky-600">
-                                <MapPin className="w-3.5 h-3.5" />
-                              </div>
-                              <div className="truncate flex-1">
-                                <div className="font-bold flex items-center space-x-1.5">
-                                  <span>My Campus</span>
-                                  <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.2 rounded font-semibold">Store Campus</span>
-                                </div>
-                                <div className="text-[10px] text-slate-400 truncate">
-                                  {vendorStore?.university_abbr || vendorStore?.university_name || user?.university_name}
-                                </div>
-                              </div>
-                              {marketplaceUniFilter === 'my_campus' && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
-                            </button>
-                          )}
-
-                          {/* Divider */}
-                          <div className="border-t border-slate-100 my-1 px-2 pt-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">All Campuses</span>
-                          </div>
-
-                          {filteredMarketplaceInstitutions.length === 0 ? (
-                            <div className="text-center py-3 text-xs text-slate-400">No institutions found</div>
-                          ) : (
-                            filteredMarketplaceInstitutions.map((uni) => {
-                              const isSelected = String(marketplaceUniFilter) === String(uni.id) || marketplaceUniFilter === uni.name || marketplaceUniFilter === uni.abbreviation;
-                              return (
-                                <button
-                                  key={uni.id || uni.name}
-                                  type="button"
-                                  onClick={() => {
-                                    setMarketplaceUniFilter(uni.id ? String(uni.id) : (uni.abbreviation || uni.name));
-                                    setShowMarketplaceUniDropdown(false);
-                                    setMarketplaceUniSearch('');
-                                    showToast(`Showing listings in ${uni.abbreviation || uni.name}`, 'info');
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center space-x-2 transition-colors cursor-pointer ${
-                                    isSelected ? 'bg-sky-50 font-bold text-sky-800' : 'hover:bg-slate-50 text-slate-700'
-                                  }`}
-                                >
-                                  <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center shrink-0 text-slate-600 font-bold text-[10px]">
-                                    {uni.abbreviation ? uni.abbreviation.slice(0, 3) : (uni.name ? uni.name.slice(0, 2).toUpperCase() : 'UN')}
-                                  </div>
-                                  <div className="truncate flex-1">
-                                    <div className="font-semibold truncate">{uni.name}</div>
-                                    {uni.abbreviation && uni.abbreviation !== uni.name && (
-                                      <div className="text-[10px] text-slate-400">{uni.abbreviation}</div>
-                                    )}
-                                  </div>
-                                  {isSelected && <Check className="w-4 h-4 text-sky-600 shrink-0" />}
-                                </button>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
+                  {/* Campus / University Bottom-Sheet Trigger Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsCampusModalOpen(true)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs active:scale-95 ${
+                      marketplaceUniFilter !== 'all'
+                        ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    }`}
+                    title="Select campus location"
+                  >
+                    {marketplaceUniFilter === 'all' ? (
+                      <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    ) : (
+                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                     )}
-                  </div>
+                    <span className="truncate max-w-[130px] sm:max-w-[180px]">
+                      {getMarketplaceUniFilterLabel()}
+                    </span>
+                    <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded-md font-semibold ml-0.5 shrink-0">
+                      Change
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -4083,21 +3974,47 @@ export default function VendorDashboard() {
                 {/* Active Campus Filter Banner */}
                 {marketplaceUniFilter !== 'all' && (
                   <div className="flex items-center justify-between bg-sky-50 border border-sky-200 px-3.5 py-2 rounded-2xl text-xs text-sky-900 animate-in fade-in duration-150">
-                    <span className="flex items-center space-x-1.5 font-semibold truncate">
+                    <button
+                      type="button"
+                      onClick={() => setIsCampusModalOpen(true)}
+                      className="flex items-center space-x-1.5 font-semibold truncate hover:text-sky-700 cursor-pointer"
+                      title="Tap to change campus"
+                    >
                       <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                      <span className="truncate">Showing: <strong>{getMarketplaceUniFilterLabel()}</strong></span>
-                    </span>
+                      <span className="truncate">Filtered to: <strong>{getMarketplaceUniFilterLabel()}</strong> (Tap to switch)</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setMarketplaceUniFilter('all')}
                       className="ml-2 text-sky-700 hover:text-sky-900 text-xs font-bold hover:underline flex items-center space-x-0.5 shrink-0 cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
-                      <span>Show All Campuses</span>
+                      <span>Show All</span>
                     </button>
                   </div>
                 )}
               </div>
+
+              {/* Responsive Mobile-Friendly Campus Select Modal */}
+              <CampusSelectModal
+                isOpen={isCampusModalOpen}
+                onClose={() => setIsCampusModalOpen(false)}
+                selectedUniversity={marketplaceUniFilter}
+                onSelectUniversity={(uniKey, uniDisplayName) => {
+                  setMarketplaceUniFilter(uniKey);
+                  if (uniKey === 'all') {
+                    showToast('Showing goods & services across all campuses', 'info');
+                  } else {
+                    showToast(`Showing listings in ${uniDisplayName}`, 'info');
+                  }
+                }}
+                universities={availableMarketplaceInstitutions}
+                currentUserUniversity={{
+                  name: vendorStore?.university_name || user?.university_name,
+                  abbr: vendorStore?.university_abbr || user?.university_abbr,
+                  id: vendorStore?.university_id || user?.university_id
+                }}
+              />
 
               {/* Marketplace Listings Grid */}
               {(() => {

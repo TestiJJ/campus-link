@@ -5,6 +5,7 @@ from datetime import datetime
 # --- University ---
 class UniversityBase(BaseModel):
     name: str
+    abbreviation: Optional[str] = None
     state: str
     type: str = "Public"
 
