@@ -2939,6 +2939,9 @@ export default function StudentDashboard() {
     setNewCommentText('');
     setReplyingToComment(null);
 
+    // Ensure drawer is open so user sees comment right away
+    setActiveCommentsReelId(reelId);
+
     // 2. Optimistic insert
     const optimisticComment = {
       id: tempId,
@@ -2955,7 +2958,7 @@ export default function StudentDashboard() {
     };
 
     setReels(prev => prev.map(r => {
-      if (r.id === reelId) {
+      if (String(r.id) === String(reelId)) {
         const currentComments = r.comments || [];
         const updatedComments = [...currentComments, optimisticComment];
         return {
@@ -2975,8 +2978,8 @@ export default function StudentDashboard() {
       };
       const res = await API.post(`/reels/${reelId}/comments`, payload);
       setReels(prev => prev.map(r => {
-        if (r.id === reelId) {
-          const updatedComments = (r.comments || []).map(c => c.id === tempId ? res.data : c);
+        if (String(r.id) === String(reelId)) {
+          const updatedComments = (r.comments || []).map(c => String(c.id) === String(tempId) ? res.data : c);
           return {
             ...r,
             comments: updatedComments,
@@ -2988,8 +2991,8 @@ export default function StudentDashboard() {
       setToast({ text: currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment added to campus post!', type: 'success' });
     } catch (err) {
       setReels(prev => prev.map(r => {
-        if (r.id === reelId) {
-          const updatedComments = (r.comments || []).filter(c => c.id !== tempId);
+        if (String(r.id) === String(reelId)) {
+          const updatedComments = (r.comments || []).filter(c => String(c.id) !== String(tempId));
           return {
             ...r,
             comments: updatedComments,
@@ -2998,7 +3001,7 @@ export default function StudentDashboard() {
         }
         return r;
       }));
-      alert(err.response?.data?.detail || 'Failed to post comment.');
+      setToast({ text: err.response?.data?.detail || 'Failed to post comment. Please try again.', type: 'error' });
     } finally {
       setPostingComment(false);
     }
@@ -3127,8 +3130,8 @@ export default function StudentDashboard() {
     try {
       await API.delete(`/reels/comments/${commentId}`);
       setReels(prev => prev.map(r => {
-        if (r.id === reelId) {
-          const updated = (r.comments || []).filter(c => c.id !== commentId);
+        if (String(r.id) === String(reelId)) {
+          const updated = (r.comments || []).filter(c => String(c.id) !== String(commentId));
           return {
             ...r,
             comments: updated,
@@ -4162,7 +4165,7 @@ export default function StudentDashboard() {
 
                         <button
                           type="button"
-                          onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
+                          onClick={() => setActiveCommentsReelId(String(activeCommentsReelId) === String(reel.id) ? null : reel.id)}
                           className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
                         >
                           <MessageCircle className="w-4 h-4 text-sky-500" />
@@ -4186,7 +4189,7 @@ export default function StudentDashboard() {
                     </div>
 
                     {/* Interactive Comments Drawer */}
-                    {activeCommentsReelId === reel.id && (
+                    {String(activeCommentsReelId) === String(reel.id) && (
                       <div className="p-3.5 sm:p-4 bg-slate-50/90 border-t border-slate-100 space-y-3">
                         {/* Comments List */}
                         <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">

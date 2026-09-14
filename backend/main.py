@@ -2662,12 +2662,16 @@ def get_reels(request: Request, db: Session = Depends(database.get_db)):
         comments_list = []
         for c in (r.comments or []):
             c_user = c.user
+            c_author_name = (
+                (c_user.vendor_profile.business_name if c_user and c_user.role == "vendor" and c_user.vendor_profile else c_user.full_name)
+                if c_user else "Campus Member"
+            ) or (c_user.full_name if c_user else "Campus Member")
             comments_list.append({
                 "id": c.id,
                 "reel_id": c.reel_id,
                 "user_id": c.user_id,
                 "content": c.content,
-                "author_name": c_user.full_name if c_user else "Campus Member",
+                "author_name": c_author_name,
                 "author_avatar": c_user.profile_picture_url if c_user else None,
                 "author_role": "Vendor" if (c_user and c_user.role == "vendor") else "Student",
                 "reply_to_comment_id": getattr(c, "reply_to_comment_id", None),
@@ -2845,12 +2849,18 @@ def add_reel_comment(
             reference_id=f"{reel.id}:{comment.id}"
         )
 
+    author_name = (
+        (current_user.vendor_profile.business_name if current_user.role == "vendor" and current_user.vendor_profile else current_user.full_name)
+        or current_user.full_name
+        or "Campus Member"
+    )
+
     return {
         "id": comment.id,
         "reel_id": comment.reel_id,
         "user_id": comment.user_id,
         "content": comment.content,
-        "author_name": current_user.full_name,
+        "author_name": author_name,
         "author_avatar": current_user.profile_picture_url,
         "author_role": "Vendor" if current_user.role == "vendor" else "Student",
         "reply_to_comment_id": comment.reply_to_comment_id,

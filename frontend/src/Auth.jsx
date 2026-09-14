@@ -83,6 +83,7 @@ export default function Auth() {
     } catch {}
     return '';
   });
+  const [invalidFieldId, setInvalidFieldId] = useState(null);
   const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
 
   // Diagnostic Server Health Check (Warms up Render backend & checks reachability)
@@ -172,6 +173,7 @@ export default function Auth() {
     }));
     setErrorMessage('');
     setEmailAlreadyExists(false);
+    setInvalidFieldId(null);
   };
 
   const handleSelectInstitution = (inst) => {
@@ -182,6 +184,7 @@ export default function Auth() {
     setInstSearch(inst.name);
     setShowInstDropdown(false);
     setErrorMessage('');
+    setInvalidFieldId(null);
   };
 
   const formatAuthError = (err, serverData = null, defaultMsg = 'Operation failed. Please try again.') => {
@@ -218,40 +221,77 @@ export default function Auth() {
     return msg || defaultMsg;
   };
 
+  const triggerValidationError = (msg, elementId = null) => {
+    setErrorMessage(msg);
+    setInvalidFieldId(elementId);
+    if (elementId === 'field-university') {
+      setShowInstDropdown(true);
+    }
+    setTimeout(() => {
+      let targetEl = elementId ? document.getElementById(elementId) : null;
+      if (!targetEl) {
+        targetEl = document.getElementById('auth-error-banner-bottom') || document.getElementById('auth-error-banner-top');
+      }
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (targetEl.focus && typeof targetEl.focus === 'function') {
+          try { targetEl.focus(); } catch (_) {}
+        }
+      }
+    }, 50);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
     setEmailAlreadyExists(false);
+    setInvalidFieldId(null);
 
-    if (!formData.email.trim()) {
-      setErrorMessage('Please enter your email address.');
-      return;
-    }
-
-    if (!formData.password) {
-      setErrorMessage('Please enter your password.');
-      return;
-    }
-
-    if (!isLogin) {
+    if (isLogin) {
+      if (!formData.email.trim()) {
+        triggerValidationError('Please enter your email address.', 'field-email');
+        return;
+      }
+      if (!formData.password) {
+        triggerValidationError('Please enter your password.', 'field-password');
+        return;
+      }
+    } else {
+      // Registration: validate fields in visual order from top to bottom
       if (!formData.full_name.trim()) {
-        setErrorMessage('Full legal name is required.');
+        triggerValidationError('Full legal name is required.', 'field-full_name');
+        return;
+      }
+      if (!formData.email.trim()) {
+        triggerValidationError('Please enter your email address.', 'field-email');
         return;
       }
       if (!formData.phone_number.trim()) {
-        setErrorMessage('Phone number is required.');
+        triggerValidationError('Phone number is required.', 'field-phone_number');
         return;
       }
       if (!formData.university_id) {
-        setErrorMessage('Please select your university or polytechnic institution.');
+        triggerValidationError('Please select your university or polytechnic institution.', 'field-university');
+        return;
+      }
+      if (role === 'vendor' && !formData.business_name.trim()) {
+        triggerValidationError('Business store name is required for vendor registration.', 'field-business_name');
+        return;
+      }
+      if (!formData.password) {
+        triggerValidationError('Please enter a password.', 'field-password');
+        return;
+      }
+      if (formData.password.length < 6) {
+        triggerValidationError('Password must be at least 6 characters long.', 'field-password');
         return;
       }
       if (formData.password !== formData.confirm_password) {
-        setErrorMessage('Passwords do not match. Please verify.');
+        triggerValidationError('Passwords do not match. Please verify.', 'field-confirm_password');
         return;
       }
       if (!formData.agreedToTerms) {
-        setErrorMessage('You must accept the CampusLink Community Safety Agreement to proceed.');
+        triggerValidationError('You must accept the CampusLink Community Safety Agreement to proceed.', 'agreedToTerms');
         return;
       }
     }
@@ -304,7 +344,7 @@ export default function Auth() {
         // Case 1: Email already fully registered — switch to login, do NOT open OTP modal
         if (!isLogin && response.status === 400 && detailText.includes('email is already registered')) {
           setEmailAlreadyExists(true);
-          setErrorMessage('An account with this email already exists. Sign in instead.');
+          triggerValidationError('An account with this email already exists. Sign in instead.', 'auth-error-banner-bottom');
           return;
         }
 
@@ -326,7 +366,8 @@ export default function Auth() {
           return;
         }
 
-        setErrorMessage(formatAuthError(null, data, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+        const finalErr = formatAuthError(null, data, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.');
+        triggerValidationError(finalErr, 'auth-error-banner-bottom');
         return;
       }
 
@@ -369,7 +410,8 @@ export default function Auth() {
       }
     } catch (err) {
       console.error('[CampusLink Auth Exception]', err);
-      setErrorMessage(formatAuthError(err, null, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.'));
+      const finalErr = formatAuthError(err, null, isLogin ? 'Invalid email or password.' : 'Registration failed. Please check your details.');
+      triggerValidationError(finalErr, 'auth-error-banner-bottom');
     } finally {
       setLoading(false);
     }
@@ -613,7 +655,7 @@ export default function Auth() {
 
           {/* Alerts */}
           {errorMessage && (
-            <div className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+            <div id="auth-error-banner-top" className="mb-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
               <div className="flex items-start space-x-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span className="flex-1">{errorMessage}</span>
@@ -690,7 +732,7 @@ export default function Auth() {
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
 
             {/* Full Name (Sign Up Only) */}
             {!isLogin && (
@@ -701,9 +743,9 @@ export default function Auth() {
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="field-full_name"
                     type="text"
                     name="full_name"
-                    required
                     placeholder="e.g. Chidinma Okeke"
                     value={formData.full_name}
                     onChange={handleInputChange}
@@ -721,9 +763,9 @@ export default function Auth() {
               <div className="relative">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
+                  id="field-email"
                   type="email"
                   name="email"
-                  required
                   placeholder="student@university.edu.ng or your email"
                   value={formData.email}
                   onChange={handleInputChange}
@@ -741,9 +783,9 @@ export default function Auth() {
                 <div className="relative">
                   <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="field-phone_number"
                     type="tel"
                     name="phone_number"
-                    required
                     placeholder="+234 801 234 5678"
                     value={formData.phone_number}
                     onChange={handleInputChange}
@@ -756,19 +798,35 @@ export default function Auth() {
             {/* Institution Selector (Sign Up Only) */}
             {!isLogin && (
               <div className="relative" ref={dropdownRef}>
-                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                  University / Polytechnic
-                </label>
-                <div
-                  onClick={() => setShowInstDropdown(true)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 flex items-center justify-between cursor-pointer"
-                >
-                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-[38px] -translate-y-1/2" />
-                  <span className={formData.university_id ? 'font-bold text-slate-900' : 'text-slate-400'}>
-                    {instSearch || 'Select your university/polytechnic'}
-                  </span>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase">
+                    University / Polytechnic <span className="text-rose-500">*</span>
+                  </label>
+                  {invalidFieldId === 'field-university' && (
+                    <span className="text-[10px] font-bold text-rose-600 animate-pulse">Required</span>
+                  )}
                 </div>
+                <div
+                  id="field-university"
+                  tabIndex={0}
+                  onClick={() => setShowInstDropdown(true)}
+                  className={`w-full pl-10 pr-4 py-3 rounded-xl text-xs flex items-center justify-between cursor-pointer focus:outline-none transition-all ${
+                    invalidFieldId === 'field-university'
+                      ? 'bg-rose-50 border-2 border-rose-500 ring-2 ring-rose-200 text-rose-900 shadow-sm'
+                      : 'bg-slate-50 border border-slate-200 text-slate-900 focus:border-sky-500'
+                  }`}
+                >
+                  <Building2 className={`w-4 h-4 absolute left-3.5 top-[38px] -translate-y-1/2 ${invalidFieldId === 'field-university' ? 'text-rose-500' : 'text-slate-400'}`} />
+                  <span className={formData.university_id ? 'font-bold text-slate-900' : (invalidFieldId === 'field-university' ? 'font-bold text-rose-600' : 'text-slate-400')}>
+                    {instSearch || (invalidFieldId === 'field-university' ? '⚠️ Click here to select your university' : 'Select your university/polytechnic')}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 ${invalidFieldId === 'field-university' ? 'text-rose-500' : 'text-slate-400'}`} />
+                </div>
+                {invalidFieldId === 'field-university' && (
+                  <p className="text-[11px] font-bold text-rose-600 mt-1.5 flex items-center space-x-1">
+                    <span>⚠️ Please click above to pick your school from the list.</span>
+                  </p>
+                )}
 
                 {showInstDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 max-h-56 overflow-y-auto">
@@ -803,9 +861,9 @@ export default function Auth() {
                 <div>
                   <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">Business Store Name</label>
                   <input
+                    id="field-business_name"
                     type="text"
                     name="business_name"
-                    required
                     placeholder="e.g. Campus Kicks & Hoodies"
                     value={formData.business_name}
                     onChange={handleInputChange}
@@ -862,9 +920,9 @@ export default function Auth() {
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
+                  id="field-password"
                   type={showPassword ? 'text' : 'password'}
                   name="password"
-                  required
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={handleInputChange}
@@ -889,9 +947,9 @@ export default function Auth() {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="field-confirm_password"
                     type={showPassword ? 'text' : 'password'}
                     name="confirm_password"
-                    required
                     placeholder="••••••••"
                     value={formData.confirm_password}
                     onChange={handleInputChange}
@@ -915,6 +973,30 @@ export default function Auth() {
                 <label htmlFor="agreedToTerms" className="text-[11px] text-slate-600 leading-snug cursor-pointer">
                   I agree to the CampusLink Safety Guidelines and pledge never to engage in fraud or impersonation on campus.
                 </label>
+              </div>
+            )}
+
+            {/* Bottom Error Banner right above submit button for instant visibility without scrolling */}
+            {errorMessage && (
+              <div id="auth-error-banner-bottom" className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                <div className="flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="flex-1">{errorMessage}</span>
+                </div>
+                {emailAlreadyExists && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(true);
+                      setEmailAlreadyExists(false);
+                      setErrorMessage('');
+                    }}
+                    className="mt-2.5 w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  >
+                    <span>Sign In Instead</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             )}
 
@@ -1028,6 +1110,41 @@ export default function Auth() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating Bottom Viewport Alert Banner (Guaranteed instant visibility without scrolling) */}
+      {errorMessage && (
+        <div
+          role="alert"
+          onClick={() => {
+            const target = invalidFieldId ? document.getElementById(invalidFieldId) : null;
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              try { target.focus(); } catch (_) {}
+            }
+          }}
+          className="fixed bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 p-3.5 px-4 rounded-2xl bg-slate-900/95 backdrop-blur-md text-white shadow-2xl border border-rose-500/40 flex items-center space-x-3 cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99]"
+        >
+          <div className="w-7 h-7 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span className="block text-[10px] font-bold text-rose-400 uppercase tracking-wider">Action Required</span>
+            <span className="block text-xs font-semibold text-slate-100 leading-snug truncate sm:whitespace-normal">
+              {errorMessage}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setErrorMessage('');
+            }}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
     </div>
   );

@@ -2673,6 +2673,9 @@ export default function VendorDashboard() {
     setNewCommentText('');
     setReplyingToComment(null);
 
+    // Ensure comments drawer is open so the user immediately sees their comment
+    setActiveCommentsReelId(reelId);
+
     // 2. Optimistic insert
     const optimisticComment = {
       id: tempId,
@@ -2689,7 +2692,7 @@ export default function VendorDashboard() {
     };
 
     setAllReels(prev => prev.map(r => {
-      if (r.id === reelId) {
+      if (String(r.id) === String(reelId)) {
         const currentComments = r.comments || [];
         const updated = [...currentComments, optimisticComment];
         return {
@@ -2709,8 +2712,8 @@ export default function VendorDashboard() {
       };
       const res = await API.post(`/reels/${reelId}/comments`, payload);
       setAllReels(prev => prev.map(r => {
-        if (r.id === reelId) {
-          const updated = (r.comments || []).map(c => c.id === tempId ? res.data : c);
+        if (String(r.id) === String(reelId)) {
+          const updated = (r.comments || []).map(c => String(c.id) === String(tempId) ? res.data : c);
           return {
             ...r,
             comments: updated,
@@ -2722,13 +2725,13 @@ export default function VendorDashboard() {
       showToast(currentReply ? `Reply sent to @${currentReply.authorName}!` : 'Comment published on campus drop!', 'success');
     } catch (err) {
       setAllReels(prev => prev.map(r => {
-        if (r.id === reelId) {
-          const updated = (r.comments || []).filter(c => c.id !== tempId);
+        if (String(r.id) === String(reelId)) {
+          const updated = (r.comments || []).filter(c => String(c.id) !== String(tempId));
           return { ...r, comments: updated, comments_count: updated.length };
         }
         return r;
       }));
-      showToast(err.response?.data?.detail || 'Failed to post comment.', 'error');
+      showToast(err.response?.data?.detail || 'Failed to post comment. Please try again.', 'error');
     } finally {
       setIsPostingComment(false);
     }
@@ -2736,8 +2739,8 @@ export default function VendorDashboard() {
 
   const handleDeleteReelComment = async (reelId, commentId) => {
     setAllReels(prev => prev.map(r => {
-      if (r.id === reelId) {
-        const nextComments = (r.comments || []).filter(c => c.id !== commentId);
+      if (String(r.id) === String(reelId)) {
+        const nextComments = (r.comments || []).filter(c => String(c.id) !== String(commentId));
         return { ...r, comments: nextComments, comments_count: Math.max(0, (r.comments_count || 1) - 1) };
       }
       return r;
@@ -6310,7 +6313,7 @@ export default function VendorDashboard() {
                             </button>
 
                             <button
-                              onClick={() => setActiveCommentsReelId(activeCommentsReelId === reel.id ? null : reel.id)}
+                              onClick={() => setActiveCommentsReelId(String(activeCommentsReelId) === String(reel.id) ? null : reel.id)}
                               className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-sky-600 transition-colors cursor-pointer"
                             >
                               <MessageCircle className="w-4 h-4 text-sky-500" />
@@ -6321,7 +6324,7 @@ export default function VendorDashboard() {
                         </div>
 
                         {/* Interactive Comments Drawer */}
-                        {activeCommentsReelId === reel.id && (
+                        {String(activeCommentsReelId) === String(reel.id) && (
                           <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 space-y-3">
                             {/* Comments List */}
                             <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">

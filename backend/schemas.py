@@ -220,7 +220,7 @@ class ReelCommentOut(BaseModel):
     reel_id: int
     user_id: str
     content: str
-    author_name: str
+    author_name: Optional[str] = "Campus Member"
     author_avatar: Optional[str] = None
     author_role: Optional[str] = "Student"
     reply_to_comment_id: Optional[int] = None
