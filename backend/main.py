@@ -24,45 +24,48 @@ except Exception as _groq_err:
     print(f"[CampusLink AI] Groq init notice: {_groq_err}")
     groq_client = None
 
-try:
-    models.Base.metadata.create_all(bind=database.engine)
-    from sqlalchemy import text as _sql_text
-    for col_stmt in [
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;",
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions TEXT;",
-        "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
-        "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
-        "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
-        "CREATE INDEX IF NOT EXISTS ix_messages_recipient_id ON messages (recipient_id);",
-        "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at);",
-        "CREATE INDEX IF NOT EXISTS ix_messages_sender_recipient ON messages (sender_id, recipient_id);",
-        "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
-        "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
-        "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
-    ]:
-        try:
-            with database.engine.begin() as _conn:
-                _conn.execute(_sql_text(col_stmt))
-        except Exception:
+def init_db_schema():
+    try:
+        models.Base.metadata.create_all(bind=database.engine)
+        from sqlalchemy import text as _sql_text
+        for col_stmt in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reactions TEXT;",
+            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_comment_id INTEGER;",
+            "ALTER TABLE reel_comments ADD COLUMN IF NOT EXISTS reply_to_author VARCHAR(255);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_sender_id ON messages (sender_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_id ON messages (recipient_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_sender_recipient ON messages (sender_id, recipient_id);",
+            "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
+            "ALTER TABLE universities ADD COLUMN IF NOT EXISTS abbreviation VARCHAR(20);",
+            "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
+            "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
+        ]:
             try:
-                fallback_stmt = col_stmt.replace(" IF NOT EXISTS", "")
                 with database.engine.begin() as _conn:
-                    _conn.execute(_sql_text(fallback_stmt))
+                    _conn.execute(_sql_text(col_stmt))
             except Exception:
-                pass
-except Exception as _db_err:
-    print(f"[CampusLink] Database init notice: {_db_err}")
-# Auto-seed institutions and marketplace categories on server initialization
-try:
-    import seed_universities
-    seed_universities.seed_database()
-except Exception as _e:
-    print(f"[CampusLink] Auto-seed status: {_e}")
+                try:
+                    fallback_stmt = col_stmt.replace(" IF NOT EXISTS", "")
+                    with database.engine.begin() as _conn:
+                        _conn.execute(_sql_text(fallback_stmt))
+                except Exception:
+                    pass
+        print("[CampusLink] DB schema initialized successfully.")
+    except Exception as _db_err:
+        print(f"[CampusLink] Database init notice: {_db_err}")
+    # Auto-seed institutions and marketplace categories
+    try:
+        import seed_universities
+        seed_universities.seed_database()
+    except Exception as _e:
+        print(f"[CampusLink] Auto-seed status: {_e}")
 
 # Automatically migrate any legacy localhost image URLs in the database to the live backend domain
 def clean_legacy_image_urls():
@@ -94,10 +97,14 @@ def clean_legacy_image_urls():
         print(f"[CampusLink] Legacy URL migration status: {_err}")
 
 
-# clean_legacy_image_urls runs in background on app startup to prevent blocking import
-
-
 app = FastAPI(title="CampusLink API")
+
+@app.on_event("startup")
+async def startup_event():
+    # Run DB schema checks and migrations in background so server binds to port immediately
+    asyncio.create_task(asyncio.to_thread(init_db_schema))
+    asyncio.create_task(asyncio.to_thread(clean_legacy_image_urls))
+
 
 @app.get("/")
 @app.get("/api/health")
@@ -2648,7 +2655,12 @@ def delete_service(
 # --- CAMPUS REELS (TIKTOK / IG STYLE) ---
 
 @app.get("/api/reels", response_model=List[schemas.ReelOut])
-def get_reels(request: Request, db: Session = Depends(database.get_db)):
+def get_reels(
+    request: Request,
+    user_id: Optional[str] = None,
+    media_only: Optional[bool] = False,
+    db: Session = Depends(database.get_db)
+):
     caller_user_id = None
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -2662,17 +2674,34 @@ def get_reels(request: Request, db: Session = Depends(database.get_db)):
         liked_rows = db.query(models.ReelLike.reel_id).filter(models.ReelLike.user_id == caller_user_id).all()
         liked_reel_ids = {lr[0] for lr in liked_rows}
 
-    reels = (
+    query = (
         db.query(models.Reel)
         .options(
             joinedload(models.Reel.vendor).joinedload(models.Vendor.university),
             joinedload(models.Reel.user).joinedload(models.User.university),
             joinedload(models.Reel.comments).joinedload(models.ReelComment.user)
         )
-        .order_by(models.Reel.created_at.desc())
-        .limit(60)
-        .all()
     )
+
+    if user_id:
+        # Match either user_id directly or via vendor_id if user has a vendor profile
+        user_obj = db.query(models.User).filter(models.User.user_id == user_id).first()
+        v_id = user_obj.vendor_profile.id if (user_obj and user_obj.role == "vendor" and user_obj.vendor_profile) else None
+        if v_id:
+            query = query.filter(or_(models.Reel.user_id == user_id, models.Reel.vendor_id == v_id))
+        else:
+            query = query.filter(models.Reel.user_id == user_id)
+
+    if media_only:
+        query = query.filter(models.Reel.media_url != None, models.Reel.media_url != '')
+
+    query = query.order_by(models.Reel.created_at.desc())
+
+    if user_id:
+        reels = query.limit(300).all()
+    else:
+        reels = query.limit(60).all()
+
     results = []
     for r in reels:
         has_liked = r.id in liked_reel_ids
@@ -2896,7 +2925,9 @@ def delete_reel(
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found.")
 
-    if reel.user_id != current_user.user_id and current_user.role != "admin":
+    v_id = current_user.vendor_profile.id if (current_user.role == "vendor" and getattr(current_user, 'vendor_profile', None)) else None
+    is_owner = (reel.user_id == current_user.user_id) or (v_id and reel.vendor_id == v_id)
+    if not is_owner and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="You can only delete your own posts.")
 
     # Clean up any likes and comments linked to this reel
@@ -3994,8 +4025,10 @@ def discover_community_users(
             joinedload(models.User.vendor_profile),
             joinedload(models.User.university)
         )
-        .filter(models.User.user_id != current_user.user_id)
+        .filter(models.User.user_id != str(current_user.user_id))
     )
+    if current_user.email:
+        query = query.filter(func.lower(models.User.email) != str(current_user.email).lower().strip())
 
     if role and role.lower() in ["student", "vendor"]:
         query = query.filter(models.User.role == role.lower())
@@ -4077,7 +4110,11 @@ def get_student_profile(
         raise HTTPException(status_code=404, detail="Student profile not found.")
 
     # Check friendship status
-    if s.user_id == current_user.user_id:
+    is_self = (
+        str(s.user_id) == str(current_user.user_id) or
+        (bool(s.email) and bool(current_user.email) and str(s.email).lower().strip() == str(current_user.email).lower().strip())
+    )
+    if is_self:
         status_str = "self"
         req_id = None
     else:

@@ -7,6 +7,7 @@ services:
     plan: free
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.8
@@ -23,7 +24,7 @@ services:
       - key: SMTP_PASSWORD
         value: pvytfgxjjcycacrj
       - key: DATABASE_URL
-        value: postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:6543/postgres
+        value: postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require
 
   # 2. CampusLink Vite Frontend SPA
   - type: static-site

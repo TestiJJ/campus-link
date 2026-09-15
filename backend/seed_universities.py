@@ -6,6 +6,7 @@ import models
 NIGERIAN_INSTITUTIONS = [
     # Federal Universities
     {"name": "Ahmadu Bello University, Zaria", "state": "Kaduna", "type": "Federal"},
+    {"name": "Air Force Institute of Technology, Kaduna", "state": "Kaduna", "type": "Federal", "abbreviation": "AFIT"},
     {"name": "Bayero University, Kano", "state": "Kano", "type": "Federal"},
     {"name": "Federal University of Agriculture, Abeokuta", "state": "Ogun", "type": "Federal"},
     {"name": "Federal University of Technology, Akure", "state": "Ondo", "type": "Federal"},
@@ -46,6 +47,7 @@ NIGERIAN_INSTITUTIONS = [
     {"name": "Bells University of Technology, Ota", "state": "Ogun", "type": "Private"},
     {"name": "Bowen University, Iwo", "state": "Osun", "type": "Private"},
     {"name": "Covenant University, Ota", "state": "Ogun", "type": "Private"},
+    {"name": "Elizade University, Ilara-Mokin", "state": "Ondo", "type": "Private", "abbreviation": "ELIZADE"},
     {"name": "Lead City University, Ibadan", "state": "Oyo", "type": "Private"},
     {"name": "Mountain Top University", "state": "Ogun", "type": "Private"},
     {"name": "Nile University of Nigeria, Abuja", "state": "FCT", "type": "Private"},

@@ -7,7 +7,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
 # Supabase Cloud Database URL (Default persistent cloud database)
-DEFAULT_SUPABASE_URL = "postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
+DEFAULT_SUPABASE_URL = "postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
 
 # 1. Primary: Cloud Database via DATABASE_URL or Supabase default for cloud deployments
 raw_db_url = os.getenv("DATABASE_URL")
@@ -28,15 +28,30 @@ if raw_db_url and raw_db_url.strip():
         elif clean_url.startswith("postgresql://") and "+psycopg2" not in clean_url:
             clean_url = clean_url.replace("postgresql://", "postgresql+psycopg2://", 1)
         
+        # Supabase pooler on port 6543 (Transaction mode) drops SSL on prepared/session queries
+        # Port 5432 (Session mode) is required for stable long-running connections
+        if "pooler.supabase.com:6543" in clean_url:
+            clean_url = clean_url.replace("pooler.supabase.com:6543", "pooler.supabase.com:5432")
+        
+        # Supabase requires SSL
+        if "sslmode=" not in clean_url:
+            sep = "&" if "?" in clean_url else "?"
+            clean_url = f"{clean_url}{sep}sslmode=require"
+        
         DATABASE_URL = clean_url
-        engine = create_engine(
+        test_pg_engine = create_engine(
             DATABASE_URL,
             pool_pre_ping=True,
             pool_recycle=300,
             pool_size=10,
             max_overflow=20,
-            connect_args={"connect_timeout": 10}
+            connect_args={"connect_timeout": 5, "sslmode": "require"}
         )
+        from sqlalchemy import text as _sql_text
+        with test_pg_engine.connect() as conn:
+            conn.execute(_sql_text("SELECT 1"))
+
+        engine = test_pg_engine
         safe_db_name = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "Cloud Database"
         print(f"[Database] Connected to PostgreSQL via DATABASE_URL ({safe_db_name}).")
     except Exception as pg_err:

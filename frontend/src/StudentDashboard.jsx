@@ -245,6 +245,16 @@ export default function StudentDashboard() {
       return null;
     }
   });
+
+  // Helper to reliably check if a user record is the current logged-in student
+  const isSelfUser = (u) => {
+    if (!u) return false;
+    const myId = String(currentUser?.user_id || currentUser?.id || '');
+    const myEmail = String(currentUser?.email || '').toLowerCase().trim();
+    const uid = String(u.user_id || u.id || '');
+    const uemail = String(u.email || '').toLowerCase().trim();
+    return (Boolean(myId) && uid === myId) || (Boolean(myEmail) && uemail === myEmail);
+  };
   const [activeTab, setActiveTab] = useState(getInitialStudentTab);
 
   // Facebook Lite Nav & Drawer States
@@ -301,6 +311,38 @@ export default function StudentDashboard() {
   const [recentlyAcceptedFriends, setRecentlyAcceptedFriends] = useState({});
   const reelFileInputRef = useRef(null);
   const commentInputRef = useRef(null);
+
+  // Profile Media Gallery States (Photos & Videos posted to Home Feed)
+  const [myMediaList, setMyMediaList] = useState([]);
+  const [loadingMyMedia, setLoadingMyMedia] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState('all'); // 'all' | 'image' | 'video'
+  const [activeMediaViewer, setActiveMediaViewer] = useState(null);
+
+  // Computed list of current user's media items from Home feed drops
+  const myMedia = useMemo(() => {
+    const myId = String(currentUser?.user_id || currentUser?.id || '');
+    const myEmail = String(currentUser?.email || '').toLowerCase().trim();
+    const combined = [...(myMediaList || []), ...(reels || [])];
+    const seen = new Set();
+    const list = [];
+    for (const item of combined) {
+      if (!item || !item.id || seen.has(item.id)) continue;
+      const uid = String(item.user_id || item.author_id || '');
+      const uemail = String(item.author_email || '').toLowerCase().trim();
+      const isMine = (Boolean(myId) && uid === myId) || (Boolean(myEmail) && uemail === myEmail);
+      if (isMine && item.media_url) {
+        seen.add(item.id);
+        list.push(item);
+      }
+    }
+    return list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [myMediaList, reels, currentUser?.user_id, currentUser?.id, currentUser?.email]);
+
+  const filteredMyMedia = useMemo(() => {
+    if (mediaFilter === 'image') return myMedia.filter(m => m.media_type === 'image');
+    if (mediaFilter === 'video') return myMedia.filter(m => m.media_type === 'video');
+    return myMedia;
+  }, [myMedia, mediaFilter]);
 
   // Campus Notice Board & Lost/Found State (SWR Instant Load)
   const [notices, setNotices] = useState(() => getCachedData('notices', []));
@@ -436,10 +478,28 @@ export default function StudentDashboard() {
   const [storeInfoToggled, setStoreInfoToggled] = useState(false);
   const [isAiTyping, setIsAiTyping] = useState(false);
   
-  // Campus Community Directory & Friends (SWR Instant Load)
-  const [communityUsers, setCommunityUsers] = useState(() => getCachedData('communityUsers', []));
+  // Campus Community Directory & Friends (SWR Instant Load - strictly excludes the logged-in user)
+  const [communityUsers, setCommunityUsers] = useState(() => {
+    const raw = getCachedData('communityUsers', []);
+    const myId = String(currentUser?.user_id || currentUser?.id || '');
+    const myEmail = String(currentUser?.email || '').toLowerCase().trim();
+    return Array.isArray(raw) ? raw.filter(u => {
+      const uid = String(u.user_id || u.id || '');
+      const uemail = String(u.email || '').toLowerCase().trim();
+      return !((Boolean(myId) && uid === myId) || (Boolean(myEmail) && uemail === myEmail));
+    }) : [];
+  });
   const [friendsFilter, setFriendsFilter] = useState('all'); // 'all' | 'students' | 'sellers'
-  const [campusStudents, setCampusStudents] = useState(() => getCachedData('campusStudents', []));
+  const [campusStudents, setCampusStudents] = useState(() => {
+    const raw = getCachedData('campusStudents', []);
+    const myId = String(currentUser?.user_id || currentUser?.id || '');
+    const myEmail = String(currentUser?.email || '').toLowerCase().trim();
+    return Array.isArray(raw) ? raw.filter(s => {
+      const sid = String(s.user_id || s.id || '');
+      const semail = String(s.email || '').toLowerCase().trim();
+      return !((Boolean(myId) && sid === myId) || (Boolean(myEmail) && semail === myEmail));
+    }) : [];
+  });
   const [myFriends, setMyFriends] = useState(() => getCachedData('myFriends', []));
   const [pendingRequests, setPendingRequests] = useState(() => getCachedData('pendingRequests', []));
   const [studentSearch, setStudentSearch] = useState('');
@@ -1193,10 +1253,11 @@ export default function StudentDashboard() {
 
     API.get('/community/users').then(res => {
       const fetched = res.data || [];
-      setCommunityUsers(fetched);
-      setCampusStudents(fetched);
-      setCachedData('communityUsers', fetched);
-      setCachedData('campusStudents', fetched);
+      const nonSelfUsers = fetched.filter(u => !isSelfUser(u));
+      setCommunityUsers(nonSelfUsers);
+      setCampusStudents(nonSelfUsers);
+      setCachedData('communityUsers', nonSelfUsers);
+      setCachedData('campusStudents', nonSelfUsers);
     }).catch(() => {});
 
     API.get('/friends/requests/pending').then(res => {
@@ -1223,6 +1284,23 @@ export default function StudentDashboard() {
       setCachedData('aiMemories', fetched);
     }).catch(() => {});
   };
+
+  // Fetch user's own media whenever entering Profile tab
+  useEffect(() => {
+    const myId = currentUser?.user_id || currentUser?.id;
+    if (activeTab === 'profile' && myId) {
+      setLoadingMyMedia(true);
+      API.get(`/reels?user_id=${encodeURIComponent(myId)}&media_only=true`)
+        .then(res => {
+          if (Array.isArray(res.data)) {
+            setMyMediaList(res.data);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingMyMedia(false));
+    }
+  }, [activeTab, currentUser?.user_id, currentUser?.id]);
+
 
   const fetchNotifications = async () => {
     try {
@@ -2840,6 +2918,26 @@ export default function StudentDashboard() {
     const uid = String(userId || '');
     if (!uid) return;
 
+    if (isSelfUser({ user_id: uid, id: uid })) {
+      const selfProfile = {
+        user_id: uid,
+        id: uid,
+        full_name: currentUser?.full_name || 'Student',
+        profile_picture_url: currentUser?.profile_picture_url || currentUser?.avatar_url,
+        role: currentUser?.role || 'student',
+        department: currentUser?.department || 'Undergraduate',
+        level: currentUser?.level || '100L',
+        hostel: currentUser?.hostel || 'On Campus',
+        bio: currentUser?.bio || 'CampusLink student',
+        university_name: currentUser?.university_name || universityName,
+        friendship_status: 'self'
+      };
+      setSelectedProfile(selfProfile);
+      setProfileModalOpen(true);
+      setIsProfileLoading(false);
+      return;
+    }
+
     if (profileCacheRef.current[uid]) {
       setSelectedProfile(profileCacheRef.current[uid]);
       setProfileModalOpen(true);
@@ -3104,6 +3202,10 @@ export default function StudentDashboard() {
     try {
       await API.delete(`/reels/${reelId}`);
       setReels(prev => prev.filter(r => r.id !== reelId));
+      setMyMediaList(prev => prev.filter(r => r.id !== reelId));
+      if (activeMediaViewer?.id === reelId) {
+        setActiveMediaViewer(null);
+      }
       setActivePostMenuId(null);
       setToast({ text: 'Post deleted successfully!', type: 'success' });
     } catch (err) {
@@ -3286,6 +3388,8 @@ export default function StudentDashboard() {
         'cl_cache_unreadCount',
         'cl_cache_myFriends',
         'cl_cache_pendingRequests',
+        'cl_cache_campusStudents',
+        'cl_cache_communityUsers',
         'campus_ai_'
       ];
       for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -3417,6 +3521,7 @@ export default function StudentDashboard() {
   });
 
   const filteredStudents = campusStudents.filter(s => {
+    if (isSelfUser(s)) return false;
     const q = studentSearch.toLowerCase().trim();
     const matchesSearch = !q || (
       (s.full_name && s.full_name.toLowerCase().includes(q)) ||
@@ -4353,6 +4458,24 @@ export default function StudentDashboard() {
                                 <EyeOff className="w-4 h-4 text-slate-400" />
                                 <span>Hide Drop</span>
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyPostLink(reel)}
+                                className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition-colors cursor-pointer"
+                              >
+                                <Share2 className="w-4 h-4 text-slate-400" />
+                                <span>Copy Link</span>
+                              </button>
+                              {(isSelfUser({ user_id: reel.user_id || reel.author_id }) || String(reel.user_id) === String(currentUser?.user_id || currentUser?.id)) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteReel(reel.id)}
+                                  className="w-full px-3.5 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition-colors cursor-pointer border-t border-slate-100"
+                                >
+                                  <Trash2 className="w-4 h-4 text-rose-500" />
+                                  <span>Delete Drop</span>
+                                </button>
+                              )}
                             </div>
                           </>
                         )}
@@ -4590,7 +4713,7 @@ export default function StudentDashboard() {
                 }`}
               >
                 <Search className="w-3.5 h-3.5" />
-                <span>Find Friends ({campusStudents.length})</span>
+                <span>Find Friends ({campusStudents.filter(s => !isSelfUser(s)).length})</span>
               </button>
             </div>
 
@@ -4705,7 +4828,7 @@ export default function StudentDashboard() {
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
                     >
-                      All Members ({campusStudents.length})
+                      All Members ({campusStudents.filter(s => !isSelfUser(s)).length})
                     </button>
                     <button
                       type="button"
@@ -4816,7 +4939,22 @@ export default function StudentDashboard() {
                               </button>
 
                               <div className="flex items-center space-x-1.5">
-                                {stud.friendship_status === 'friends' ? (
+                                {isSelfUser(stud) ? (
+                                  <div className="flex items-center space-x-1.5">
+                                    <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-lg flex items-center space-x-1">
+                                      <User className="w-3 h-3 text-sky-600" />
+                                      <span>You</span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveTab('profile')}
+                                      className="px-2.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Edit Profile</span>
+                                    </button>
+                                  </div>
+                                ) : stud.friendship_status === 'friends' ? (
                                   <>
                                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg flex items-center space-x-1">
                                       <UserCheck className="w-3 h-3 text-emerald-600" />
@@ -7010,7 +7148,143 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-            {/* 2. GROUPED SETTINGS: PREFERENCES & SOUNDS */}
+            {/* 2. MY MEDIA & DROPS GALLERY (Photos & Videos from Home Feed) */}
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs w-full min-w-0">
+              {/* Card Header with Title and Media Filter Controls */}
+              <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                    <ImageIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">My Media & Drops</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-100 text-sky-700">
+                        {myMedia.length}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Photos and videos you've posted to the home feed</p>
+                  </div>
+                </div>
+
+                {/* Filter Pills */}
+                {myMedia.length > 0 && (
+                  <div className="flex items-center bg-slate-200/70 p-1 rounded-xl self-start sm:self-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setMediaFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        mediaFilter === 'all'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All ({myMedia.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMediaFilter('image')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        mediaFilter === 'image'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Photos ({myMedia.filter(m => m.media_type === 'image').length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMediaFilter('video')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        mediaFilter === 'video'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Videos ({myMedia.filter(m => m.media_type === 'video').length})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Gallery Content */}
+              {loadingMyMedia && myMedia.length === 0 ? (
+                <div className="py-12 text-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-sky-500 mx-auto mb-2" />
+                  <p className="text-xs text-slate-500 font-medium">Loading your media library...</p>
+                </div>
+              ) : myMedia.length === 0 ? (
+                <div className="p-8 sm:p-12 text-center">
+                  <div className="w-14 h-14 rounded-3xl bg-sky-50 text-sky-500 border border-sky-100 flex items-center justify-center mx-auto mb-3.5 shadow-xs">
+                    <Camera className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-sm sm:text-base font-bold text-slate-800">No media uploaded yet</h4>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                    Any pictures or videos you post in the Home feed will stay stored here in your media gallery unless you delete them.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('reels');
+                      setQuickPostModalOpen(true);
+                    }}
+                    className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all inline-flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Post Photo or Video Now</span>
+                  </button>
+                </div>
+              ) : filteredMyMedia.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs">
+                  No {mediaFilter === 'video' ? 'videos' : 'photos'} found in your media.
+                </div>
+              ) : (
+                <div className="p-3.5 sm:p-5 grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
+                  {filteredMyMedia.map((item) => {
+                    const isVid = item.media_type === 'video';
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => setActiveMediaViewer(item)}
+                        className="group relative aspect-square rounded-2xl overflow-hidden bg-slate-950 border border-slate-200/80 cursor-pointer shadow-xs hover:shadow-md transition-all hover:scale-[1.02]"
+                        title="Click to view full size or manage"
+                      >
+                        {isVid ? (
+                          <>
+                            <video
+                              src={getMediaUrl(item.media_url)}
+                              preload="metadata"
+                              className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                            />
+                            <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-lg bg-black/60 backdrop-blur-md text-white text-[10px] font-bold flex items-center space-x-1 pointer-events-none">
+                              <Play className="w-2.5 h-2.5 fill-white text-white" />
+                              <span className="hidden sm:inline">Video</span>
+                            </div>
+                          </>
+                        ) : (
+                          <SafeImage
+                            src={item.media_url}
+                            alt={item.description || item.title || 'My Media'}
+                            fallbackType="product"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        )}
+
+                        {/* Subtle bottom info bar */}
+                        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-end justify-between opacity-95 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[10px] text-white/95 font-medium truncate max-w-[85%] leading-tight">
+                            {item.description || item.title || safeDate(item.created_at, 'Drop')}
+                          </span>
+                          <Trash2 className="w-3 h-3 text-white/50 group-hover:text-rose-400 shrink-0 transition-colors" />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 3. GROUPED SETTINGS: PREFERENCES & SOUNDS */}
             <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs w-full min-w-0">
               <div className="px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-100">
                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Preferences & Alerts</span>
@@ -7203,6 +7477,110 @@ export default function StudentDashboard() {
         )}
 
         </div> {/* End of Main Content Body */}
+
+      {/* --- MODAL: MY MEDIA VIEWER & MANAGER (Full Preview & Delete) --- */}
+      <AnimatePresence>
+        {activeMediaViewer && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 z-50 overscroll-contain">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 text-white w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col max-h-[90vh]"
+            >
+              {/* Modal Top Bar */}
+              <div className="p-3.5 sm:p-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
+                    {activeMediaViewer.media_type === 'video' ? <Film className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-200 truncate">
+                      {activeMediaViewer.media_type === 'video' ? 'Video Drop' : 'Photo Drop'}
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      {safeDate(activeMediaViewer.created_at, 'Recent')} {activeMediaViewer.location && `• 📍 ${activeMediaViewer.location}`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveMediaViewer(null)}
+                  className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  title="Close preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Media Body */}
+              <div className="bg-black flex items-center justify-center overflow-hidden flex-1 min-h-[220px] max-h-[58vh]">
+                {activeMediaViewer.media_type === 'video' ? (
+                  <video
+                    src={getMediaUrl(activeMediaViewer.media_url)}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="w-full max-h-[58vh] object-contain"
+                  />
+                ) : (
+                  <img
+                    src={getMediaUrl(activeMediaViewer.media_url)}
+                    alt={activeMediaViewer.description || 'Uploaded Media'}
+                    className="w-full max-h-[58vh] object-contain"
+                  />
+                )}
+              </div>
+
+              {/* Caption & Stats Bar */}
+              <div className="p-3.5 sm:p-4 bg-slate-900 border-t border-slate-800 space-y-3">
+                {activeMediaViewer.description && (
+                  <p className="text-xs sm:text-sm text-slate-200 leading-relaxed max-h-20 overflow-y-auto whitespace-pre-line">
+                    {activeMediaViewer.description}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center space-x-3 text-xs text-slate-400">
+                    <span className="flex items-center space-x-1">
+                      <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                      <span>{activeMediaViewer.likes_count || 0}</span>
+                    </span>
+                    <span className="flex items-center space-x-1">
+                      <MessageCircle className="w-3.5 h-3.5 text-sky-400" />
+                      <span>{activeMediaViewer.comments_count || (activeMediaViewer.comments || []).length}</span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = activeMediaViewer.id;
+                        setActiveMediaViewer(null);
+                        setActiveTab('reels');
+                        setHighlightedReelId(targetId);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center space-x-1.5 cursor-pointer transition-colors"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View in Feed</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteReel(activeMediaViewer.id)}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center space-x-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* --- MODAL: EDIT PROFILE INFORMATION (Fully iOS Safari Optimized) --- */}
       <AnimatePresence>
@@ -7471,7 +7849,12 @@ export default function StudentDashboard() {
                           <span>{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)} new chat{getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 1 ? 's' : ''}</span>
                         </span>
                       )}
-                      {selectedProfile.role === 'vendor' || selectedProfile.is_seller ? (
+                      {isSelfUser(selectedProfile) || selectedProfile.friendship_status === 'self' ? (
+                        <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full flex items-center space-x-1">
+                          <User className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Your Profile</span>
+                        </span>
+                      ) : selectedProfile.role === 'vendor' || selectedProfile.is_seller ? (
                         <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full flex items-center space-x-1">
                           <ShoppingBag className="w-3.5 h-3.5 text-amber-600" />
                           <span>Campus Seller</span>
@@ -7559,87 +7942,109 @@ export default function StudentDashboard() {
                 )}
 
                 {/* Relationship & Friend Action Buttons */}
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  {/* Friend Request Toggle Button */}
-                  {selectedProfile.friendship_status === 'none' && (
-                    <button
-                      onClick={() => handleSendFriendRequest(selectedProfile.user_id)}
-                      className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      <span>Add Campus Friend</span>
-                    </button>
-                  )}
+                {isSelfUser(selectedProfile) || selectedProfile.friendship_status === 'self' ? (
+                  <div className="mt-6">
+                    <div className="w-full p-3.5 rounded-2xl bg-sky-50 border border-sky-200/90 flex items-center justify-between text-xs">
+                      <div className="flex items-center space-x-2 text-sky-900 font-bold">
+                        <User className="w-4 h-4 text-sky-600 shrink-0" />
+                        <span>This is your account</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileModalOpen(false);
+                          setActiveTab('profile');
+                        }}
+                        className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-2xs flex items-center space-x-1.5 cursor-pointer transition-transform"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit Your Profile</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-6 flex flex-wrap items-center gap-2">
+                    {/* Friend Request Toggle Button */}
+                    {selectedProfile.friendship_status === 'none' && (
+                      <button
+                        onClick={() => handleSendFriendRequest(selectedProfile.user_id)}
+                        className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        <span>Add Campus Friend</span>
+                      </button>
+                    )}
 
-                  {selectedProfile.friendship_status === 'request_sent' && (
-                    <button
-                      onClick={() => handleCancelOrRemoveFriend(selectedProfile.user_id)}
-                      className="flex-1 py-2.5 bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 font-bold text-xs rounded-xl border border-amber-200 cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
-                    >
-                      <UserX className="w-4 h-4" />
-                      <span>Request Sent (Cancel)</span>
-                    </button>
-                  )}
+                    {selectedProfile.friendship_status === 'request_sent' && (
+                      <button
+                        onClick={() => handleCancelOrRemoveFriend(selectedProfile.user_id)}
+                        className="flex-1 py-2.5 bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 font-bold text-xs rounded-xl border border-amber-200 cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
+                      >
+                        <UserX className="w-4 h-4" />
+                        <span>Request Sent (Cancel)</span>
+                      </button>
+                    )}
 
-                  {selectedProfile.friendship_status === 'request_received' && (
-                    <button
-                      onClick={() => handleAcceptFriendRequest(selectedProfile.request_id)}
-                      className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Accept Friend Request</span>
-                    </button>
-                  )}
+                    {selectedProfile.friendship_status === 'request_received' && (
+                      <button
+                        onClick={() => handleAcceptFriendRequest(selectedProfile.request_id)}
+                        className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-colors flex items-center justify-center space-x-1.5"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Accept Friend Request</span>
+                      </button>
+                    )}
 
-                  {selectedProfile.friendship_status === 'friends' && (
-                    <button
-                      onClick={() => handleCancelOrRemoveFriend(selectedProfile.user_id)}
-                      className="py-2.5 px-4 bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                      title="Unfriend"
-                    >
-                      Unfriend
-                    </button>
-                  )}
+                    {selectedProfile.friendship_status === 'friends' && (
+                      <button
+                        onClick={() => handleCancelOrRemoveFriend(selectedProfile.user_id)}
+                        className="py-2.5 px-4 bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                        title="Unfriend"
+                      >
+                        Unfriend
+                      </button>
+                    )}
 
-                  {/* Send Message Button: Strictly only if accepted friends or merchant */}
-                  {selectedProfile.friendship_status === 'friends' ? (
-                    <button
-                      onClick={() => handleStartChatWithStudent(selectedProfile)}
-                      className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
-                    >
-                      <MessageSquare className="w-4 h-4" />
-                      <span>Send Message</span>
-                      {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
-                        <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
-                          {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
-                        </span>
-                      )}
-                    </button>
-                  ) : (selectedProfile.is_seller || selectedProfile.role === 'vendor') ? (
-                    <button
-                      onClick={() => {
-                        handleStartVendorChat({
-                          vendor_user_id: selectedProfile.user_id,
-                          vendor_name: selectedProfile.business_name || selectedProfile.full_name,
-                          vendor_phone: selectedProfile.phone_number,
-                          vendor_location: selectedProfile.hostel
-                        });
-                        setProfileModalOpen(false);
-                      }}
-                      className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
-                    >
-                      <ShoppingBag className="w-4 h-4" />
-                      <span>Message Merchant</span>
-                      {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
-                        <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
-                          {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
-                        </span>
-                      )}
-                    </button>
-                  ) : null}
-                </div>
+                    {/* Send Message Button: Strictly only if accepted friends or merchant */}
+                    {selectedProfile.friendship_status === 'friends' ? (
+                      <button
+                        onClick={() => handleStartChatWithStudent(selectedProfile)}
+                        className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Send Message</span>
+                        {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                          <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
+                            {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
+                          </span>
+                        )}
+                      </button>
+                    ) : (selectedProfile.is_seller || selectedProfile.role === 'vendor') ? (
+                      <button
+                        onClick={() => {
+                          handleStartVendorChat({
+                            vendor_user_id: selectedProfile.user_id,
+                            vendor_name: selectedProfile.business_name || selectedProfile.full_name,
+                            vendor_phone: selectedProfile.phone_number,
+                            vendor_location: selectedProfile.hostel
+                          });
+                          setProfileModalOpen(false);
+                        }}
+                        className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors flex items-center justify-center space-x-1.5 shadow-xs"
+                      >
+                        <ShoppingBag className="w-4 h-4" />
+                        <span>Message Merchant</span>
+                        {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id) > 0 && (
+                          <span className="ml-1.5 px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-black shadow-xs animate-pulse">
+                            {getUnreadCountForUser(selectedProfile.user_id || selectedProfile.id)}
+                          </span>
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                )}
 
-                {selectedProfile.friendship_status !== 'friends' && !selectedProfile.is_seller && selectedProfile.role !== 'vendor' && (
+                {!isSelfUser(selectedProfile) && selectedProfile.friendship_status !== 'self' && selectedProfile.friendship_status !== 'friends' && !selectedProfile.is_seller && selectedProfile.role !== 'vendor' && (
                   <p className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200 mt-3 text-center font-medium">
                     🔒 Messaging is locked until {selectedProfile.full_name} accepts your friend request.
                   </p>
