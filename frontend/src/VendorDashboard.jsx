@@ -20,6 +20,7 @@ import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import FeedVideoPlayer from './components/FeedVideoPlayer';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
@@ -4962,24 +4963,10 @@ export default function VendorDashboard() {
                               return (
                                 <div
                                   onClick={() => {
-                                    if (hasStory) {
-                                      const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                      setActiveStatusViewer({
-                                        userIdx: partnerStoryIdx,
-                                        itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                      });
-                                    } else {
-                                      handleOpenProfile(pid);
-                                    }
+                                    handleOpenProfile(pid);
                                   }}
-                                  title={hasStory ? `Tap to view ${selectedPartner.partner_name}'s story` : 'Click to view profile'}
-                                  className={`relative shrink-0 rounded-2xl transition-all cursor-pointer ${hasStory
-                                      ? `p-0.5 ${hasUnviewedStory
-                                        ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                        : 'bg-slate-200 border border-slate-300 opacity-70'
-                                      }`
-                                      : ''
-                                    }`}
+                                  title="Click to view profile"
+                                  className="relative shrink-0 rounded-2xl transition-all cursor-pointer hover:opacity-90 p-0.5"
                                 >
                                   <div className="w-9 h-9 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
                                     {selectedPartner.partner_avatar ? (
@@ -6340,10 +6327,16 @@ export default function VendorDashboard() {
                                 >
                                   {reel.author_name || 'Campus Creator'}
                                 </button>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isMine || reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
-                                  }`}>
-                                  {isMine ? 'My Store Drop' : reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
-                                </span>
+                                {(() => {
+                                  const isVendor = String(reel.author_role || '').toLowerCase() === 'vendor' || Boolean(reel.vendor_id);
+                                  return (
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                                      isVendor ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-sky-50 text-sky-700 border-sky-200'
+                                    }`}>
+                                      {isVendor ? 'Vendor' : 'Student'}
+                                    </span>
+                                  );
+                                })()}
                                 {(reel.author_university_abbr || reel.author_university) && (
                                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     📍 {reel.author_university_abbr || reel.author_university}
@@ -6430,10 +6423,8 @@ export default function VendorDashboard() {
                         {reel.media_url && (
                           <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '70vw', minHeight: '200px' }}>
                             {isVideo ? (
-                              <video
+                              <FeedVideoPlayer
                                 src={getMediaUrl(reel.media_url)}
-                                controls
-                                playsInline
                                 className="w-full h-full object-contain"
                                 style={{ maxHeight: '70vw', minHeight: '200px' }}
                               />

@@ -19,6 +19,7 @@ import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import FeedVideoPlayer from './components/FeedVideoPlayer';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
@@ -4399,11 +4400,16 @@ export default function StudentDashboard() {
                             >
                               {reel.author_name}
                             </button>
-                            <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
-                              reel.author_role === 'vendor' ? 'bg-amber-100 text-amber-800' : 'bg-sky-50 text-sky-700'
-                            }`}>
-                              {reel.author_role === 'vendor' ? 'Merchant' : 'Student'}
-                            </span>
+                            {(() => {
+                              const isVendor = String(reel.author_role || '').toLowerCase() === 'vendor' || Boolean(reel.vendor_id);
+                              return (
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                  isVendor ? 'bg-amber-100 text-amber-900 border-amber-300' : 'bg-sky-50 text-sky-700 border-sky-200'
+                                }`}>
+                                  {isVendor ? 'Vendor' : 'Student'}
+                                </span>
+                              );
+                            })()}
                             {(reel.author_university_abbr || reel.author_university) && (
                               <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80">
                                 📍 {reel.author_university_abbr || reel.author_university}
@@ -4503,10 +4509,8 @@ export default function StudentDashboard() {
                         {/* Media Display */}
                         <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '72vw', minHeight: '200px' }}>
                           {reel.media_type === 'video' ? (
-                            <video
+                            <FeedVideoPlayer
                               src={getMediaUrl(reel.media_url)}
-                              controls
-                              playsInline
                               className="w-full h-full object-contain"
                               style={{ maxHeight: '72vw', minHeight: '200px' }}
                             />
@@ -6249,24 +6253,10 @@ export default function StudentDashboard() {
                                 return (
                                   <div
                                     onClick={() => {
-                                      if (headerHasStory) {
-                                        const firstUnviewed = headerStoryGroup.items.findIndex(it => !it.is_viewed);
-                                        setActiveStatusViewer({
-                                          userIdx: headerStoryIdx,
-                                          itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                        });
-                                      }
+                                      handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id);
                                     }}
-                                    title={headerHasStory ? `Tap to view ${selectedPartner.partner_name || selectedPartner.name || 'user'}'s story` : ''}
-                                    className={`relative shrink-0 rounded-2xl transition-all ${
-                                      headerHasStory
-                                        ? `p-0.5 cursor-pointer ${
-                                            headerHasUnviewed
-                                              ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                              : 'bg-slate-200 border border-slate-300 opacity-70'
-                                          }`
-                                        : ''
-                                    }`}
+                                    title="Click to view profile"
+                                    className="relative shrink-0 rounded-2xl transition-all p-0.5 cursor-pointer hover:opacity-90"
                                   >
                                     <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
                                       {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (

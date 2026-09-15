@@ -2726,11 +2726,13 @@ def get_reels(
                 "created_at": c.created_at
             })
 
-        author_name = r.vendor.business_name if r.vendor else (r.user.full_name if r.user else "Campus Student")
-        author_role = "Vendor" if r.vendor else "Student"
-        author_avatar = r.user.profile_picture_url if r.user else None
+        vendor_obj = r.vendor or (r.user.vendor_profile if (r.user and hasattr(r.user, "vendor_profile")) else None)
+        is_vendor = bool(vendor_obj or r.vendor_id or (r.user and r.user.role == "vendor"))
+        author_name = (vendor_obj.business_name if vendor_obj and vendor_obj.business_name else (r.user.full_name if r.user else "Campus Student"))
+        author_role = "Vendor" if is_vendor else "Student"
+        author_avatar = (vendor_obj.logo if (vendor_obj and vendor_obj.logo) else (r.user.profile_picture_url if r.user else None))
 
-        u_obj = r.vendor.university if (r.vendor and r.vendor.university) else (r.user.university if (r.user and r.user.university) else None)
+        u_obj = (vendor_obj.university if (vendor_obj and vendor_obj.university) else None) or (r.user.university if (r.user and r.user.university) else None)
         author_university = u_obj.name if u_obj else "Campus Wide"
         author_university_abbr = u_obj.abbreviation if u_obj else ""
 
