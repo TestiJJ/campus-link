@@ -29,6 +29,7 @@ import {
   getNotificationPermissionState,
   subscribeUserToPush
 } from './utils/pushNotifications';
+import { useRotatingFeed } from './utils/feedScrambler';
 import {
   getCachedThreadMessages,
   setCachedThreadMessages,
@@ -3498,27 +3499,41 @@ export default function StudentDashboard() {
   const getFilterDisplayLabel = () => {
     if (selectedUniversityFilter === 'all') return 'All Campuses';
     if (selectedUniversityFilter === 'my_campus') {
-      return currentUser?.university_abbr || (currentUser?.university_name ? currentUser.university_name.split(' ')[0] : 'My Campus');
+      return currentUser?.university_name || currentUser?.university_abbr || 'My Campus';
     }
     const match = availableMarketInstitutions.find(u => String(u.id) === String(selectedUniversityFilter) || u.abbreviation === selectedUniversityFilter || u.name === selectedUniversityFilter);
-    if (match) return match.abbreviation || match.name.split(' ')[0] || match.name;
+    if (match) return match.name || match.abbreviation || selectedUniversityFilter;
     return selectedUniversityFilter;
   };
 
-  // Filtered Lists
-  const filteredProducts = products.filter(p => {
-    const matchesCat = selectedCategory === 'all' || p.category_id === parseInt(selectedCategory);
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesUni = matchesUniversityFilter(p);
-    return matchesCat && matchesSearch && matchesUni;
-  });
+  // Filtered Lists & Scattered Rotating Feeds (3-min dynamic rotation, round-robin interleaved)
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesCat = selectedCategory === 'all' || p.category_id === parseInt(selectedCategory);
+      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesUni = matchesUniversityFilter(p);
+      return matchesCat && matchesSearch && matchesUni;
+    });
+  }, [products, selectedCategory, searchQuery, selectedUniversityFilter]);
 
-  const filteredServices = services.filter(s => {
-    const matchesCat = selectedCategory === 'all' || s.category_id === parseInt(selectedCategory);
-    const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesUni = matchesUniversityFilter(s);
-    return matchesCat && matchesSearch && matchesUni;
-  });
+  const scatteredProducts = useRotatingFeed(filteredProducts, { timeWindowMinutes: 3 });
+
+  const filteredServices = useMemo(() => {
+    return services.filter(s => {
+      const matchesCat = selectedCategory === 'all' || s.category_id === parseInt(selectedCategory);
+      const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesUni = matchesUniversityFilter(s);
+      return matchesCat && matchesSearch && matchesUni;
+    });
+  }, [services, selectedCategory, searchQuery, selectedUniversityFilter]);
+
+  const scatteredServices = useRotatingFeed(filteredServices, { timeWindowMinutes: 3 });
+
+  const visibleReels = useMemo(() => {
+    return reels.filter(r => !hiddenPostIds.includes(r.id));
+  }, [reels, hiddenPostIds]);
+
+  const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3 });
 
   const filteredStudents = campusStudents.filter(s => {
     if (isSelfUser(s)) return false;
@@ -3716,8 +3731,8 @@ export default function StudentDashboard() {
                     Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
                   </span>
                   {(currentUser?.university_name || universityName) && (
-                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
-                      {(currentUser?.university_name || universityName).split(' ')[0]}
+                    <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80 max-w-[220px] truncate" title={currentUser?.university_name || universityName}>
+                      {currentUser?.university_name || universityName}
                     </span>
                   )}
                 </div>
@@ -3819,27 +3834,62 @@ export default function StudentDashboard() {
           <div>
             {/* Facebook Lite Marketplace Header (Screenshot 2) */}
             <div className="space-y-3 mb-4">
-              <div className="flex items-center justify-between py-1">
-                <div className="flex items-center space-x-2">
+              <div className="flex items-center justify-between py-1 gap-2 flex-wrap">
+                <div className="flex items-center space-x-2 min-w-0">
                   <button
                     type="button"
                     onClick={() => setActiveTab('reels')}
-                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer shrink-0"
                     title="Back to home"
                   >
                     <ChevronLeft className="w-6 h-6" />
                   </button>
-                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Marketplace</h1>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 shrink-0">Marketplace</h1>
+
+                  {/* Prominent Front/Top Campus Selector */}
+                  <button
+                    type="button"
+                    onClick={() => setIsCampusModalOpen(true)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs active:scale-95 shrink-0 max-w-[200px] sm:max-w-xs ${
+                      selectedUniversityFilter !== 'all'
+                        ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    }`}
+                    title="Select campus location"
+                  >
+                    {selectedUniversityFilter === 'all' ? (
+                      <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    ) : (
+                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                    )}
+                    <span className="truncate">
+                      {getFilterDisplayLabel()}
+                    </span>
+                    <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded-md font-semibold shrink-0">
+                      Change
+                    </span>
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setMarketSearchOpen(prev => !prev)}
-                  className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
-                  title="Search marketplace"
-                >
-                  <Search className="w-5 h-5" />
-                </button>
+                <div className="flex items-center space-x-1.5 shrink-0">
+                  {selectedUniversityFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUniversityFilter('all')}
+                      className="px-2.5 py-1 text-xs font-bold text-sky-700 hover:text-sky-900 bg-sky-50 hover:bg-sky-100 rounded-full transition-colors cursor-pointer"
+                    >
+                      Show All
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMarketSearchOpen(prev => !prev)}
+                    className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Search marketplace"
+                  >
+                    <Search className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* Marketplace Mode Chips: Products, Services, Search */}
@@ -3930,59 +3980,15 @@ export default function StudentDashboard() {
                 ))}
               </div>
 
-              {/* Today's Picks Location Bar & Campus Selector */}
-              <div className="pt-2 border-t border-slate-100 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-extrabold text-sm sm:text-base text-slate-900 shrink-0">
-                    Today's picks
-                  </span>
-
-                  {/* Campus / University Bottom-Sheet Trigger Button */}
-                  <button
-                    type="button"
-                    onClick={() => setIsCampusModalOpen(true)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs active:scale-95 ${
-                      selectedUniversityFilter !== 'all'
-                        ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                    title="Select campus location"
-                  >
-                    {selectedUniversityFilter === 'all' ? (
-                      <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    ) : (
-                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                    )}
-                    <span className="truncate max-w-[130px] sm:max-w-[180px]">
-                      {getFilterDisplayLabel()}
-                    </span>
-                    <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded-md font-semibold ml-0.5 shrink-0">
-                      Change
-                    </span>
-                  </button>
-                </div>
-
-                {/* Active Campus Filter Banner */}
+              {/* Today's Picks Section Header */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                <span className="font-extrabold text-sm sm:text-base text-slate-900 shrink-0">
+                  Today's picks
+                </span>
                 {selectedUniversityFilter !== 'all' && (
-                  <div className="flex items-center justify-between bg-sky-50 border border-sky-200 px-3.5 py-2 rounded-2xl text-xs text-sky-900 animate-in fade-in duration-150">
-                    <button
-                      type="button"
-                      onClick={() => setIsCampusModalOpen(true)}
-                      className="flex items-center space-x-1.5 font-semibold truncate hover:text-sky-700 cursor-pointer"
-                      title="Tap to change campus"
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                      <span className="truncate">Filtered to: <strong>{getFilterDisplayLabel()}</strong> (Tap to switch)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedUniversityFilter('all')}
-                      className="ml-2 text-sky-700 hover:text-sky-900 text-xs font-bold hover:underline flex items-center space-x-0.5 shrink-0 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Show All</span>
-                    </button>
-                  </div>
+                  <span className="text-[11px] font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200/80 truncate max-w-[200px]">
+                    📍 {getFilterDisplayLabel()}
+                  </span>
                 )}
               </div>
 
@@ -4010,9 +4016,9 @@ export default function StudentDashboard() {
 
             {/* Products Grid - Mobile 2-Column Facebook Marketplace Layout */}
             {marketType === 'products' && (
-              filteredProducts.length > 0 ? (
+              scatteredProducts.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {filteredProducts.map((p) => (
+                  {scatteredProducts.map((p) => (
                     <div key={p.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
                       <div>
                         {/* Aspect Ratio Container for Zero Cumulative Layout Shift (CLS = 0) */}
@@ -4110,9 +4116,9 @@ export default function StudentDashboard() {
 
             {/* Services Grid - Mobile 2-Column Layout */}
             {marketType === 'services' && (
-              filteredServices.length > 0 ? (
+              scatteredServices.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {filteredServices.map((s) => (
+                  {scatteredServices.map((s) => (
                     <div key={s.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between">
                       <div>
                         {/* Aspect Ratio Container for Zero CLS */}
@@ -4368,9 +4374,7 @@ export default function StudentDashboard() {
 
             {/* Reels Feed Stream */}
             <div className="space-y-3.5 sm:space-y-4">
-              {reels
-                .filter(r => !hiddenPostIds.includes(r.id))
-                .map((reel) => {
+              {scatteredReels.map((reel) => {
                   const isAuthor = (currentUser?.user_id && reel.user_id === currentUser.user_id) ||
                                    (currentUser?.id && reel.user_id === currentUser.id) ||
                                    currentUser?.role === 'admin';
@@ -4645,7 +4649,7 @@ export default function StudentDashboard() {
                   );
                 })}
 
-              {reels.filter(r => !hiddenPostIds.includes(r.id)).length === 0 && (
+              {scatteredReels.length === 0 && (
                 <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-2xs">
                   <Video className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                   <h3 className="font-bold text-slate-800 text-sm">No campus posts yet</h3>
@@ -6053,7 +6057,11 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Right Column: Chat View */}
-                  <div className={`flex-1 flex flex-col overflow-hidden bg-white min-h-0 ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                  <div className={`overflow-hidden ${
+                    selectedPartner
+                      ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto bg-white flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex'
+                      : 'hidden md:flex md:flex-1 md:min-h-0 md:flex-col bg-slate-50/50'
+                  }`}>
                     {selectedPartner ? (
                       (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                         <>
@@ -6187,12 +6195,18 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Input Bar */}
-                          <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-chat-bottom">
+                          <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                             <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-2">
                               <input
                                 type="text"
                                 placeholder="Ask CampusLink AI anything (academics, definitions, reply ideas, math)..."
                                 value={newMsgText}
+                                onFocus={() => {
+                                  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                    window.scrollTo(0, 0);
+                                    setTimeout(() => aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                                  }
+                                }}
                                 onChange={(e) => setNewMsgText(e.target.value)}
                                 className="flex-1 p-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none transition-colors"
                               />
@@ -6633,7 +6647,7 @@ export default function StudentDashboard() {
                         ) : (
                           <>
                             {/* Message Input Form & VN Voice Recorder */}
-                            <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 safe-chat-bottom">
+                            <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                               {/* Quoted Swipe-to-Reply Banner */}
                               {replyingToMessage && (
                                 <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
@@ -6824,9 +6838,12 @@ export default function StudentDashboard() {
                                       }
                                     }}
                                     onFocus={() => {
+                                      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                        window.scrollTo(0, 0);
+                                      }
                                       setTimeout(() => {
                                         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                                      }, 200);
+                                      }, 150);
                                     }}
                                     className={`flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed transition-colors ${
                                       editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500'

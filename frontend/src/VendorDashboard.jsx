@@ -25,6 +25,7 @@ import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import InstallAppButton from './components/InstallAppButton';
 import CampusSelectModal from './components/CampusSelectModal';
+import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -235,6 +236,9 @@ export default function VendorDashboard() {
     }
   });
 
+  const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
+  const [isStoreLoading, setIsStoreLoading] = useState(() => !getCachedData('store', null));
+
   // Helper to reliably check if a user record is the current logged-in vendor
   const isSelfUser = (u) => {
     if (!u) return false;
@@ -244,8 +248,6 @@ export default function VendorDashboard() {
     const uemail = String(u.email || '').toLowerCase().trim();
     return (Boolean(myId) && uid === myId) || (Boolean(myEmail) && uemail === myEmail);
   };
-  const [vendorStore, setVendorStore] = useState(() => getCachedData('store', null));
-  const [isStoreLoading, setIsStoreLoading] = useState(() => !getCachedData('store', null));
   const [activeTab, setActiveTab] = useState(getInitialVendorTab);
   const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
   const [catalogType, setCatalogType] = useState(() => {
@@ -415,6 +417,7 @@ export default function VendorDashboard() {
   const [hiddenPostIds, setHiddenPostIds] = useState([]);
   const [highlightedReelId, setHighlightedReelId] = useState(null);
   const [highlightedCommentId, setHighlightedCommentId] = useState(null);
+  const [recentlyAcceptedFriends, setRecentlyAcceptedFriends] = useState({});
   const commentInputRef = useRef(null);
 
   // Profile Media Gallery States (Photos & Videos from Home feed drops)
@@ -737,10 +740,20 @@ export default function VendorDashboard() {
   const getMarketplaceUniFilterLabel = () => {
     if (marketplaceUniFilter === 'all') return 'All Campuses';
     if (marketplaceUniFilter === 'my_campus') {
-      return vendorStore?.university_abbr || user?.university_abbr || (vendorStore?.university_name ? vendorStore.university_name.split(' ')[0] : 'My Campus');
+      const uniName = vendorStore?.university_name || user?.university_name;
+      const uniAbbr = vendorStore?.university_abbr || user?.university_abbr;
+      if (uniName && uniAbbr && !uniName.toLowerCase().includes(uniAbbr.toLowerCase())) {
+        return `${uniName} (${uniAbbr})`;
+      }
+      return uniName || uniAbbr || 'My Campus';
     }
     const match = availableMarketplaceInstitutions.find(u => String(u.id) === String(marketplaceUniFilter) || u.abbreviation === marketplaceUniFilter || u.name === marketplaceUniFilter);
-    if (match) return match.abbreviation || match.name.split(' ')[0] || match.name;
+    if (match) {
+      if (match.name && match.abbreviation && match.abbreviation !== match.name && !match.name.toLowerCase().includes(match.abbreviation.toLowerCase())) {
+        return `${match.name} (${match.abbreviation})`;
+      }
+      return match.name || match.abbreviation;
+    }
     return marketplaceUniFilter;
   };
   const [showUpdateDocs, setShowUpdateDocs] = useState(false);
@@ -3315,13 +3328,17 @@ export default function VendorDashboard() {
     return matchesRole && (nameMatch || deptMatch || hostelMatch || bizMatch);
   });
 
-  // Filtered Reels
-  const filteredReels = reelFeedFilter === 'my_drops'
-    ? allReels.filter(r => (r.author_id === user?.user_id || r.user_id === user?.user_id || r.author_id === user?.id))
-    : allReels;
+  // Filtered & Scattered Reels
+  const rawReelBase = useMemo(() => {
+    return reelFeedFilter === 'my_drops'
+      ? allReels.filter(r => (r.author_id === user?.user_id || r.user_id === user?.user_id || r.author_id === user?.id))
+      : allReels;
+  }, [allReels, reelFeedFilter, user?.user_id, user?.id]);
+
+  const filteredReels = useRotatingFeed(rawReelBase, { timeWindowMinutes: 3 });
 
   return (
-    <div className="h-screen max-h-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
+    <div className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
       {/* Floating In-App Chat Notification Alert */}
       <InAppChatBanner
         banner={inAppBanner}
@@ -3359,8 +3376,8 @@ export default function VendorDashboard() {
                   </span>
                 )}
                 {(vendorStore?.university_abbr || vendorStore?.university_name) && (
-                  <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200/80">
-                    {(vendorStore?.university_abbr || vendorStore?.university_name || 'Campus').split(' ')[0]}
+                  <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200/80 truncate max-w-[200px]" title={vendorStore?.university_name || vendorStore?.university_abbr}>
+                    {vendorStore?.university_abbr || vendorStore?.university_name}
                   </span>
                 )}
               </div>
@@ -3445,7 +3462,7 @@ export default function VendorDashboard() {
         </div>
 
         {/* Main Content Body */}
-        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
+        <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0 h-full' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
 
           {/* Verification Alert Banner */}
           {!isVerified && !isStoreLoading && vendorStore && (
@@ -3763,6 +3780,45 @@ export default function VendorDashboard() {
           {/* ========================================================================= */}
           {activeTab === 'marketplace' && (
             <div className="space-y-5">
+              {/* TOP PROMINENT UNIVERSITY / CAMPUS BANNER (OCCUPIES FRONT / UP SIDE) */}
+              <div className="w-full bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 rounded-3xl p-4 sm:p-5 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-3 min-w-0 flex-1">
+                  <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
+                    <Building2 className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200">Selected Institution / Campus</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    </div>
+                    <h2 className="text-base sm:text-lg font-black text-white leading-tight break-words">
+                      {getMarketplaceUniFilterLabel()}
+                    </h2>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0 self-stretch sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsCampusModalOpen(true)}
+                    className="px-4 py-2 bg-white hover:bg-sky-50 text-sky-800 font-bold text-xs rounded-xl shadow-xs cursor-pointer transition-all active:scale-95 flex items-center space-x-1.5 shrink-0 justify-center flex-1 sm:flex-none"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Change Campus</span>
+                  </button>
+                  {marketplaceUniFilter !== 'all' && (
+                    <button
+                      type="button"
+                      onClick={() => setMarketplaceUniFilter('all')}
+                      className="px-3 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-1"
+                      title="Show all campuses"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Show All</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-2xs">
                 <div>
@@ -3781,8 +3837,18 @@ export default function VendorDashboard() {
                   </div>
                 </div>
 
-                {/* Header Controls: Type Filters & Campus Dropdown */}
+                {/* Header Controls: Campus Location Button & Type Filters */}
                 <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                  <button
+                    type="button"
+                    onClick={() => setIsCampusModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 shadow-2xs flex items-center space-x-1.5"
+                    title="Change selected university"
+                  >
+                    <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                    <span className="truncate max-w-[150px] sm:max-w-[220px]">{getMarketplaceUniFilterLabel()}</span>
+                  </button>
+
                   <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-2xl">
                     {[
                       { id: 'all', label: 'All Listings' },
@@ -3802,30 +3868,6 @@ export default function VendorDashboard() {
                       </button>
                     ))}
                   </div>
-
-                  {/* Campus / University Bottom-Sheet Trigger Button */}
-                  <button
-                    type="button"
-                    onClick={() => setIsCampusModalOpen(true)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs active:scale-95 ${
-                      marketplaceUniFilter !== 'all'
-                        ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                    title="Select campus location"
-                  >
-                    {marketplaceUniFilter === 'all' ? (
-                      <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                    ) : (
-                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                    )}
-                    <span className="truncate max-w-[130px] sm:max-w-[180px]">
-                      {getMarketplaceUniFilterLabel()}
-                    </span>
-                    <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded-md font-semibold ml-0.5 shrink-0">
-                      Change
-                    </span>
-                  </button>
                 </div>
               </div>
 
@@ -3875,29 +3917,6 @@ export default function VendorDashboard() {
                     </button>
                   ))}
                 </div>
-
-                {/* Active Campus Filter Banner */}
-                {marketplaceUniFilter !== 'all' && (
-                  <div className="flex items-center justify-between bg-sky-50 border border-sky-200 px-3.5 py-2 rounded-2xl text-xs text-sky-900 animate-in fade-in duration-150">
-                    <button
-                      type="button"
-                      onClick={() => setIsCampusModalOpen(true)}
-                      className="flex items-center space-x-1.5 font-semibold truncate hover:text-sky-700 cursor-pointer"
-                      title="Tap to change campus"
-                    >
-                      <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                      <span className="truncate">Filtered to: <strong>{getMarketplaceUniFilterLabel()}</strong> (Tap to switch)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMarketplaceUniFilter('all')}
-                      className="ml-2 text-sky-700 hover:text-sky-900 text-xs font-bold hover:underline flex items-center space-x-0.5 shrink-0 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Show All</span>
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Responsive Mobile-Friendly Campus Select Modal */}
@@ -4001,14 +4020,28 @@ export default function VendorDashboard() {
                   );
                 }
 
+                const combinedMarketList = [];
+                if (marketplaceType === 'products') {
+                  filteredProducts.forEach(p => combinedMarketList.push({ ...p, _listing_type: 'product' }));
+                } else if (marketplaceType === 'services') {
+                  filteredServices.forEach(s => combinedMarketList.push({ ...s, _listing_type: 'service' }));
+                } else {
+                  filteredProducts.forEach(p => combinedMarketList.push({ ...p, _listing_type: 'product' }));
+                  filteredServices.forEach(s => combinedMarketList.push({ ...s, _listing_type: 'service' }));
+                }
+
+                const scatteredMarketListings = scatterFeed(combinedMarketList, { timeWindowMinutes: 3 });
+
                 return (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {/* Render Products */}
-                    {filteredProducts.map((p) => {
-                      const isFriendWithSeller = (myFriends || []).some(
-                        f => String(f.user_id || f.id) === String(p.vendor_user_id || p.user_id)
-                      );
-                      const isOwnProduct = String(p.vendor_id) === String(vendorStore?.id) || String(p.user_id) === String(user?.user_id || user?.id);
+                    {/* Scattered & Dynamically Rotated Marketplace Listings */}
+                    {scatteredMarketListings.map((item) => {
+                      if (item._listing_type === 'product') {
+                        const p = item;
+                        const isFriendWithSeller = (myFriends || []).some(
+                          f => String(f.user_id || f.id) === String(p.vendor_user_id || p.user_id)
+                        );
+                        const isOwnProduct = String(p.vendor_id) === String(vendorStore?.id) || String(p.user_id) === String(user?.user_id || user?.id);
 
                       return (
                         <div
@@ -4134,11 +4167,10 @@ export default function VendorDashboard() {
                           </div>
                         </div>
                       );
-                    })}
+                    }
 
-                    {/* Render Services */}
-                    {filteredServices.map((s) => {
-                      const serviceUserId = s.vendor_user_id || s.user_id;
+                    const s = item;
+                    const serviceUserId = s.vendor_user_id || s.user_id;
                       const isFriendWithSeller = (myFriends || []).some(
                         f => serviceUserId && String(f.user_id || f.id) === String(serviceUserId)
                       );
@@ -4466,7 +4498,7 @@ export default function VendorDashboard() {
           {/* --- TAB 3: CUSTOMER CHATS & INQUIRIES --- */}
           {/* ========================================================================= */}
           {activeTab === 'messages' && (
-            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
 
               {/* Header */}
               <div className={`p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0 ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
@@ -4516,7 +4548,7 @@ export default function VendorDashboard() {
               </div>
 
               {/* Active Inquiries & Chat Interface */}
-              <div className={`flex flex-col md:flex-row bg-white border border-slate-200 overflow-hidden shadow-xs flex-1 min-h-0 ${selectedPartner ? 'rounded-2xl md:rounded-3xl' : 'rounded-3xl'}`}>
+              <div className={`flex flex-col md:flex-row bg-white overflow-hidden shadow-xs flex-1 min-h-0 h-full ${selectedPartner ? 'rounded-none md:rounded-3xl border-0 md:border md:border-slate-200' : 'rounded-3xl border border-slate-200'}`}>
 
                 {/* Conversations List */}
                 <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
@@ -4734,12 +4766,12 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Chat Panel */}
-                <div className={`flex-1 min-h-0 flex flex-col justify-between bg-slate-50/50 overflow-hidden ${selectedPartner ? 'flex' : 'hidden md:flex'}`}>
+                <div className={`flex flex-col bg-white overflow-hidden ${selectedPartner ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex' : 'hidden md:flex md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50'}`}>
                   {selectedPartner ? (
                     (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                       <>
                         {/* AI Chat Header */}
-                        <div className="p-3.5 bg-white border-b border-slate-200 flex items-center justify-between">
+                        <div className="p-3 sm:p-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 sticky top-0 z-20">
                           <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
                             <button
                               type="button"
@@ -4860,12 +4892,18 @@ export default function VendorDashboard() {
                             e.preventDefault();
                             handleSendAiMessage();
                           }}
-                          className="p-3 bg-white border-t border-slate-200 safe-chat-bottom flex items-end space-x-2"
+                          className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-end space-x-2"
                         >
                           <textarea
                             rows={1}
                             placeholder="Ask CampusLink AI anything (code, grammar, customer replies, math, concepts)..."
                             value={newMsgText}
+                            onFocus={() => {
+                              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                window.scrollTo(0, 0);
+                                setTimeout(() => aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                              }
+                            }}
                             onChange={(e) => {
                               setNewMsgText(e.target.value);
                               e.target.style.height = 'auto';
@@ -4897,8 +4935,8 @@ export default function VendorDashboard() {
                     ) : (
                       <>
                         {/* Chat Header */}
-                        <div className="p-3.5 bg-white border-b border-slate-200 flex items-center justify-between">
-                          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+                        <div className="p-2.5 sm:p-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-2xs">
+                          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1 mr-2">
                             <button
                               type="button"
                               onClick={() => setSelectedPartner(null)}
@@ -4961,7 +4999,7 @@ export default function VendorDashboard() {
                               className="min-w-0 cursor-pointer group"
                             >
                               <div className="flex items-center space-x-1.5">
-                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate">
+                                <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-[110px] sm:max-w-[200px]">
                                   {selectedPartner.partner_name}
                                 </h4>
                                 <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
@@ -4982,21 +5020,21 @@ export default function VendorDashboard() {
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
                             <button
                               onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                              className="px-2 sm:px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
                             >
-                              View Profile
+                              Profile
                             </button>
                             <button
                               onClick={() => {
                                 const text = `Hi! You can also reach our stall line directly on WhatsApp: ${vendorStore?.phone || user?.phone_number || '08012345678'}`;
                                 handleSendChatMessage(text);
                               }}
-                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                              className="px-2 sm:px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
                             >
-                              Share WhatsApp
+                              WhatsApp
                             </button>
                           </div>
                         </div>
@@ -5016,7 +5054,7 @@ export default function VendorDashboard() {
                         )}
 
                         {/* Chat Messages */}
-                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-2.5 chat-thread-container">
+                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-2.5 chat-thread-container overscroll-contain">
                           {isLoadingChatMessages && chatMessages.length === 0 ? (
                             <div className="space-y-4 py-3 animate-pulse">
                               <div className="flex justify-start">
@@ -5278,7 +5316,7 @@ export default function VendorDashboard() {
                           </div>
 
                           {/* Message Input Form */}
-                          <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 safe-chat-bottom shrink-0">
+                          <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                             {/* Quoted Swipe-to-Reply Banner */}
                             {replyingToMessage && (
                               <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
@@ -5452,6 +5490,16 @@ export default function VendorDashboard() {
                                   rows={1}
                                   placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                   value={newMsgText}
+                                  onFocus={() => {
+                                    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                      window.scrollTo(0, 0);
+                                      setTimeout(() => {
+                                        if (chatContainerRef.current) {
+                                          chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+                                        }
+                                      }, 100);
+                                    }
+                                  }}
                                   onChange={(e) => {
                                     setNewMsgText(e.target.value);
                                     e.target.style.height = 'auto';
