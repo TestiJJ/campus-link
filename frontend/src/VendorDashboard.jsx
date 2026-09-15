@@ -404,7 +404,33 @@ export default function VendorDashboard() {
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [selectedProfileMedia, setSelectedProfileMedia] = useState([]);
   const [loadingProfileMedia, setLoadingProfileMedia] = useState(false);
+  const [userMediaPageUser, setUserMediaPageUser] = useState(null);
+  const [userMediaPageFilter, setUserMediaPageFilter] = useState('all');
+  const [userMediaPageSearch, setUserMediaPageSearch] = useState('');
   const profileCacheRef = useRef({});
+
+  // Computed media list for the dedicated User Media Gallery page
+  const userMediaPageList = useMemo(() => {
+    if (!userMediaPageUser) return [];
+    const uid = String(userMediaPageUser.user_id || userMediaPageUser.id || '');
+    if (selectedProfileMedia && selectedProfileMedia.length > 0) {
+      return selectedProfileMedia;
+    }
+    return (allReels || []).filter(r => (String(r.author_id) === uid || String(r.user_id) === uid) && r.media_url);
+  }, [userMediaPageUser, selectedProfileMedia, allReels]);
+
+  const filteredUserMediaList = useMemo(() => {
+    return userMediaPageList.filter(item => {
+      if (userMediaPageFilter === 'photos' && item.media_type === 'video') return false;
+      if (userMediaPageFilter === 'videos' && item.media_type !== 'video') return false;
+      if (userMediaPageSearch.trim()) {
+        const q = userMediaPageSearch.toLowerCase().trim();
+        const text = `${item.description || ''} ${item.title || ''}`.toLowerCase();
+        return text.includes(q);
+      }
+      return true;
+    });
+  }, [userMediaPageList, userMediaPageFilter, userMediaPageSearch]);
 
   // Reels States (SWR Instant-Load Cache)
   const [allReels, setAllReels] = useState(() => getCachedData('allReels', []));
@@ -7675,7 +7701,7 @@ export default function VendorDashboard() {
       {/* --- MODAL: MY MEDIA VIEWER & MANAGER (Full Preview & Delete) --- */}
       <AnimatePresence>
         {activeMediaViewer && (
-          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 z-50 overscroll-contain">
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 z-[95] overscroll-contain">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -7752,6 +7778,7 @@ export default function VendorDashboard() {
                       onClick={() => {
                         const targetId = activeMediaViewer.id;
                         setActiveMediaViewer(null);
+                        setUserMediaPageUser(null);
                         setProfileModalOpen(false);
                         setActiveTab('home');
                         setHighlightedReelId(targetId);
@@ -8300,8 +8327,8 @@ export default function VendorDashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        const el = document.getElementById('vendor-profile-media-gallery-section');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        setUserMediaPageUser(selectedProfile);
+                        setProfileModalOpen(false);
                       }}
                       className="text-[10px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-full flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
                       title="View pictures & videos"
@@ -8335,8 +8362,8 @@ export default function VendorDashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        const el = document.getElementById('vendor-profile-media-gallery-section');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        setUserMediaPageUser(selectedProfile);
+                        setProfileModalOpen(false);
                       }}
                       className="p-2.5 rounded-2xl bg-amber-50 hover:bg-amber-100/80 active:scale-95 border border-amber-100 transition-all text-left cursor-pointer group"
                       title="View user media & drops"
@@ -8368,6 +8395,32 @@ export default function VendorDashboard() {
                       </a>
                     </div>
                   )}
+
+                  {/* Dedicated View Media Action Banner */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMediaPageUser(selectedProfile);
+                      setProfileModalOpen(false);
+                    }}
+                    className="w-full mt-4 py-3 px-4 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-2xl shadow-sm hover:shadow-md flex items-center justify-between transition-all cursor-pointer group active:scale-[0.99]"
+                  >
+                    <div className="flex items-center space-x-3 text-left">
+                      <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                        <Film className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-black">View Media</div>
+                        <div className="text-[10px] text-amber-100 font-medium">
+                          {selectedProfileMedia.length} {selectedProfileMedia.length === 1 ? 'photo/video' : 'photos & videos'} shared
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-1 text-xs font-extrabold text-white/95 group-hover:translate-x-1 transition-transform">
+                      <span>Open Media</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
+                  </button>
 
                   {/* You're now friends banner */}
                   {selectedProfile.friendship_status === 'friends' && (
@@ -8485,73 +8538,188 @@ export default function VendorDashboard() {
                       )}
                     </div>
                   )}
-
-                  {/* Profile User Media & Drops Section */}
-                  <div id="vendor-profile-media-gallery-section" className="mt-5 pt-4 border-t border-slate-100 text-left">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-7 h-7 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                          <ImageIcon className="w-4 h-4" />
-                        </div>
-                        <h4 className="text-xs sm:text-sm font-black text-slate-900 truncate">
-                          {selectedProfile.full_name?.split(' ')[0] || 'User'}'s Media & Drops
-                        </h4>
-                      </div>
-                      <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full shrink-0">
-                        {selectedProfileMedia.length} item{selectedProfileMedia.length === 1 ? '' : 's'}
-                      </span>
-                    </div>
-
-                    {loadingProfileMedia && selectedProfileMedia.length === 0 ? (
-                      <div className="py-8 text-center bg-slate-50/70 rounded-2xl border border-slate-100">
-                        <Loader2 className="w-5 h-5 animate-spin text-amber-500 mx-auto mb-1.5" />
-                        <p className="text-[11px] text-slate-400 font-medium">Loading pictures & videos...</p>
-                      </div>
-                    ) : selectedProfileMedia.length === 0 ? (
-                      <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 text-center">
-                        <p className="text-xs text-slate-600 font-semibold">No media posted yet</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Photos and showcase videos posted by this user will appear here.</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {selectedProfileMedia.map((item) => (
-                          <div
-                            key={item.id}
-                            onClick={() => setActiveMediaViewer(item)}
-                            className="group relative aspect-square rounded-xl overflow-hidden bg-slate-950 border border-slate-200/80 cursor-pointer shadow-2xs hover:scale-[1.02] transition-transform"
-                            title="Click to view full size"
-                          >
-                            {item.media_type === 'video' ? (
-                              <>
-                                <video
-                                  src={getMediaUrl(item.media_url)}
-                                  preload="metadata"
-                                  className="w-full h-full object-cover opacity-90 group-hover:opacity-100"
-                                />
-                                <div className="absolute top-1.5 right-1.5 px-1 py-0.5 rounded bg-black/60 text-white text-[9px] font-bold flex items-center space-x-0.5 pointer-events-none">
-                                  <Play className="w-2 h-2 fill-white text-white" />
-                                  <span>Vid</span>
-                                </div>
-                              </>
-                            ) : (
-                              <SafeImage
-                                src={item.media_url}
-                                alt={item.description || 'Drop'}
-                                fallbackType="product"
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                              />
-                            )}
-                            <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-between text-[9px] text-white/95">
-                              <span className="truncate max-w-[85%] font-medium">{item.description || item.title || safeDate(item.created_at, 'Drop')}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
                 </>
               )}
             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- DEDICATED USER MEDIA GALLERY PAGE (Built for 100s of Photos & Videos) --- */}
+      <AnimatePresence>
+        {userMediaPageUser && (
+          <div className="fixed inset-0 bg-slate-950 text-white z-[75] flex flex-col overflow-hidden">
+            {/* Top Navigation Bar */}
+            <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 flex items-center justify-between shrink-0 shadow-md">
+              <div className="flex items-center space-x-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMediaPageUser(null);
+                    setProfileModalOpen(true);
+                  }}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center space-x-1.5 active:scale-95"
+                  title="Back to profile"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  <span className="text-xs font-bold hidden sm:inline">Profile</span>
+                </button>
+
+                <div
+                  onClick={() => {
+                    setUserMediaPageUser(null);
+                    setProfileModalOpen(true);
+                  }}
+                  className="flex items-center space-x-3 cursor-pointer group min-w-0"
+                  title="Click to view profile"
+                >
+                  <div className="w-10 h-10 rounded-2xl bg-amber-600 text-white font-bold flex items-center justify-center shrink-0 overflow-hidden ring-2 ring-amber-500/30">
+                    {userMediaPageUser.profile_picture_url ? (
+                      <SafeImage src={userMediaPageUser.profile_picture_url} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      userMediaPageUser.full_name?.charAt(0) || 'U'
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm sm:text-base font-black text-white truncate group-hover:text-amber-400 transition-colors flex items-center space-x-1.5">
+                      <span className="truncate">{userMediaPageUser.full_name}</span>
+                      {userMediaPageUser.role === 'vendor' ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full shrink-0">Vendor</span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded-full shrink-0">Student</span>
+                      )}
+                    </h2>
+                    <p className="text-[11px] text-slate-400 truncate">
+                      {userMediaPageUser.role === 'vendor' ? (userMediaPageUser.business_name || 'Campus Merchant') : (userMediaPageUser.department || 'Student')}
+                      {userMediaPageUser.university_name && ` • ${userMediaPageUser.university_name}`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setUserMediaPageUser(null)}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer active:scale-95"
+                title="Close Media Page"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Sub-Header / Filters & Search Bar */}
+            <div className="px-4 py-2.5 sm:px-6 sm:py-3 bg-slate-900/70 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+              {/* Filter Pills */}
+              <div className="flex items-center space-x-1.5 p-1 bg-slate-800/80 rounded-xl border border-slate-700/50">
+                {[
+                  { id: 'all', label: 'All', count: userMediaPageList.length },
+                  { id: 'photos', label: 'Photos', count: userMediaPageList.filter(m => m.media_type !== 'video').length },
+                  { id: 'videos', label: 'Videos', count: userMediaPageList.filter(m => m.media_type === 'video').length }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setUserMediaPageFilter(tab.id)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      userMediaPageFilter === tab.id
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab.label} ({tab.count})
+                  </button>
+                ))}
+              </div>
+
+              {/* Caption Search Input */}
+              <div className="relative min-w-[170px] sm:min-w-[240px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search caption..."
+                  value={userMediaPageSearch}
+                  onChange={(e) => setUserMediaPageSearch(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 bg-slate-800/90 border border-slate-700 focus:border-amber-500 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none"
+                />
+                {userMediaPageSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setUserMediaPageSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Main Media Grid (Scrollable, High Capacity) */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6">
+              {loadingProfileMedia && userMediaPageList.length === 0 ? (
+                <div className="py-24 text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-amber-500 mx-auto mb-3" />
+                  <p className="text-sm text-slate-300 font-semibold">Loading media library...</p>
+                  <p className="text-xs text-slate-500 mt-1">Retrieving all photos and videos</p>
+                </div>
+              ) : filteredUserMediaList.length === 0 ? (
+                <div className="py-24 text-center max-w-sm mx-auto">
+                  <div className="w-16 h-16 rounded-3xl bg-slate-800 flex items-center justify-center text-slate-500 mx-auto mb-3.5">
+                    <Film className="w-8 h-8 text-slate-400" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-200">
+                    {userMediaPageSearch ? 'No matching media' : 'No media posted yet'}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {userMediaPageSearch
+                      ? `No posts found matching "${userMediaPageSearch}".`
+                      : `${userMediaPageUser.full_name} has not posted any pictures or videos yet.`}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 max-w-7xl mx-auto pb-16">
+                  {filteredUserMediaList.map((item) => (
+                    <div
+                      key={item.id}
+                      onClick={() => setActiveMediaViewer(item)}
+                      className="group relative aspect-square rounded-2xl overflow-hidden bg-slate-900 border border-slate-800/80 cursor-pointer shadow-md hover:border-amber-500/50 hover:scale-[1.02] transition-all"
+                      title="Click to open full view"
+                    >
+                      {item.media_type === 'video' ? (
+                        <>
+                          <video
+                            src={getMediaUrl(item.media_url)}
+                            preload="metadata"
+                            className="w-full h-full object-cover opacity-90 group-hover:opacity-100"
+                          />
+                          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded-md bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold flex items-center space-x-1 pointer-events-none">
+                            <Play className="w-2.5 h-2.5 fill-white text-white" />
+                            <span>Video</span>
+                          </div>
+                        </>
+                      ) : (
+                        <SafeImage
+                          src={item.media_url}
+                          alt={item.description || 'Drop'}
+                          fallbackType="product"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                      )}
+                      {/* Gradient Info Footer */}
+                      <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex items-end justify-between text-[10px] text-white/95 pointer-events-none">
+                        <span className="truncate max-w-[70%] font-medium">
+                          {item.description || item.title || safeDate(item.created_at, 'Drop')}
+                        </span>
+                        <div className="flex items-center space-x-1 text-slate-300 font-bold shrink-0">
+                          <Heart className={`w-3 h-3 ${item.has_liked ? 'text-rose-500 fill-rose-500' : 'text-rose-400'}`} />
+                          <span>{item.likes_count || 0}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </AnimatePresence>
