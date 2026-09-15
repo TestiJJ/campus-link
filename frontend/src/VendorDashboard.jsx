@@ -32,6 +32,7 @@ import {
   getNotificationPermissionState,
   subscribeUserToPush
 } from './utils/pushNotifications';
+import { useMobileChatViewport } from './utils/useMobileChatViewport';
 import {
   getCachedThreadMessages,
   setCachedThreadMessages,
@@ -379,6 +380,8 @@ export default function VendorDashboard() {
   const aiMessagesEndRef = useRef(null);
   const chatBottomRef = messagesEndRef;
   const chatContainerRef = useRef(null);
+  const aiChatContainerRef = useRef(null);
+  const { containerStyle: mobileChatContainerStyle } = useMobileChatViewport(Boolean(selectedPartner && activeTab === 'messages'));
   const chatMediaInputRef = useRef(null);
 
   // CampusLink AI Chat States (Scoped strictly to current merchant user)
@@ -861,13 +864,33 @@ export default function VendorDashboard() {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Chat auto-scroll helpers: Instant on open, smooth on new message
+  // Chat auto-scroll helpers (Strictly container-scoped to prevent displacing the page)
   const scrollToBottom = (behavior = "auto") => {
-    messagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    const el = chatContainerRef.current;
+    if (el) {
+      if (behavior === "smooth") {
+        try {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        } catch {
+          el.scrollTop = el.scrollHeight;
+        }
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
   };
 
   const scrollAiToBottom = (behavior = "auto") => {
-    aiMessagesEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    const el = aiChatContainerRef.current || aiMessagesEndRef.current?.parentElement;
+    if (el) {
+      if (behavior === "smooth") {
+        try {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+          return;
+        } catch {}
+      }
+      el.scrollTop = el.scrollHeight;
+    }
   };
 
   const scrollToChatBottom = (instant = true) => {
@@ -4767,7 +4790,10 @@ export default function VendorDashboard() {
                 </div>
 
                 {/* Chat Panel */}
-                <div className={`flex flex-col bg-white overflow-hidden ${selectedPartner ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex' : 'hidden md:flex md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50'}`}>
+                <div
+                  style={mobileChatContainerStyle}
+                  className={`flex flex-col bg-white overflow-hidden ${selectedPartner ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex' : 'hidden md:flex md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50'}`}
+                >
                   {selectedPartner ? (
                     (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                       <>
@@ -4810,7 +4836,7 @@ export default function VendorDashboard() {
                         </div>
 
                         {/* AI Chat Messages Stream */}
-                        <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container">
+                        <div ref={aiChatContainerRef} className="flex-1 p-3.5 sm:p-5 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container overscroll-contain">
                           {aiMessages.length > 0 ? (
                             aiMessages.map((msg, idx) => (
                               <div
@@ -4902,7 +4928,12 @@ export default function VendorDashboard() {
                             onFocus={() => {
                               if (typeof window !== 'undefined' && window.innerWidth < 768) {
                                 window.scrollTo(0, 0);
-                                setTimeout(() => aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                                setTimeout(() => {
+                                  window.scrollTo(0, 0);
+                                  if (aiChatContainerRef.current) {
+                                    aiChatContainerRef.current.scrollTop = aiChatContainerRef.current.scrollHeight;
+                                  }
+                                }, 60);
                               }
                             }}
                             onChange={(e) => {
@@ -5481,10 +5512,11 @@ export default function VendorDashboard() {
                                     if (typeof window !== 'undefined' && window.innerWidth < 768) {
                                       window.scrollTo(0, 0);
                                       setTimeout(() => {
+                                        window.scrollTo(0, 0);
                                         if (chatContainerRef.current) {
-                                          chatContainerRef.current.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
+                                          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
                                         }
-                                      }, 100);
+                                      }, 60);
                                     }
                                   }}
                                   onChange={(e) => {

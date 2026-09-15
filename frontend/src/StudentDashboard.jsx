@@ -31,6 +31,7 @@ import {
   subscribeUserToPush
 } from './utils/pushNotifications';
 import { useRotatingFeed } from './utils/feedScrambler';
+import { useMobileChatViewport } from './utils/useMobileChatViewport';
 import {
   getCachedThreadMessages,
   setCachedThreadMessages,
@@ -446,6 +447,8 @@ export default function StudentDashboard() {
   const messagesEndRef = useRef(null);
   const aiMessagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const aiChatContainerRef = useRef(null);
+  const { containerStyle: mobileChatContainerStyle } = useMobileChatViewport(Boolean(selectedPartner && activeTab === 'messages'));
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
@@ -772,18 +775,10 @@ export default function StudentDashboard() {
         el.scrollTop = el.scrollHeight;
       }
     }
-    if (messagesEndRef.current) {
-      try {
-        messagesEndRef.current.scrollIntoView({
-          behavior: behavior === "smooth" ? "smooth" : "auto",
-          block: "end"
-        });
-      } catch {}
-    }
   };
 
   const scrollAiToBottom = (behavior = "auto") => {
-    const el = aiMessagesEndRef.current?.parentElement;
+    const el = aiChatContainerRef.current || aiMessagesEndRef.current?.parentElement;
     if (el) {
       if (behavior === "smooth") {
         try {
@@ -6061,11 +6056,14 @@ export default function StudentDashboard() {
                   </div>
 
                   {/* Right Column: Chat View */}
-                  <div className={`overflow-hidden ${
-                    selectedPartner
-                      ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto bg-white flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex'
-                      : 'hidden md:flex md:flex-1 md:min-h-0 md:flex-col bg-slate-50/50'
-                  }`}>
+                  <div
+                    style={mobileChatContainerStyle}
+                    className={`overflow-hidden ${
+                      selectedPartner
+                        ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto bg-white flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex'
+                        : 'hidden md:flex md:flex-1 md:min-h-0 md:flex-col bg-slate-50/50'
+                    }`}
+                  >
                     {selectedPartner ? (
                       (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
                         <>
@@ -6116,7 +6114,7 @@ export default function StudentDashboard() {
                           </div>
 
                           {/* AI Chat Messages */}
-                          <div className="flex-1 p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-4 chat-thread-container">
+                          <div ref={aiChatContainerRef} className="flex-1 p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-4 chat-thread-container overscroll-contain">
                             {aiMessages.length > 0 ? (
                               aiMessages.map((msg, idx) => (
                                 <div
@@ -6208,7 +6206,12 @@ export default function StudentDashboard() {
                                 onFocus={() => {
                                   if (typeof window !== 'undefined' && window.innerWidth < 768) {
                                     window.scrollTo(0, 0);
-                                    setTimeout(() => aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                                    setTimeout(() => {
+                                      window.scrollTo(0, 0);
+                                      if (aiChatContainerRef.current) {
+                                        aiChatContainerRef.current.scrollTop = aiChatContainerRef.current.scrollHeight;
+                                      }
+                                    }, 60);
                                   }
                                 }}
                                 onChange={(e) => setNewMsgText(e.target.value)}
@@ -6276,9 +6279,13 @@ export default function StudentDashboard() {
                                   </div>
                                 );
                               })()}
-                              <div className="min-w-0">
+                              <div
+                                onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                className="min-w-0 cursor-pointer group"
+                                title="View profile"
+                              >
                                 <div className="flex items-center space-x-1.5">
-                                  <h4 className="text-xs font-bold text-slate-900 truncate">
+                                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-[120px] sm:max-w-[200px]">
                                     {selectedPartner.partner_name || selectedPartner.name || selectedPartner.full_name || 'Chat Partner'}
                                   </h4>
                                   <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
@@ -6305,14 +6312,22 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
-                            <div className="flex items-center space-x-2 shrink-0">
+                            <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                title="View profile"
+                              >
+                                <span>Profile</span>
+                              </button>
                               {/* Strictly for Vendors: Students never expose WhatsApp contact */}
                               {((selectedPartner.role === 'vendor' || selectedPartner.partner_role === 'vendor' || selectedPartner.partner_role === 'Vendor' || selectedPartner.partner_role === 'Seller') && (selectedPartner.phone || selectedPartner.whatsapp_phone)) && (
                                 <a
                                   href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                  className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
                                   title="Chat on WhatsApp"
                                 >
                                   <Phone className="w-3.5 h-3.5" />
@@ -6830,10 +6845,13 @@ export default function StudentDashboard() {
                                     onFocus={() => {
                                       if (typeof window !== 'undefined' && window.innerWidth < 768) {
                                         window.scrollTo(0, 0);
+                                        setTimeout(() => {
+                                          window.scrollTo(0, 0);
+                                          if (chatContainerRef.current) {
+                                            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                                          }
+                                        }, 60);
                                       }
-                                      setTimeout(() => {
-                                        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-                                      }, 150);
                                     }}
                                     className={`flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed transition-colors ${
                                       editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500'
