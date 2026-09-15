@@ -508,6 +508,8 @@ export default function StudentDashboard() {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [selectedProfileMedia, setSelectedProfileMedia] = useState([]);
+  const [loadingProfileMedia, setLoadingProfileMedia] = useState(false);
   const profileCacheRef = useRef({});
 
   // Orders State (SWR Instant Load)
@@ -2917,6 +2919,21 @@ export default function StudentDashboard() {
   const handleViewProfile = (userId, optimisticData = null) => {
     const uid = String(userId || '');
     if (!uid) return;
+
+    // Immediately pre-populate with user's media from existing reels feed
+    const preFilteredMedia = (reels || []).filter(r => (String(r.user_id) === uid || String(r.author_id) === uid) && r.media_url);
+    setSelectedProfileMedia(preFilteredMedia);
+    setLoadingProfileMedia(true);
+    API.get(`/reels?user_id=${encodeURIComponent(uid)}&media_only=true`)
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          setSelectedProfileMedia(res.data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        setLoadingProfileMedia(false);
+      });
 
     if (isSelfUser({ user_id: uid, id: uid })) {
       const selfProfile = {
@@ -7558,6 +7575,7 @@ export default function StudentDashboard() {
                       onClick={() => {
                         const targetId = activeMediaViewer.id;
                         setActiveMediaViewer(null);
+                        setProfileModalOpen(false);
                         setActiveTab('reels');
                         setHighlightedReelId(targetId);
                       }}
@@ -7566,14 +7584,29 @@ export default function StudentDashboard() {
                       <Eye className="w-3.5 h-3.5" />
                       <span>View in Feed</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteReel(activeMediaViewer.id)}
-                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center space-x-1.5 shadow-md cursor-pointer transition-all active:scale-95"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete</span>
-                    </button>
+                    {(isSelfUser({ user_id: activeMediaViewer.user_id || activeMediaViewer.author_id }) || String(activeMediaViewer.user_id) === String(currentUser?.user_id || currentUser?.id)) ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteReel(activeMediaViewer.id)}
+                        className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white flex items-center space-x-1.5 shadow-md cursor-pointer transition-all active:scale-95"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleLikeReel(activeMediaViewer.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1.5 cursor-pointer transition-all active:scale-95 ${
+                          activeMediaViewer.has_liked
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                        }`}
+                      >
+                        <Heart className={`w-3.5 h-3.5 ${activeMediaViewer.has_liked ? 'fill-white text-white' : 'text-rose-400'}`} />
+                        <span>{activeMediaViewer.has_liked ? 'Liked' : 'Like'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -7826,7 +7859,7 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 /* Profile Card Body */
-                <div className="p-6 pt-0 relative">
+                <div className="p-6 pt-0 relative overflow-y-auto max-h-[calc(90dvh-7rem)] sm:max-h-[calc(90vh-7rem)]">
                   {/* Avatar */}
                   <div className="-mt-12 mb-4 flex items-end justify-between">
                     {selectedProfile.profile_picture_url ? (
@@ -7865,6 +7898,20 @@ export default function StudentDashboard() {
                           <span>Verified Student</span>
                         </span>
                       )}
+
+                      {/* View Media Quick Jump Pill */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById('profile-media-gallery-section');
+                          if (el) el.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className="text-[11px] font-bold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2.5 py-1 rounded-full flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                        title="View pictures & videos"
+                      >
+                        <ImageIcon className="w-3 h-3 text-sky-600" />
+                        <span>View Media ({selectedProfileMedia.length})</span>
+                      </button>
                     </div>
                   </div>
 
@@ -7889,17 +7936,35 @@ export default function StudentDashboard() {
                   "{selectedProfile.bio || (selectedProfile.role === 'vendor' ? 'Verified campus merchant offering products and services.' : 'Passionate student on CampusLink connecting with peers.')}"
                 </div>
 
-                {/* Info Grid */}
-                <div className="grid grid-cols-2 gap-2 mt-4 text-xs">
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Hostel / Location</span>
-                    <span className="font-bold text-slate-800 truncate block">{selectedProfile.hostel || 'On Campus'}</span>
+                {/* Info Grid with Media count */}
+                <div className="grid grid-cols-3 gap-1.5 mt-4 text-xs">
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">Hostel</span>
+                    <span className="font-bold text-slate-800 truncate block mt-0.5">{selectedProfile.hostel || 'Campus'}</span>
                   </div>
 
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Campus Friends</span>
-                    <span className="font-bold text-sky-700">{selectedProfile.friends_count || 0} Connected</span>
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block truncate">Friends</span>
+                    <span className="font-bold text-sky-700 block mt-0.5">{selectedProfile.friends_count || 0}</span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('profile-media-gallery-section');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="p-2.5 bg-sky-50 hover:bg-sky-100/80 active:scale-95 rounded-xl border border-sky-100 transition-all text-left cursor-pointer group"
+                    title="View user media & drops"
+                  >
+                    <span className="text-[10px] uppercase font-bold text-sky-600 block truncate flex items-center space-x-1">
+                      <ImageIcon className="w-2.5 h-2.5 shrink-0" />
+                      <span>Media</span>
+                    </span>
+                    <span className="font-bold text-sky-800 block mt-0.5 group-hover:text-sky-900 transition-colors">
+                      {selectedProfileMedia.length} Drop{selectedProfileMedia.length === 1 ? '' : 's'}
+                    </span>
+                  </button>
                 </div>
 
                 {/* Direct Phone / Contact Bar: Strictly for Verified Vendors / Sellers */}
@@ -8049,6 +8114,70 @@ export default function StudentDashboard() {
                     🔒 Messaging is locked until {selectedProfile.full_name} accepts your friend request.
                   </p>
                 )}
+
+                {/* Profile User Media & Drops Section */}
+                <div id="profile-media-gallery-section" className="mt-5 pt-4 border-t border-slate-100 text-left">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-7 h-7 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-xs sm:text-sm font-black text-slate-900 truncate">
+                        {isSelfUser(selectedProfile) ? 'Your Media & Drops' : `${selectedProfile.full_name?.split(' ')[0] || 'User'}'s Media & Drops`}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-extrabold text-sky-700 bg-sky-50 border border-sky-100 px-2 py-0.5 rounded-full shrink-0">
+                      {selectedProfileMedia.length} item{selectedProfileMedia.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  {loadingProfileMedia && selectedProfileMedia.length === 0 ? (
+                    <div className="py-8 text-center bg-slate-50/70 rounded-2xl border border-slate-100">
+                      <Loader2 className="w-5 h-5 animate-spin text-sky-500 mx-auto mb-1.5" />
+                      <p className="text-[11px] text-slate-400 font-medium">Loading pictures & videos...</p>
+                    </div>
+                  ) : selectedProfileMedia.length === 0 ? (
+                    <div className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 text-center">
+                      <p className="text-xs text-slate-600 font-semibold">No media posted yet</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Photos and videos posted by this user will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {selectedProfileMedia.map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => setActiveMediaViewer(item)}
+                          className="group relative aspect-square rounded-xl overflow-hidden bg-slate-950 border border-slate-200/80 cursor-pointer shadow-2xs hover:scale-[1.02] transition-transform"
+                          title="Click to view full size"
+                        >
+                          {item.media_type === 'video' ? (
+                            <>
+                              <video
+                                src={getMediaUrl(item.media_url)}
+                                preload="metadata"
+                                className="w-full h-full object-cover opacity-90 group-hover:opacity-100"
+                              />
+                              <div className="absolute top-1.5 right-1.5 px-1 py-0.5 rounded bg-black/60 text-white text-[9px] font-bold flex items-center space-x-0.5 pointer-events-none">
+                                <Play className="w-2 h-2 fill-white text-white" />
+                                <span>Vid</span>
+                              </div>
+                            </>
+                          ) : (
+                            <SafeImage
+                              src={item.media_url}
+                              alt={item.description || 'Drop'}
+                              fallbackType="product"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                            />
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-between text-[9px] text-white/95">
+                            <span className="truncate max-w-[85%] font-medium">{item.description || item.title || safeDate(item.created_at, 'Drop')}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
               </div>
               )}
