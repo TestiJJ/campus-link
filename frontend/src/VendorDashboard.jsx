@@ -933,6 +933,7 @@ export default function VendorDashboard() {
   const [showUpdateDocs, setShowUpdateDocs] = useState(false);
   const [prodFile, setProdFile] = useState(null);
   const [prodPreview, setProdPreview] = useState(null);
+  const prodFileInputRef = useRef(null);
   const [productForm, setProductForm] = useState({
     name: '',
     description: '',
@@ -3401,11 +3402,20 @@ export default function VendorDashboard() {
   // Create or Update Product (with file upload & campus selection)
   const handleSaveProduct = async (e) => {
     e.preventDefault();
+    if (!editingProduct && !prodFile) {
+      showToast('Please select a product photo before publishing to the marketplace.', 'error');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      let imageUrl = editingProduct ? editingProduct.image : 'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=800&q=80';
+      let imageUrl = editingProduct ? (editingProduct.image || '') : '';
       if (prodFile) {
         imageUrl = await uploadFile(prodFile);
+      }
+      if (!imageUrl) {
+        showToast('Please select a product photo before publishing.', 'error');
+        setIsSubmitting(false);
+        return;
       }
 
       const isOther = String(productForm.category_id) === 'other';
@@ -9362,25 +9372,98 @@ export default function VendorDashboard() {
                 )}
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                    {editingProduct ? 'Change Product Photo (Optional)' : 'Upload Product Photo'}
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+                      Product Photo {!editingProduct && <span className="text-rose-500 font-black">*</span>}
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      {editingProduct ? 'Keep or replace photo' : 'Required for campus listing'}
+                    </span>
+                  </div>
+
                   <input
+                    ref={prodFileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
                     onChange={(e) => {
-                      const file = e.target.files[0];
+                      const file = e.target.files?.[0];
                       if (file) {
                         setProdFile(file);
                         setProdPreview(URL.createObjectURL(file));
                       }
+                      e.target.value = '';
                     }}
-                    className="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-sky-50 file:text-sky-700 cursor-pointer"
+                    className="hidden"
                   />
-                  {prodPreview && (
-                    <div className="mt-2 h-36 rounded-xl overflow-hidden border border-slate-200">
-                      <SafeImage src={prodPreview} alt="Preview" fallbackType="product" className="w-full h-full object-cover" />
+
+                  {prodPreview ? (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 space-y-2.5 shadow-2xs">
+                      <div className="relative h-44 w-full rounded-xl overflow-hidden bg-slate-900 border border-slate-200/80 flex items-center justify-center">
+                        <SafeImage
+                          src={prodPreview}
+                          alt="Product Preview"
+                          fallbackType="product"
+                          className="w-full h-full object-contain"
+                        />
+                        <div className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-emerald-500/90 backdrop-blur-md text-white text-[10px] font-bold flex items-center space-x-1 shadow-xs">
+                          <CheckCircle2 className="w-3 h-3 text-white" />
+                          <span>Photo Attached</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-xs px-0.5">
+                        <div className="truncate max-w-[65%]">
+                          <span className="font-semibold text-slate-700 text-xs truncate block">
+                            {prodFile?.name || (editingProduct ? 'Current Product Image' : 'Selected Photo')}
+                          </span>
+                          {prodFile && (
+                            <span className="text-[10px] text-slate-400">
+                              {(prodFile.size / (1024 * 1024)).toFixed(2)} MB
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => prodFileInputRef.current?.click()}
+                            className="px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs cursor-pointer transition-colors"
+                          >
+                            Change
+                          </button>
+                          {!editingProduct && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProdFile(null);
+                                setProdPreview(null);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs cursor-pointer transition-colors"
+                              title="Remove photo"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => prodFileInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-sky-300 hover:border-sky-500 hover:bg-sky-50/50 rounded-2xl p-5 flex flex-col items-center justify-center text-center cursor-pointer transition-all bg-sky-50/20 active:scale-[0.99] group min-h-[140px]"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-600 group-hover:scale-110 flex items-center justify-center mb-2 shadow-2xs transition-transform">
+                        <Upload className="w-6 h-6" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-800 group-hover:text-sky-700 transition-colors">
+                        Tap to choose product photo
+                      </span>
+                      <span className="text-[11px] text-slate-500 mt-0.5">
+                        Select from Gallery or Files (PNG, JPG, WEBP)
+                      </span>
+                      <span className="inline-block mt-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                        ⚠️ Photo required to list on Marketplace
+                      </span>
+                    </button>
                   )}
                 </div>
 

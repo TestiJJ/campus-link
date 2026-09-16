@@ -2730,6 +2730,13 @@ def create_product(
 
     target_uni_id = product_data.university_id or vendor.university_id
 
+    prod_image = (product_data.image or "").strip()
+    if not prod_image:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A product image is required. Please select a photo before publishing."
+        )
+
     new_prod = models.Product(
         vendor_id=vendor.id,
         name=product_data.name.strip(),
@@ -2737,7 +2744,7 @@ def create_product(
         price=product_data.price,
         category_id=product_data.category_id,
         university_id=target_uni_id,
-        image=product_data.image.strip() if product_data.image else "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?auto=format&fit=crop&w=800&q=80",
+        image=prod_image,
         quantity=product_data.quantity or 1,
         status="available"
     )
