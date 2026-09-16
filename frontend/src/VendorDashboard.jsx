@@ -345,6 +345,7 @@ export default function VendorDashboard() {
   const [marketplaceServices, setMarketplaceServices] = useState(() => getCachedData('marketplace_services', []));
   const [marketplaceType, setMarketplaceType] = useState('products'); // 'products' | 'services'
   const [marketplaceCategory, setMarketplaceCategory] = useState('all');
+  const [categories, setCategories] = useState(() => getCachedData('categories', []));
   const [marketplaceSearchQuery, setMarketplaceSearchQuery] = useState('');
   const [marketplaceSelectedItem, setMarketplaceSelectedItem] = useState(null);
   const [marketplaceLoading, setMarketplaceLoading] = useState(false);
@@ -1616,6 +1617,14 @@ export default function VendorDashboard() {
           });
           setServices(mySvcs);
           setCachedData('services', mySvcs);
+        })
+        .catch(() => {});
+
+      API.get('/categories')
+        .then((res) => {
+          const fetched = res.data || [];
+          setCategories(fetched);
+          setCachedData('categories', fetched);
         })
         .catch(() => {});
 
@@ -4097,7 +4106,7 @@ export default function VendorDashboard() {
                   >
                     All
                   </button>
-                  {categories.map((c) => (
+                  {(categories || []).map((c) => (
                     <button
                       key={c.id}
                       onClick={() => setMarketplaceCategory(c.id.toString())}
