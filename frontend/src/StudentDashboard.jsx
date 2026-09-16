@@ -212,14 +212,12 @@ export function formatLastSeen(lastSeenIso, isOnline) {
     if (isNaN(targetDate.getTime())) return { label: 'Offline', online: false };
 
     let diffMs = Date.now() - targetDate.getTime();
-    // Allow slight tolerance if client clock is slightly behind server
-    if (diffMs < 120000 && diffMs > -180000) return { label: 'Active now', online: true };
     if (diffMs < 0) diffMs = 0;
 
     const diffMin = Math.floor(diffMs / 60000);
     const diffHr = Math.floor(diffMs / 3600000);
 
-    if (diffMin < 1) return { label: 'Active now', online: true };
+    if (diffMin < 1) return { label: 'Last seen just now', online: false };
     if (diffMin < 60) return { label: `Last seen ${diffMin}m ago`, online: false };
     if (diffHr < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
     if (diffHr < 48) return { label: 'Last seen yesterday', online: false };
@@ -760,7 +758,7 @@ export default function StudentDashboard() {
     };
 
     sendHeartbeat();
-    interval = setInterval(sendHeartbeat, 30000);
+    interval = setInterval(sendHeartbeat, 15000);
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', sendOffline);
 
@@ -772,6 +770,36 @@ export default function StudentDashboard() {
       sendOffline();
     };
   }, []);
+
+  // --- LIVE CHAT PARTNER PRESENCE SYNC ---
+  useEffect(() => {
+    if (!selectedPartner || activeTab !== 'messages') return;
+    const pId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    if (!pId) return;
+
+    const checkPartnerPresence = () => {
+      API.get(`/presence/${pId}`).then(res => {
+        if (res.data && typeof res.data.is_online === 'boolean') {
+          setSelectedPartner(prev => {
+            if (!prev) return prev;
+            const curPid = prev.partner_id || prev.user_id || prev.id;
+            if (String(curPid) === String(pId)) {
+              return {
+                ...prev,
+                is_online: res.data.is_online,
+                last_seen: res.data.last_seen || prev.last_seen
+              };
+            }
+            return prev;
+          });
+        }
+      }).catch(() => {});
+    };
+
+    checkPartnerPresence();
+    const presenceTimer = setInterval(checkPartnerPresence, 10000);
+    return () => clearInterval(presenceTimer);
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, activeTab]);
 
   // Chat auto-scroll helpers (Strictly container-scoped to prevent displacing the page)
   const scrollToBottom = (behavior = "auto") => {
@@ -888,6 +916,66 @@ export default function StudentDashboard() {
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'pong') return;
+
+            if (data.type === 'user_presence' && data.user_id) {
+              const targetUid = String(data.user_id);
+              const isOnlineNow = Boolean(data.is_online);
+              const lastSeenVal = data.last_seen || new Date().toISOString();
+
+              // 1. Live update active chat partner if open
+              setSelectedPartner(prev => {
+                if (!prev) return prev;
+                const pId = String(prev.partner_id || prev.user_id || prev.id || '');
+                if (pId === targetUid) {
+                  return {
+                    ...prev,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return prev;
+              });
+
+              // 2. Live update in conversations list
+              setConversations(prev => prev.map(c => {
+                const cId = String(c.partner_id || c.user_id || c.id || '');
+                if (cId === targetUid) {
+                  return {
+                    ...c,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return c;
+              }));
+
+              // 3. Live update in friends list
+              setMyFriends(prev => prev.map(f => {
+                const fId = String(f.user_id || f.id || '');
+                if (fId === targetUid) {
+                  return {
+                    ...f,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return f;
+              }));
+
+              // 4. Live update in community users list
+              setCommunityUsers(prev => prev.map(u => {
+                const uId = String(u.user_id || u.id || '');
+                if (uId === targetUid) {
+                  return {
+                    ...u,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return u;
+              }));
+              return;
+            }
 
             if (data.type === 'account_status_changed' || data.type === 'account_deleted') {
               try {
@@ -3635,136 +3723,21 @@ export default function StudentDashboard() {
   );
 
   return (
-    <div className="h-dvh-screen max-h-dvh-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row">
+    <div className="h-dvh-screen max-h-dvh-screen overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col select-none">
       {/* Floating In-App Chat Notification Alert */}
       <InAppChatBanner
         banner={inAppBanner}
         onReply={handleReplyFromBanner}
         onDismiss={() => setInAppBanner(null)}
       />
-      
-      {/* Desktop Sidebar Navigation (Hidden on small screens) */}
-      <aside className="hidden md:flex flex-col md:w-64 bg-white border-r border-slate-200 p-5 justify-between shrink-0 shadow-xs h-full overflow-y-auto">
-        <div>
-          <Link to="/" className="flex items-center space-x-2.5 mb-8">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-sm text-white shadow-md shadow-sky-500/20">
-              CL
-            </div>
-            <div>
-              <span className="font-extrabold text-base tracking-tight text-slate-900 block leading-tight">
-                CAMPUS<span className="text-sky-600">LINK</span>
-              </span>
-              <span className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">Student Portal</span>
-            </div>
-          </Link>
-
-          {/* Student Profile Card with Live Avatar */}
-          <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-100 mb-6 flex items-center space-x-3">
-            <div className="relative">
-              {currentUser?.profile_picture_url ? (
-                <SafeImage
-                  src={currentUser.profile_picture_url}
-                  alt={currentUser.full_name}
-                  fallbackType="avatar"
-                  className="w-10 h-10 rounded-xl object-cover border border-sky-200"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-xs">
-                  {currentUser?.full_name?.charAt(0) || 'S'}
-                </div>
-              )}
-            </div>
-            <div className="overflow-hidden">
-              <span className="text-xs font-bold text-slate-900 block truncate">{currentUser?.full_name}</span>
-              <span className="text-[10px] text-sky-700 font-semibold flex items-center space-x-1">
-                <ShieldCheck className="w-3 h-3 text-sky-600" />
-                <span>Verified Student</span>
-              </span>
-            </div>
-          </div>
-
-          <nav className="space-y-1.5 text-xs font-semibold">
-            {/* 1. Home (Reels & Feed) */}
-            <button
-              onClick={() => setActiveTab('reels')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'reels' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Home className="w-4 h-4" />
-              <span>Home & Feed</span>
-            </button>
-
-            {/* 2. Unified Market & Services */}
-            <button
-              onClick={() => { setActiveTab('marketplace'); }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'marketplace' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Market & Services</span>
-            </button>
-
-            {/* 3. Campus Notices & Directory */}
-            <button
-              onClick={() => setActiveTab('campus')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'campus' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Bell className="w-4 h-4" />
-              <span>Notices & Directory</span>
-            </button>
-
-            {/* 4. Messages & Friends */}
-            <button
-              onClick={() => setActiveTab('messages')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer relative ${
-                activeTab === 'messages' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <MessageSquare className="w-4 h-4" />
-              <span>Messages & Friends</span>
-              {(totalUnreadChatCount > 0 || pendingRequests.length > 0) && (
-                <span className="ml-auto bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                  {totalUnreadChatCount > 0 ? totalUnreadChatCount : pendingRequests.length}
-                </span>
-              )}
-            </button>
-
-            {/* 5. Settings & Profile */}
-            <button
-              onClick={() => setActiveTab('profile')}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all cursor-pointer ${
-                activeTab === 'profile' ? 'bg-sky-500 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span>Settings & Profile</span>
-            </button>
-          </nav>
-        </div>
-
-        <div className="pt-4 border-t border-slate-200">
-          <button
-            onClick={handleLogout}
-            className="w-full py-2.5 px-4 rounded-xl text-rose-600 hover:bg-rose-50 text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-7xl w-full min-w-0 flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
+      <main className={`flex-1 w-full min-w-0 max-w-full flex flex-col min-h-0 h-full overflow-x-hidden overscroll-x-none ${activeTab === 'messages' ? 'overflow-hidden p-0' : 'overflow-y-auto p-0'}`}>
         
         {/* --- BESPOKE CAMPUS HEADER & MODERN CAPSULE NAVIGATION --- */}
         <div className={`sticky top-0 z-30 bg-white border-b border-slate-200/80 shadow-2xs w-full ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
-          {/* Row 1: Brand & Top Utilities (ONLY SHOWN ON HOME SECTION) */}
-          {activeTab === 'reels' && (
-            <div className="px-3 sm:px-4 py-2 flex items-center justify-between">
+          {/* Row 1: Brand & Top Utilities (Shown on reels on mobile, and always on desktop) */}
+          <div className={`px-3 sm:px-4 py-2 items-center justify-between ${activeTab === 'reels' ? 'flex' : 'hidden md:flex'}`}>
               <button
                 type="button"
                 onClick={() => setActiveTab('reels')}
@@ -3813,7 +3786,6 @@ export default function StudentDashboard() {
                 </button>
               </div>
             </div>
-          )}
 
           {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
           <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">

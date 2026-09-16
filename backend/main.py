@@ -522,42 +522,173 @@ def get_current_user_for_presence(token: str, db: Session) -> models.User:
     return user
 
 
+# --- REAL-TIME WEBSOCKET CONNECTION MANAGER ---
+class ConnectionManager:
+    def __init__(self):
+        # user_id (str) -> list of active WebSockets
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket) -> bool:
+        try:
+            await websocket.accept()
+        except Exception:
+            return False
+        uid = str(user_id)
+        if uid not in self.active_connections:
+            self.active_connections[uid] = []
+        self.active_connections[uid].append(websocket)
+        return True
+
+    def disconnect(self, user_id: str, websocket: WebSocket):
+        uid = str(user_id)
+        if uid in self.active_connections:
+            try:
+                if websocket in self.active_connections[uid]:
+                    self.active_connections[uid].remove(websocket)
+            except Exception:
+                pass
+            if not self.active_connections[uid]:
+                del self.active_connections[uid]
+
+    async def broadcast_to_user(self, user_id: str, data: dict):
+        uid = str(user_id)
+        if uid in self.active_connections:
+            dead_sockets = []
+            for connection in list(self.active_connections[uid]):
+                try:
+                    await connection.send_json(data)
+                except Exception:
+                    dead_sockets.append(connection)
+            for dead in dead_sockets:
+                self.disconnect(uid, dead)
+
+    async def broadcast_all(self, data: dict):
+        for uid in list(self.active_connections.keys()):
+            await self.broadcast_to_user(uid, data)
+
+ws_manager = ConnectionManager()
+
+
 @app.post("/api/presence/heartbeat")
-def presence_heartbeat(
+async def presence_heartbeat(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
     """
-    Called by the frontend every 30 s to keep the user marked as online.
-    Also passively marks users whose last_seen is > 2 min ago as offline.
+    Called by the frontend to keep the user marked as online.
+    Passively marks users whose last_seen is > 45s ago as offline and broadcasts presence changes.
     """
     now_utc = datetime.now(timezone.utc)
     now = now_utc.replace(tzinfo=None)
+    was_offline = not bool(current_user.is_online)
     current_user.is_online = True
     current_user.last_seen = now
-    # Passive cleanup: mark stale users as offline (last_seen > 2 min ago)
-    stale_cutoff = now - timedelta(minutes=2)
-    db.query(models.User).filter(
+
+    # Passive cleanup: mark stale users as offline (last_seen > 45 seconds ago and no active socket)
+    stale_cutoff = now - timedelta(seconds=45)
+    stale_users = db.query(models.User).filter(
         models.User.is_online == True,
         models.User.last_seen < stale_cutoff,
         models.User.user_id != current_user.user_id
-    ).update({"is_online": False}, synchronize_session=False)
+    ).all()
+    
+    stale_to_broadcast = []
+    for su in stale_users:
+        su_id_str = str(su.user_id)
+        if su_id_str not in ws_manager.active_connections or not ws_manager.active_connections[su_id_str]:
+            su.is_online = False
+            stale_to_broadcast.append(su_id_str)
+            
     db.commit()
+
+    # Broadcast state changes
+    for su_id in stale_to_broadcast:
+        try:
+            await ws_manager.broadcast_all({
+                "type": "user_presence",
+                "user_id": su_id,
+                "is_online": False,
+                "last_seen": now_utc.isoformat()
+            })
+        except Exception:
+            pass
+
+    if was_offline:
+        try:
+            await ws_manager.broadcast_all({
+                "type": "user_presence",
+                "user_id": str(current_user.user_id),
+                "is_online": True,
+                "last_seen": now_utc.isoformat()
+            })
+        except Exception:
+            pass
+
     return {"status": "online", "last_seen": now_utc.isoformat()}
 
 
 @app.post("/api/presence/offline")
-def presence_offline(
+async def presence_offline(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
 ):
-    """Called when the user closes the tab or hides the app."""
+    """Called when the user closes the tab, navigates away, or locks screen."""
     now_utc = datetime.now(timezone.utc)
     now = now_utc.replace(tzinfo=None)
     current_user.is_online = False
     current_user.last_seen = now
     db.commit()
+
+    try:
+        await ws_manager.broadcast_all({
+            "type": "user_presence",
+            "user_id": str(current_user.user_id),
+            "is_online": False,
+            "last_seen": now_utc.isoformat()
+        })
+    except Exception:
+        pass
+
     return {"status": "offline", "last_seen": now_utc.isoformat()}
+
+
+@app.get("/api/presence/{target_user_id}")
+def get_user_presence(
+    target_user_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Returns live, up-to-the-second presence status for any chat partner."""
+    u = db.query(models.User).filter(
+        (models.User.user_id == str(target_user_id)) |
+        (models.User.id == str(target_user_id))
+    ).first()
+    if not u:
+        # Fallback vendor lookup
+        v = db.query(models.Vendor).filter(
+            (models.Vendor.vendor_id == str(target_user_id)) |
+            (models.Vendor.id == str(target_user_id))
+        ).first()
+        if v and v.user:
+            u = v.user
+
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    uid_str = str(u.user_id)
+    # Check if user has active open WebSocket socket right now
+    has_active_socket = bool(uid_str in ws_manager.active_connections and ws_manager.active_connections[uid_str])
+    is_really_online = has_active_socket or bool(u.is_online)
+    if not has_active_socket and u.last_seen:
+        diff_secs = (datetime.utcnow() - u.last_seen).total_seconds()
+        if diff_secs > 45:
+            is_really_online = False
+
+    return {
+        "user_id": uid_str,
+        "is_online": is_really_online,
+        "last_seen": (u.last_seen.replace(tzinfo=timezone.utc).isoformat()) if u.last_seen else None
+    }
 
 
 @app.get("/api/version")
@@ -3481,65 +3612,31 @@ def resolve_target_user_id(target_id: Any, db: Session) -> Optional[models.User]
         
     return None
 
-# --- REAL-TIME WEBSOCKET CONNECTION MANAGER ---
-class ConnectionManager:
-    def __init__(self):
-        # user_id (str) -> list of active WebSockets
-        self.active_connections: dict[str, list[WebSocket]] = {}
-
-    async def connect(self, user_id: str, websocket: WebSocket) -> bool:
-        try:
-            await websocket.accept()
-        except Exception:
-            return False
-        uid = str(user_id)
-        if uid not in self.active_connections:
-            self.active_connections[uid] = []
-        self.active_connections[uid].append(websocket)
-        return True
-
-    def disconnect(self, user_id: str, websocket: WebSocket):
-        uid = str(user_id)
-        if uid in self.active_connections:
-            try:
-                if websocket in self.active_connections[uid]:
-                    self.active_connections[uid].remove(websocket)
-            except Exception:
-                pass
-            if not self.active_connections[uid]:
-                del self.active_connections[uid]
-
-    async def broadcast_to_user(self, user_id: str, data: dict):
-        uid = str(user_id)
-        if uid in self.active_connections:
-            dead_sockets = []
-            for connection in list(self.active_connections[uid]):
-                try:
-                    await connection.send_json(data)
-                except Exception:
-                    dead_sockets.append(connection)
-            for dead in dead_sockets:
-                self.disconnect(uid, dead)
-
-    async def broadcast_all(self, data: dict):
-        for uid in list(self.active_connections.keys()):
-            await self.broadcast_to_user(uid, data)
-
-ws_manager = ConnectionManager()
-
 @app.websocket("/ws/{user_id}")
 async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
     connected = await ws_manager.connect(str(user_id), websocket)
     if not connected:
         return
 
+    now_utc = datetime.now(timezone.utc)
     try:
         with database.SessionLocal() as _db:
             _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
                 "is_online": True,
-                "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
+                "last_seen": now_utc.replace(tzinfo=None)
             })
             _db.commit()
+    except Exception:
+        pass
+
+    # Instant real-time broadcast: User is online
+    try:
+        await ws_manager.broadcast_all({
+            "type": "user_presence",
+            "user_id": str(user_id),
+            "is_online": True,
+            "last_seen": now_utc.isoformat()
+        })
     except Exception:
         pass
 
@@ -3556,15 +3653,29 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
         pass
     finally:
         ws_manager.disconnect(str(user_id), websocket)
-        try:
-            with database.SessionLocal() as _db:
-                _db.query(models.User).filter(models.User.user_id == str(user_id)).update({
+        now_utc = datetime.now(timezone.utc)
+        uid_str = str(user_id)
+        # Only mark offline if user has no other active browser tabs/sockets
+        has_other_tabs = bool(uid_str in ws_manager.active_connections and ws_manager.active_connections[uid_str])
+        if not has_other_tabs:
+            try:
+                with database.SessionLocal() as _db:
+                    _db.query(models.User).filter(models.User.user_id == uid_str).update({
+                        "is_online": False,
+                        "last_seen": now_utc.replace(tzinfo=None)
+                    })
+                    _db.commit()
+            except Exception:
+                pass
+            try:
+                await ws_manager.broadcast_all({
+                    "type": "user_presence",
+                    "user_id": uid_str,
                     "is_online": False,
-                    "last_seen": datetime.now(timezone.utc).replace(tzinfo=None)
+                    "last_seen": now_utc.isoformat()
                 })
-                _db.commit()
-        except Exception:
-            pass
+            except Exception:
+                pass
 
 @app.post("/api/messages", response_model=schemas.MessageOut)
 async def send_message(

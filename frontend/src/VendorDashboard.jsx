@@ -215,12 +215,11 @@ export function formatLastSeen(lastSeenIso, isOnline) {
     if (isNaN(targetDate.getTime())) return { label: 'Offline', online: false };
 
     let diffMs = Date.now() - targetDate.getTime();
-    if (diffMs < 120000 && diffMs > -180000) return { label: 'Active now', online: true };
     if (diffMs < 0) diffMs = 0;
 
     const diffMin = Math.floor(diffMs / 60000);
     const diffHr = Math.floor(diffMs / 3600000);
-    if (diffMin < 1) return { label: 'Active now', online: true };
+    if (diffMin < 1) return { label: 'Last seen just now', online: false };
     if (diffMin < 60) return { label: `Last seen ${diffMin}m ago`, online: false };
     if (diffHr < 24) return { label: `Last seen ${diffHr}h ago`, online: false };
     if (diffHr < 48) return { label: 'Last seen yesterday', online: false };
@@ -891,6 +890,86 @@ export default function VendorDashboard() {
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
+  // --- PRESENCE HEARTBEAT FOR VENDOR ---
+  useEffect(() => {
+    const token = getAuthToken();
+    if (!token) return;
+    let isCancelled = false;
+    let interval = null;
+
+    const sendHeartbeat = () => {
+      if (isCancelled || !getAuthToken()) return;
+      API.post('/presence/heartbeat').catch((err) => {
+        if (err?.response?.status === 401) {
+          isCancelled = true;
+          if (interval) clearInterval(interval);
+        }
+      });
+    };
+    const sendOffline = () => {
+      const activeToken = getAuthToken();
+      if (!activeToken) return;
+      const baseUrl = (API.defaults.baseURL || '').replace(/\/api$/, '');
+      const offlineUrl = `${baseUrl}/api/presence/offline`;
+      fetch(offlineUrl, {
+        method: 'POST',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${activeToken}`,
+        },
+        body: JSON.stringify({}),
+      }).catch(() => {});
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') sendOffline();
+      else sendHeartbeat();
+    };
+
+    sendHeartbeat();
+    interval = setInterval(sendHeartbeat, 15000);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', sendOffline);
+
+    return () => {
+      isCancelled = true;
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', sendOffline);
+      sendOffline();
+    };
+  }, []);
+
+  // --- LIVE CHAT PARTNER PRESENCE SYNC ---
+  useEffect(() => {
+    if (!selectedPartner || activeTab !== 'messages') return;
+    const pId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    if (!pId) return;
+
+    const checkPartnerPresence = () => {
+      API.get(`/presence/${pId}`).then(res => {
+        if (res.data && typeof res.data.is_online === 'boolean') {
+          setSelectedPartner(prev => {
+            if (!prev) return prev;
+            const curPid = prev.partner_id || prev.user_id || prev.id;
+            if (String(curPid) === String(pId)) {
+              return {
+                ...prev,
+                is_online: res.data.is_online,
+                last_seen: res.data.last_seen || prev.last_seen
+              };
+            }
+            return prev;
+          });
+        }
+      }).catch(() => {});
+    };
+
+    checkPartnerPresence();
+    const presenceTimer = setInterval(checkPartnerPresence, 10000);
+    return () => clearInterval(presenceTimer);
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, activeTab]);
+
   // Chat auto-scroll helpers (Strictly container-scoped to prevent displacing the page)
   const scrollToBottom = (behavior = "auto") => {
     const el = chatContainerRef.current;
@@ -1030,6 +1109,40 @@ export default function VendorDashboard() {
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'pong') return; // Heartbeat response
+
+            if (data.type === 'user_presence' && data.user_id) {
+              const targetUid = String(data.user_id);
+              const isOnlineNow = Boolean(data.is_online);
+              const lastSeenVal = data.last_seen || new Date().toISOString();
+
+              // 1. Live update active chat partner if open
+              setSelectedPartner(prev => {
+                if (!prev) return prev;
+                const pId = String(prev.partner_id || prev.user_id || prev.id || '');
+                if (pId === targetUid) {
+                  return {
+                    ...prev,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return prev;
+              });
+
+              // 2. Live update in conversations list
+              setConversations(prev => prev.map(c => {
+                const cId = String(c.partner_id || c.user_id || c.id || '');
+                if (cId === targetUid) {
+                  return {
+                    ...c,
+                    is_online: isOnlineNow,
+                    last_seen: lastSeenVal
+                  };
+                }
+                return c;
+              }));
+              return;
+            }
 
             if (data.type === 'account_status_changed' || data.type === 'account_deleted') {
               try {
