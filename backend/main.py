@@ -4039,13 +4039,14 @@ def discover_community_users(
 
     if search:
         s = f"%{search.strip()}%"
-        query = query.filter(
+        query = query.outerjoin(models.Vendor, models.User.user_id == models.Vendor.user_id).filter(
             (models.User.full_name.ilike(s)) |
             (models.User.department.ilike(s)) |
-            (models.User.hostel.ilike(s))
+            (models.User.hostel.ilike(s)) |
+            (models.Vendor.business_name.ilike(s))
         )
 
-    users = query.limit(60).all()
+    users = query.order_by(models.User.created_at.desc()).limit(1000).all()
     if not users:
         return []
 

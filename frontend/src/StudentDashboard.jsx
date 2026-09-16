@@ -89,11 +89,23 @@ export function setCachedData(key, value) {
 export function getDisplayContent(content) {
   if (!content) return "";
   let data = content;
-  if (typeof content === "string" && content.trim().startsWith("{")) {
-    try {
-      data = JSON.parse(content);
-    } catch {
-      return content;
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        data = JSON.parse(trimmed);
+      } catch {
+        // Fallback for truncated JSON strings like '{"type":"status_reply","reply_text":"","reaction":"😂"...'
+        const reactionMatch = trimmed.match(/"reaction"\s*:\s*"([^"]+)"/);
+        const replyTextMatch = trimmed.match(/"reply_text"\s*:\s*"([^"]*)"/);
+        const reaction = reactionMatch ? reactionMatch[1] : null;
+        const replyText = replyTextMatch ? replyTextMatch[1] : null;
+        if (reaction && replyText) return `${reaction} ${replyText}`;
+        if (reaction) return `Reacted ${reaction} to story`;
+        if (replyText) return `Replied to story: ${replyText}`;
+        if (trimmed.includes('"type":"status_reply"')) return "💬 Story reply";
+        return content;
+      }
     }
   }
   if (typeof data === "object" && data !== null) {
@@ -263,7 +275,7 @@ export default function StudentDashboard() {
   // Facebook Lite Nav & Drawer States
   const [menuDrawerOpen, setMenuDrawerOpen] = useState(false);
   const [quickPostModalOpen, setQuickPostModalOpen] = useState(false);
-  const [friendsTabFilter, setFriendsTabFilter] = useState('all'); // 'all' | 'requests' | 'suggestions'
+  const [friendsTabFilter, setFriendsTabFilter] = useState('find'); // 'find' (1st) | 'all' (requests 2nd) | 'friends' (3rd)
   const [marketSearchOpen, setMarketSearchOpen] = useState(false);
   const [quickMessageText, setQuickMessageText] = useState("Is this still available? 😊");
   const [sendingQuickMessage, setSendingQuickMessage] = useState(false);
@@ -1298,6 +1310,30 @@ export default function StudentDashboard() {
     }
   }, [activeTab, currentUser?.user_id, currentUser?.id]);
 
+  // Fresh reload of campus community directory and friends when entering friends tab
+  useEffect(() => {
+    if (activeTab === 'friends') {
+      API.get('/community/users').then(res => {
+        const fetched = res.data || [];
+        const nonSelfUsers = fetched.filter(u => !isSelfUser(u));
+        setCommunityUsers(nonSelfUsers);
+        setCampusStudents(nonSelfUsers);
+        setCachedData('communityUsers', nonSelfUsers);
+        setCachedData('campusStudents', nonSelfUsers);
+      }).catch(() => {});
+      API.get('/friends/requests/pending').then(res => {
+        const fetched = res.data || [];
+        setPendingRequests(fetched);
+        setCachedData('pendingRequests', fetched);
+      }).catch(() => {});
+      API.get('/friends').then(res => {
+        const fetched = res.data || [];
+        setMyFriends(fetched);
+        setCachedData('myFriends', fetched);
+      }).catch(() => {});
+    }
+  }, [activeTab]);
+
 
   const fetchNotifications = async () => {
     try {
@@ -1691,9 +1727,24 @@ export default function StudentDashboard() {
     if (msg.message_type === 'audio') preview = '🎤 Voice Note';
     else if (msg.message_type === 'image') preview = '📷 Photo';
     else if (msg.message_type === 'video') preview = '🎥 Video';
-    else {
+    else if (msg.message_type === 'status_reply' || isStatusReplyContent(msg.content)) {
+      const statusData = parseStatusReply(msg);
+      if (statusData) {
+        if (statusData.reaction && statusData.replyText) {
+          preview = `${statusData.reaction} ${statusData.replyText}`;
+        } else if (statusData.reaction) {
+          preview = `Reacted ${statusData.reaction} to story`;
+        } else if (statusData.replyText) {
+          preview = `Replied to story: ${statusData.replyText}`;
+        } else {
+          preview = '💬 Story reply';
+        }
+      } else {
+        preview = getDisplayContent(msg.content) || '💬 Story reply';
+      }
+    } else {
       const parsed = parseChatReply(msg);
-      preview = parsed ? parsed.text : (msg.content || msg.text || '');
+      preview = parsed ? parsed.text : (getDisplayContent(msg.content) || msg.text || '');
     }
     setReplyingToMessage({
       id: msg.id,
@@ -4685,8 +4736,19 @@ export default function StudentDashboard() {
               </button>
             </div>
 
-            {/* Filter Chips: Requests, Your Friends, Find Friends */}
+            {/* Filter Chips: Find Friends (1st), Requests (2nd), Your Friends (3rd) */}
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                type="button"
+                onClick={() => setFriendsTabFilter('find')}
+                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                  friendsTabFilter === 'find' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                <Search className="w-3.5 h-3.5" />
+                <span>Find Friends</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setFriendsTabFilter('all')}
@@ -4706,17 +4768,6 @@ export default function StudentDashboard() {
                 }`}
               >
                 Your friends ({myFriends.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFriendsTabFilter('find')}
-                className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
-                  friendsTabFilter === 'find' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
-                }`}
-              >
-                <Search className="w-3.5 h-3.5" />
-                <span>Find Friends ({campusStudents.filter(s => !isSelfUser(s)).length})</span>
               </button>
             </div>
 
@@ -4831,7 +4882,7 @@ export default function StudentDashboard() {
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
                     >
-                      All Members ({campusStudents.filter(s => !isSelfUser(s)).length})
+                      All Members
                     </button>
                     <button
                       type="button"

@@ -13,7 +13,7 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2
+  Image as ImageIcon, Loader2, GraduationCap
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -55,11 +55,23 @@ export const prefetchRecentConversations = primeConversationsCache;
 export function getDisplayContent(content) {
   if (!content) return "";
   let data = content;
-  if (typeof content === "string" && content.trim().startsWith("{")) {
-    try {
-      data = JSON.parse(content);
-    } catch {
-      return content;
+  if (typeof content === "string") {
+    const trimmed = content.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        data = JSON.parse(trimmed);
+      } catch {
+        // Fallback for truncated JSON strings like '{"type":"status_reply","reply_text":"","reaction":"😂"...'
+        const reactionMatch = trimmed.match(/"reaction"\s*:\s*"([^"]+)"/);
+        const replyTextMatch = trimmed.match(/"reply_text"\s*:\s*"([^"]*)"/);
+        const reaction = reactionMatch ? reactionMatch[1] : null;
+        const replyText = replyTextMatch ? replyTextMatch[1] : null;
+        if (reaction && replyText) return `${reaction} ${replyText}`;
+        if (reaction) return `Reacted ${reaction} to story`;
+        if (replyText) return `Replied to story: ${replyText}`;
+        if (trimmed.includes('"type":"status_reply"')) return "💬 Story reply";
+        return content;
+      }
     }
   }
   if (typeof data === "object" && data !== null) {
@@ -94,6 +106,19 @@ export function isStatusReplyContent(content) {
   if (typeof content === "object" && (content.type === "status_reply" || content.status_id)) return true;
   if (typeof content === "string" && (content.includes('"type":"status_reply"') || content.includes('"status_reply"') || content.startsWith('Replying to status'))) return true;
   return false;
+}
+
+export function renderCategoryIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('food') || n.includes('meal') || n.includes('snack')) return <Utensils className="w-3.5 h-3.5" />;
+  if (n.includes('fashion') || n.includes('shoe') || n.includes('thrift')) return <ShoppingBag className="w-3.5 h-3.5" />;
+  if (n.includes('laptop') || n.includes('gadget') || n.includes('tech')) return <Laptop className="w-3.5 h-3.5" />;
+  if (n.includes('academic') || n.includes('book') || n.includes('stationery')) return <BookOpen className="w-3.5 h-3.5" />;
+  if (n.includes('laundry') || n.includes('clean')) return <Sparkles className="w-3.5 h-3.5" />;
+  if (n.includes('photo') || n.includes('media')) return <Camera className="w-3.5 h-3.5" />;
+  if (n.includes('beauty') || n.includes('hair') || n.includes('barber')) return <Scissors className="w-3.5 h-3.5" />;
+  if (n.includes('service') || n.includes('repair')) return <Wrench className="w-3.5 h-3.5" />;
+  return <Tag className="w-3.5 h-3.5" />;
 }
 
 // Chat Reply Parser for Quoted Messages
@@ -327,6 +352,7 @@ export default function VendorDashboard() {
   const [isCampusModalOpen, setIsCampusModalOpen] = useState(false);
   const [showMarketplaceUniDropdown, setShowMarketplaceUniDropdown] = useState(false);
   const [marketplaceUniSearch, setMarketplaceUniSearch] = useState('');
+  const [marketSearchOpen, setMarketSearchOpen] = useState(false);
   const marketplaceUniDropdownRef = useRef(null);
 
   // Notifications State
@@ -1674,6 +1700,28 @@ export default function VendorDashboard() {
     }
   }, [activeTab, user?.user_id, user?.id]);
 
+  // Fresh reload of campus community directory and friends when entering friends tab
+  useEffect(() => {
+    if (activeTab === 'friends') {
+      API.get('/students').then(res => {
+        const raw = res.data || [];
+        const stds = raw.filter(u => !isSelfUser(u));
+        setCommunityUsers(stds);
+        setCachedData('communityUsers', stds);
+      }).catch(() => {});
+      API.get('/friends/requests/pending').then(res => {
+        const pnd = res.data || [];
+        setPendingRequests(pnd);
+        setCachedData('pendingRequests', pnd);
+      }).catch(() => {});
+      API.get('/friends').then(res => {
+        const frnds = res.data || [];
+        setFriendsList(frnds);
+        setCachedData('friendsList', frnds);
+      }).catch(() => {});
+    }
+  }, [activeTab]);
+
   // --- PROFILE MODAL ACTIONS (Instant 0ms Response with In-Memory Cache) ---
   const handleOpenProfile = (targetUserId, optimisticData = null) => {
     const uid = String(targetUserId || '');
@@ -2064,6 +2112,29 @@ export default function VendorDashboard() {
     fetchMessagesForPartner(newPid);
   };
 
+  const handleStartVendorChat = (productOrService) => {
+    const vUserId = productOrService.vendor_user_id || productOrService.user_id;
+    const existing = conversations.find(c => 
+      (vUserId && String(c.partner_id || c.user_id || c.id) === String(vUserId)) ||
+      (productOrService.vendor_name && c.partner_name === productOrService.vendor_name)
+    );
+    if (existing) {
+      handleSelectPartner(existing);
+    } else {
+      const partnerId = vUserId || (productOrService.vendor_id ? `v_${productOrService.vendor_id}` : (productOrService.vendor_name ? `v_${productOrService.vendor_name}` : 'vendor'));
+      const partner = {
+        partner_id: String(partnerId),
+        partner_name: productOrService.vendor_name || 'Campus Merchant',
+        partner_phone: productOrService.vendor_phone,
+        partner_role: 'Vendor',
+        location: productOrService.vendor_location || productOrService.location
+      };
+      handleSelectPartner(partner);
+    }
+    setActiveTab('messages');
+    setMessageSubtab('chats');
+  };
+
   useEffect(() => {
     const pid = selectedPartner?.partner_id || selectedPartner?.user_id || selectedPartner?.id;
     if (!pid || selectedPartner?.is_ai || pid === 'campus_ai') return;
@@ -2187,11 +2258,36 @@ export default function VendorDashboard() {
       (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
     ));
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Customer');
-    const previewText = (typeof msg.content === 'string' ? msg.content : (msg.text || 'Message')).slice(0, 100);
+    let previewText = '';
+    if (msg.message_type === 'audio') {
+      previewText = '🎤 Voice Note';
+    } else if (msg.message_type === 'image') {
+      previewText = '📷 Photo';
+    } else if (msg.message_type === 'video') {
+      previewText = '🎥 Video';
+    } else if (msg.message_type === 'status_reply' || isStatusReplyContent(msg.content)) {
+      const statusData = parseStatusReply(msg);
+      if (statusData) {
+        if (statusData.reaction && statusData.replyText) {
+          previewText = `${statusData.reaction} ${statusData.replyText}`;
+        } else if (statusData.reaction) {
+          previewText = `Reacted ${statusData.reaction} to story`;
+        } else if (statusData.replyText) {
+          previewText = `Replied to story: ${statusData.replyText}`;
+        } else {
+          previewText = '💬 Story reply';
+        }
+      } else {
+        previewText = getDisplayContent(msg.content) || '💬 Story reply';
+      }
+    } else {
+      const parsed = parseChatReply(msg);
+      previewText = parsed ? parsed.text : (getDisplayContent(msg.content) || msg.text || 'Message');
+    }
     setReplyingToMessage({
       id: msg.id,
       sender_name: senderName,
-      preview: previewText
+      preview: previewText.length > 70 ? previewText.slice(0, 70) + '...' : previewText
     });
   };
 
@@ -3340,17 +3436,80 @@ export default function VendorDashboard() {
     .reduce((sum, o) => sum + (Number(o.amount) || 0), 0);
 
   // Filtered Community Users for Find Friends (strictly excludes the vendor themself)
-  const filteredCommunity = communityUsers.filter(u => {
-    if (isSelfUser(u)) return false;
-    const matchesRole = communityRoleFilter === 'all' ? true : u.role === communityRoleFilter;
-    const query = communitySearch.toLowerCase().trim();
-    if (!query) return matchesRole;
-    const nameMatch = (u.full_name || '').toLowerCase().includes(query);
-    const deptMatch = (u.department || '').toLowerCase().includes(query);
-    const hostelMatch = (u.hostel || '').toLowerCase().includes(query);
-    const bizMatch = (u.business_name || '').toLowerCase().includes(query);
-    return matchesRole && (nameMatch || deptMatch || hostelMatch || bizMatch);
-  });
+  const filteredCommunity = useMemo(() => {
+    return communityUsers.filter(u => {
+      if (isSelfUser(u)) return false;
+      const matchesRole = communityRoleFilter === 'all'
+        ? true
+        : communityRoleFilter === 'student'
+          ? (u.role === 'student' && !u.is_seller)
+          : (u.role === 'vendor' || u.is_seller);
+      const query = communitySearch.toLowerCase().trim();
+      if (!query) return matchesRole;
+      const nameMatch = (u.full_name || '').toLowerCase().includes(query);
+      const deptMatch = (u.department || '').toLowerCase().includes(query);
+      const hostelMatch = (u.hostel || '').toLowerCase().includes(query);
+      const bizMatch = (u.business_name || '').toLowerCase().includes(query);
+      const uniMatch = (u.university_name || '').toLowerCase().includes(query);
+      return matchesRole && (nameMatch || deptMatch || hostelMatch || bizMatch || uniMatch);
+    });
+  }, [communityUsers, communityRoleFilter, communitySearch, user?.id, user?.user_id]);
+
+  // Filtered Marketplace Products & Services with Rotating Feeds
+  const filteredMarketProducts = useMemo(() => {
+    const searchQ = marketplaceSearchQuery.toLowerCase().trim();
+    return (marketplaceProducts || []).filter(p => {
+      if (!matchesMarketplaceUniFilter(p)) return false;
+      if (marketplaceCategory !== 'all') {
+        const cName = (p.category_name || '').toLowerCase();
+        const cId = p.category_id ? String(p.category_id) : '';
+        if (marketplaceCategory === cId) return true;
+        if (marketplaceCategory === 'food' && !cName.includes('food') && !cName.includes('meal')) return false;
+        if (marketplaceCategory === 'fashion' && !cName.includes('fashion') && !cName.includes('shoe') && !cName.includes('wear')) return false;
+        if (marketplaceCategory === 'tech' && !cName.includes('laptop') && !cName.includes('gadget') && !cName.includes('tech')) return false;
+        if (marketplaceCategory === 'academic' && !cName.includes('academic') && !cName.includes('book')) return false;
+        if (marketplaceCategory === 'services' && !cName.includes('service') && !cName.includes('clean')) return false;
+        if (marketplaceCategory === 'other' && (cName.includes('food') || cName.includes('fashion') || cName.includes('laptop') || cName.includes('academic') || cName.includes('service'))) return false;
+      }
+      if (!searchQ) return true;
+      return (
+        (p.name || '').toLowerCase().includes(searchQ) ||
+        (p.description || '').toLowerCase().includes(searchQ) ||
+        (p.vendor_name || '').toLowerCase().includes(searchQ) ||
+        (p.university_name || '').toLowerCase().includes(searchQ)
+      );
+    });
+  }, [marketplaceProducts, marketplaceCategory, marketplaceSearchQuery, marketplaceUniFilter]);
+
+  const scatteredMarketProducts = useRotatingFeed(filteredMarketProducts, { timeWindowMinutes: 3 });
+
+  const filteredMarketServices = useMemo(() => {
+    const searchQ = marketplaceSearchQuery.toLowerCase().trim();
+    return (marketplaceServices || []).filter(s => {
+      if (!matchesMarketplaceUniFilter(s)) return false;
+      if (marketplaceCategory !== 'all') {
+        const cName = (s.category_name || '').toLowerCase();
+        const cId = s.category_id ? String(s.category_id) : '';
+        if (marketplaceCategory === cId) return true;
+        if (marketplaceCategory === 'services' && !cName.includes('service') && !cName.includes('clean')) return true;
+        if (marketplaceCategory === 'food' && !cName.includes('food') && !cName.includes('meal')) return false;
+        if (marketplaceCategory === 'fashion' && !cName.includes('fashion') && !cName.includes('shoe') && !cName.includes('wear')) return false;
+        if (marketplaceCategory === 'tech' && !cName.includes('laptop') && !cName.includes('gadget') && !cName.includes('tech')) return false;
+        if (marketplaceCategory === 'academic' && !cName.includes('academic') && !cName.includes('book')) return false;
+        if (marketplaceCategory === 'other' && (cName.includes('food') || cName.includes('fashion') || cName.includes('laptop') || cName.includes('academic'))) return false;
+      }
+      if (!searchQ) return true;
+      return (
+        (s.name || '').toLowerCase().includes(searchQ) ||
+        (s.description || '').toLowerCase().includes(searchQ) ||
+        (s.location || '').toLowerCase().includes(searchQ) ||
+        (s.vendor_name || '').toLowerCase().includes(searchQ) ||
+        (s.university_name || '').toLowerCase().includes(searchQ)
+      );
+    });
+  }, [marketplaceServices, marketplaceCategory, marketplaceSearchQuery, marketplaceUniFilter]);
+
+  const scatteredMarketServices = useRotatingFeed(filteredMarketServices, { timeWindowMinutes: 3 });
 
   // Filtered & Scattered Reels
   const rawReelBase = useMemo(() => {
@@ -3800,434 +3959,315 @@ export default function VendorDashboard() {
           )}
 
           {/* ========================================================================= */}
-          {/* --- TAB: CAMPUS MARKETPLACE (EXPLORE ALL VENDORS & SERVICES) --- */}
+          {/* --- TAB: CAMPUS MARKETPLACE (FACEBOOK LITE LAYOUT) --- */}
           {/* ========================================================================= */}
           {activeTab === 'marketplace' && (
-            <div className="space-y-5">
-              {/* TOP PROMINENT UNIVERSITY / CAMPUS BANNER (OCCUPIES FRONT / UP SIDE) */}
-              <div className="w-full bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 rounded-3xl p-4 sm:p-5 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center space-x-3 min-w-0 flex-1">
-                  <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0">
-                    <Building2 className="w-5 h-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-sky-200">Selected Institution / Campus</span>
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    </div>
-                    <h2 className="text-base sm:text-lg font-black text-white leading-tight break-words">
-                      {getMarketplaceUniFilterLabel()}
-                    </h2>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2 shrink-0 self-stretch sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => setIsCampusModalOpen(true)}
-                    className="px-4 py-2 bg-white hover:bg-sky-50 text-sky-800 font-bold text-xs rounded-xl shadow-xs cursor-pointer transition-all active:scale-95 flex items-center space-x-1.5 shrink-0 justify-center flex-1 sm:flex-none"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Change Campus</span>
-                  </button>
-                  {marketplaceUniFilter !== 'all' && (
+            <div>
+              {/* Facebook Lite Marketplace Header */}
+              <div className="space-y-3 mb-4">
+                <div className="flex items-center justify-between py-1 gap-2 flex-wrap">
+                  <div className="flex items-center space-x-2 min-w-0">
                     <button
                       type="button"
-                      onClick={() => setMarketplaceUniFilter('all')}
-                      className="px-3 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center space-x-1"
-                      title="Show all campuses"
+                      onClick={() => setActiveTab('inventory')}
+                      className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer shrink-0"
+                      title="Back to store"
                     >
-                      <Globe className="w-3.5 h-3.5" />
-                      <span>Show All</span>
+                      <ChevronLeft className="w-6 h-6" />
                     </button>
-                  )}
-                </div>
-              </div>
+                    <h1 className="text-xl sm:text-2xl font-black text-slate-900 shrink-0">Marketplace</h1>
 
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-2xs">
-                <div>
-                  <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-2xl bg-sky-500 text-white flex items-center justify-center font-bold shadow-xs">
-                      <ShoppingBag className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                        Campus Marketplace
-                      </h1>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Discover products, student offerings & services across campus faculties.
-                      </p>
-                    </div>
+                    {/* Prominent Front/Top Campus Selector */}
+                    <button
+                      type="button"
+                      onClick={() => setIsCampusModalOpen(true)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer border shadow-2xs active:scale-95 shrink-0 max-w-[200px] sm:max-w-xs ${
+                        marketplaceUniFilter !== 'all'
+                          ? 'bg-sky-50 text-sky-800 border-sky-300 ring-2 ring-sky-200'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                      }`}
+                      title="Select campus location"
+                    >
+                      {marketplaceUniFilter === 'all' ? (
+                        <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      ) : (
+                        <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                      )}
+                      <span className="truncate">
+                        {getMarketplaceUniFilterLabel()}
+                      </span>
+                      <span className="text-[10px] text-sky-700 bg-sky-100 px-1.5 py-0.2 rounded-md font-semibold shrink-0">
+                        Change
+                      </span>
+                    </button>
                   </div>
-                </div>
 
-                {/* Header Controls: Campus Location Button & Type Filters */}
-                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => setIsCampusModalOpen(true)}
-                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 shadow-2xs flex items-center space-x-1.5"
-                    title="Change selected university"
-                  >
-                    <MapPin className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                    <span className="truncate max-w-[150px] sm:max-w-[220px]">{getMarketplaceUniFilterLabel()}</span>
-                  </button>
-
-                  <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-2xl">
-                    {[
-                      { id: 'all', label: 'All Listings' },
-                      { id: 'products', label: 'Products' },
-                      { id: 'services', label: 'Services' }
-                    ].map((t) => (
+                  <div className="flex items-center space-x-1.5 shrink-0">
+                    {marketplaceUniFilter !== 'all' && (
                       <button
-                        key={t.id}
                         type="button"
-                        onClick={() => setMarketplaceType(t.id)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${marketplaceType === t.id
-                            ? 'bg-white text-slate-900 shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                        onClick={() => setMarketplaceUniFilter('all')}
+                        className="px-2.5 py-1 text-xs font-bold text-sky-700 hover:text-sky-900 bg-sky-50 hover:bg-sky-100 rounded-full transition-colors cursor-pointer"
                       >
-                        {t.label}
+                        Show All
                       </button>
-                    ))}
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setMarketSearchOpen(prev => !prev)}
+                      className="p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                      title="Search marketplace"
+                    >
+                      <Search className="w-5 h-5" />
+                    </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Search & Category Filter Bar */}
-              <div className="space-y-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-2xs">
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search by product name, service, brand, or category..."
-                    value={marketplaceSearchQuery}
-                    onChange={(e) => setMarketplaceSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
-                  />
-                  {marketplaceSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setMarketplaceSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                {/* Marketplace Mode Chips: Products, Services, Search */}
+                <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+                  <button
+                    type="button"
+                    onClick={() => setMarketplaceType('products')}
+                    className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                      marketplaceType === 'products'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    Products
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMarketplaceType('services')}
+                    className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                      marketplaceType === 'services'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    Services
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMarketSearchOpen(prev => !prev)}
+                    className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                      marketSearchOpen || marketplaceSearchQuery
+                        ? 'bg-sky-50 text-sky-700 border border-sky-200 shadow-2xs'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search</span>
+                  </button>
                 </div>
 
-                {/* Category Pills */}
-                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {[
-                    { id: 'all', label: 'All Categories' },
-                    { id: 'food', label: 'Food & Meals' },
-                    { id: 'fashion', label: 'Fashion & Wears' },
-                    { id: 'tech', label: 'Laptops & Gadgets' },
-                    { id: 'academic', label: 'Academic & Books' },
-                    { id: 'services', label: 'Repairs & Services' },
-                    { id: 'other', label: 'Other' }
-                  ].map((cat) => (
+                {/* Search Bar (Expandable) */}
+                {marketSearchOpen && (
+                  <div className="relative pt-1 animate-in fade-in duration-200">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder={`Search ${marketplaceType} on campus...`}
+                      value={marketplaceSearchQuery}
+                      onChange={(e) => setMarketplaceSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white"
+                      autoFocus
+                    />
+                    {marketplaceSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setMarketplaceSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Categories Pills */}
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                  <button
+                    onClick={() => setMarketplaceCategory('all')}
+                    className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 text-xs ${
+                      marketplaceCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {categories.map((c) => (
                     <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setMarketplaceCategory(cat.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${marketplaceCategory === cat.id
-                          ? 'bg-sky-500 text-white shadow-xs'
-                          : 'bg-slate-100 hover:bg-slate-200/80 text-slate-600'
-                        }`}
+                      key={c.id}
+                      onClick={() => setMarketplaceCategory(c.id.toString())}
+                      className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1 text-xs ${
+                        marketplaceCategory === c.id.toString() ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
                     >
-                      {cat.label}
+                      <span>{renderCategoryIcon(c.name)}</span>
+                      <span>{c.name}</span>
                     </button>
                   ))}
                 </div>
+
+                {/* Today's Picks Section Header */}
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <span className="font-extrabold text-sm sm:text-base text-slate-900 shrink-0">
+                    Today's picks
+                  </span>
+                  {marketplaceUniFilter !== 'all' && (
+                    <span className="text-[11px] font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200/80 truncate max-w-[200px]">
+                      📍 {getMarketplaceUniFilterLabel()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Responsive Mobile-Friendly Campus Select Modal */}
+                <CampusSelectModal
+                  isOpen={isCampusModalOpen}
+                  onClose={() => setIsCampusModalOpen(false)}
+                  selectedUniversity={marketplaceUniFilter}
+                  onSelectUniversity={(uniKey, uniDisplayName) => {
+                    setMarketplaceUniFilter(uniKey);
+                    if (uniKey === 'all') {
+                      showToast('Showing goods & services across all campuses', 'info');
+                    } else {
+                      showToast(`Showing listings in ${uniDisplayName}`, 'info');
+                    }
+                  }}
+                  universities={availableMarketplaceInstitutions}
+                  currentUserUniversity={{
+                    name: vendorStore?.university_name || user?.university_name,
+                    abbr: vendorStore?.university_abbr || user?.university_abbr,
+                    id: vendorStore?.university_id || user?.university_id
+                  }}
+                />
               </div>
 
-              {/* Responsive Mobile-Friendly Campus Select Modal */}
-              <CampusSelectModal
-                isOpen={isCampusModalOpen}
-                onClose={() => setIsCampusModalOpen(false)}
-                selectedUniversity={marketplaceUniFilter}
-                onSelectUniversity={(uniKey, uniDisplayName) => {
-                  setMarketplaceUniFilter(uniKey);
-                  if (uniKey === 'all') {
-                    showToast('Showing goods & services across all campuses', 'info');
-                  } else {
-                    showToast(`Showing listings in ${uniDisplayName}`, 'info');
-                  }
-                }}
-                universities={availableMarketplaceInstitutions}
-                currentUserUniversity={{
-                  name: vendorStore?.university_name || user?.university_name,
-                  abbr: vendorStore?.university_abbr || user?.university_abbr,
-                  id: vendorStore?.university_id || user?.university_id
-                }}
-              />
-
-              {/* Marketplace Listings Grid */}
-              {(() => {
-                const searchQ = marketplaceSearchQuery.toLowerCase().trim();
-                const filteredProducts = (marketplaceProducts || []).filter(p => {
-                  if (marketplaceType === 'services') return false;
-                  if (!matchesMarketplaceUniFilter(p)) return false;
-                  if (marketplaceCategory !== 'all') {
-                    const cName = (p.category_name || '').toLowerCase();
-                    if (marketplaceCategory === 'food' && !cName.includes('food') && !cName.includes('meal')) return false;
-                    if (marketplaceCategory === 'fashion' && !cName.includes('fashion') && !cName.includes('shoe') && !cName.includes('wear')) return false;
-                    if (marketplaceCategory === 'tech' && !cName.includes('laptop') && !cName.includes('gadget') && !cName.includes('tech')) return false;
-                    if (marketplaceCategory === 'academic' && !cName.includes('academic') && !cName.includes('book')) return false;
-                    if (marketplaceCategory === 'services' && !cName.includes('service') && !cName.includes('clean')) return false;
-                    if (marketplaceCategory === 'other' && (cName.includes('food') || cName.includes('fashion') || cName.includes('laptop') || cName.includes('academic') || cName.includes('service'))) return false;
-                  }
-                  if (!searchQ) return true;
-                  return (
-                    (p.name || '').toLowerCase().includes(searchQ) ||
-                    (p.description || '').toLowerCase().includes(searchQ) ||
-                    (p.vendor_name || '').toLowerCase().includes(searchQ) ||
-                    (p.university_name || '').toLowerCase().includes(searchQ)
-                  );
-                });
-
-                const filteredServices = (marketplaceServices || []).filter(s => {
-                  if (marketplaceType === 'products') return false;
-                  if (!matchesMarketplaceUniFilter(s)) return false;
-                  if (marketplaceCategory !== 'all') {
-                    const cName = (s.category_name || '').toLowerCase();
-                    if (marketplaceCategory === 'services' && !cName.includes('service') && !cName.includes('clean')) return true; // keep services
-                    if (marketplaceCategory === 'food' && !cName.includes('food') && !cName.includes('meal')) return false;
-                    if (marketplaceCategory === 'fashion' && !cName.includes('fashion') && !cName.includes('shoe') && !cName.includes('wear')) return false;
-                    if (marketplaceCategory === 'tech' && !cName.includes('laptop') && !cName.includes('gadget') && !cName.includes('tech')) return false;
-                    if (marketplaceCategory === 'academic' && !cName.includes('academic') && !cName.includes('book')) return false;
-                    if (marketplaceCategory === 'other' && (cName.includes('food') || cName.includes('fashion') || cName.includes('laptop') || cName.includes('academic'))) return false;
-                  }
-                  if (!searchQ) return true;
-                  return (
-                    (s.name || '').toLowerCase().includes(searchQ) ||
-                    (s.description || '').toLowerCase().includes(searchQ) ||
-                    (s.location || '').toLowerCase().includes(searchQ) ||
-                    (s.vendor_name || '').toLowerCase().includes(searchQ)
-                  );
-                });
-
-                const totalItems = filteredProducts.length + filteredServices.length;
-
-                if (totalItems === 0) {
-                  return (
-                    <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 space-y-3">
-                      <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto" />
-                      <h4 className="text-base font-bold text-slate-800">
-                        {marketplaceUniFilter !== 'all'
-                          ? `No items found in ${getMarketplaceUniFilterLabel()}`
-                          : 'No items found in Marketplace'}
-                      </h4>
-                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
-                        {marketplaceUniFilter !== 'all'
-                          ? 'Try switching to all campuses or choosing another institution from the dropdown.'
-                          : 'Try clearing your search or switching categories to explore other student & vendor offerings.'}
-                      </p>
-                      {(marketplaceSearchQuery || marketplaceCategory !== 'all' || marketplaceType !== 'all' || marketplaceUniFilter !== 'all') && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMarketplaceSearchQuery('');
-                            setMarketplaceCategory('all');
-                            setMarketplaceType('all');
-                            setMarketplaceUniFilter('all');
-                          }}
-                          className="px-4 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-bold rounded-xl cursor-pointer transition-colors inline-flex items-center space-x-1.5"
-                        >
-                          <Globe className="w-3.5 h-3.5" />
-                          <span>Reset & Show All Campuses</span>
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
-
-                const combinedMarketList = [];
-                if (marketplaceType === 'products') {
-                  filteredProducts.forEach(p => combinedMarketList.push({ ...p, _listing_type: 'product' }));
-                } else if (marketplaceType === 'services') {
-                  filteredServices.forEach(s => combinedMarketList.push({ ...s, _listing_type: 'service' }));
-                } else {
-                  filteredProducts.forEach(p => combinedMarketList.push({ ...p, _listing_type: 'product' }));
-                  filteredServices.forEach(s => combinedMarketList.push({ ...s, _listing_type: 'service' }));
-                }
-
-                const scatteredMarketListings = scatterFeed(combinedMarketList, { timeWindowMinutes: 3 });
-
-                return (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {/* Scattered & Dynamically Rotated Marketplace Listings */}
-                    {scatteredMarketListings.map((item) => {
-                      if (item._listing_type === 'product') {
-                        const p = item;
-                        const isFriendWithSeller = (myFriends || []).some(
-                          f => String(f.user_id || f.id) === String(p.vendor_user_id || p.user_id)
-                        );
-                        const isOwnProduct = String(p.vendor_id) === String(vendorStore?.id) || String(p.user_id) === String(user?.user_id || user?.id);
+              {/* Products Grid - Mobile 2-Column Facebook Marketplace Layout */}
+              {marketplaceType === 'products' && (
+                scatteredMarketProducts.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {scatteredMarketProducts.map((p) => {
+                      const currentVendorUserId = user?.id || user?.user_id;
+                      const pUserId = p.vendor_user_id || p.user_id;
+                      const isOwnItem = currentVendorUserId && (String(pUserId) === String(currentVendorUserId) || String(p.vendor_id) === String(vendorStore?.id));
 
                       return (
-                        <div
-                          key={`prod-${p.id}`}
-                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md hover:border-sky-200 transition-all flex flex-col group"
-                        >
-                          {/* Image Box */}
-                          <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
-                            <SafeImage
-                              src={p.image}
-                              alt={p.name}
-                              fallbackType="product"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <span className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-xs text-white text-[9px] font-black px-2 py-0.5 rounded-lg">
-                              Product
-                            </span>
-                            {p.quantity <= 0 && (
-                              <span className="absolute top-2 right-2 bg-rose-600 text-white text-[9px] font-black px-2 py-0.5 rounded-lg shadow-xs">
-                                Sold Out
-                              </span>
-                            )}
+                        <div key={p.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
+                          <div>
+                            {/* Aspect Ratio Container for Zero CLS */}
+                            <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
+                              <SafeImage src={p.image} alt={p.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const targetVal = p.university_id ? String(p.university_id) : (p.university_abbr || p.university_name || p.dispatch_location);
+                                  if (targetVal) {
+                                    setMarketplaceUniFilter(targetVal);
+                                    showToast(`Filtered to ${p.university_abbr || p.university_name || 'campus'} listings`, 'info');
+                                  }
+                                }}
+                                className="absolute top-2 left-2 bg-white/95 hover:bg-sky-50 active:scale-95 transition-all backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-sky-800 shadow-xs flex items-center space-x-1 border border-sky-100 hover:border-sky-300 max-w-[85%] truncate cursor-pointer z-10"
+                                title={`Click to view goods only in ${p.university_abbr || p.university_name || 'this campus'}`}
+                              >
+                                <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-600 shrink-0" />
+                                <span className="truncate">{p.university_abbr || p.university_name || p.dispatch_location || 'Campus'}</span>
+                              </button>
+                            </div>
+
+                            <div className="p-2.5 sm:p-4">
+                              <div className="flex items-center justify-between gap-1 mb-1.5 flex-wrap">
+                                <span className="text-[10px] sm:text-xs font-black text-sky-700 bg-sky-50 px-2 py-0.5 rounded-lg border border-sky-200 inline-flex items-center space-x-1">
+                                  <MessageCircle className="w-3 h-3 text-sky-600 shrink-0" />
+                                  <span className="truncate">Negotiable in Chat</span>
+                                </span>
+                                {p.is_vendor_verified && (
+                                  <span className="text-[9px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center space-x-0.5">
+                                    <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
+                                    <span>Verified</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{p.name}</h4>
+                              <div className="flex items-center justify-between mt-0.5">
+                                <span className="text-[11px] sm:text-xs text-slate-500 font-medium truncate">By {p.vendor_name}</span>
+                                {p.price && <span className="text-xs sm:text-sm font-black text-slate-900">₦{Number(p.price).toLocaleString()}</span>}
+                              </div>
+                              <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{p.description}</p>
+                            </div>
                           </div>
 
-                          {/* Info Area */}
-                          <div className="p-3 sm:p-4 flex-1 flex flex-col justify-between space-y-2">
-                            <div>
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[10px] font-bold text-sky-600 truncate uppercase">
-                                  {p.category_name || 'Retail'}
-                                </span>
-                                {(p.university_name || p.university_abbr || p.dispatch_location) && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const targetVal = p.university_id ? String(p.university_id) : (p.university_abbr || p.university_name || p.dispatch_location);
-                                      if (targetVal) {
-                                        setMarketplaceUniFilter(targetVal);
-                                        showToast(`Filtered to ${p.university_abbr || p.university_name || 'campus'} listings`, 'info');
-                                      }
-                                    }}
-                                    className="text-[9px] text-sky-700 bg-sky-50 hover:bg-sky-100 active:scale-95 px-1.5 py-0.5 rounded font-bold truncate max-w-[110px] border border-sky-200 cursor-pointer transition-colors"
-                                    title={`Click to view goods only in ${p.university_abbr || p.university_name || 'this campus'}`}
-                                  >
-                                    📍 {p.university_abbr || p.university_name || p.dispatch_location}
-                                  </button>
-                                )}
-                              </div>
-                              <h3 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 mt-0.5 group-hover:text-sky-600 transition-colors">
-                                {p.name}
-                              </h3>
-                              <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                                {p.description || 'Quality product listed on campus marketplace.'}
-                              </p>
-                            </div>
-
-                            <div className="pt-2 border-t border-slate-100 space-y-2">
-                              {/* Price and Seller Badge */}
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm sm:text-base font-black text-slate-900">
-                                  ₦{Number(p.price || 0).toLocaleString()}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenProfile(p.vendor_user_id || p.user_id)}
-                                  className="text-[10px] font-bold text-slate-600 hover:text-sky-600 flex items-center space-x-1 truncate max-w-[120px] cursor-pointer"
-                                  title={p.vendor_name || 'Vendor Profile'}
-                                >
-                                  <span className="truncate">{p.vendor_name || 'Vendor'}</span>
-                                  {p.is_vendor_verified && (
-                                    <Award className="w-3.5 h-3.5 text-amber-500 fill-amber-400 shrink-0" title="Verified Vendor" />
-                                  )}
-                                </button>
-                              </div>
-
-                              {/* Action Buttons */}
-                              <div className="grid grid-cols-2 gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenProfile(p.vendor_user_id || p.user_id)}
-                                  className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
-                                >
-                                  Profile
-                                </button>
-                                {isOwnProduct ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveTab('inventory');
-                                      handleOpenEditProduct(p);
-                                    }}
-                                    className="py-1.5 px-2 bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
-                                  >
-                                    Manage
-                                  </button>
-                                ) : isFriendWithSeller ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const sid = p.vendor_user_id || p.user_id;
-                                      setSelectedPartner({ partner_id: sid, partner_name: p.vendor_name, role: 'vendor' });
-                                      setActiveTab('messages');
-                                      handleSelectPartner({ partner_id: sid, partner_name: p.vendor_name, role: 'vendor' });
-                                    }}
-                                    className="py-1.5 px-2 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl text-center cursor-pointer shadow-xs transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <MessageSquare className="w-3 h-3" />
-                                    <span>Chat</span>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSendFriendRequest(p.vendor_user_id || p.user_id)}
-                                    className="py-1.5 px-2 bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <UserPlus className="w-3 h-3" />
-                                    <span>Connect</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
+                          <div className="p-2.5 sm:p-4 pt-0 space-y-1.5">
+                            {isOwnItem ? (
+                              <button
+                                onClick={() => {
+                                  setActiveTab('inventory');
+                                  handleOpenEditProduct(p);
+                                }}
+                                className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-700 font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                              >
+                                <span>Manage Your Product</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStartVendorChat(p)}
+                                className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                <span className="truncate">Chat with Seller</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
-                    }
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
+                    <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <h4 className="text-base font-bold text-slate-800">
+                      {marketplaceUniFilter !== 'all'
+                        ? `No products found in ${getMarketplaceUniFilterLabel()}`
+                        : 'No products match your search'}
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                      {marketplaceUniFilter !== 'all'
+                        ? 'Try switching to all campuses or choosing another institution from the dropdown.'
+                        : 'Try selecting another category or typing different keywords.'}
+                    </p>
+                    {marketplaceUniFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setMarketplaceUniFilter('all')}
+                        className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center space-x-1.5"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>Show Goods Across All Campuses</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
 
-                    const s = item;
-                    const serviceUserId = s.vendor_user_id || s.user_id;
-                      const isFriendWithSeller = (myFriends || []).some(
-                        f => serviceUserId && String(f.user_id || f.id) === String(serviceUserId)
-                      );
-                      const isOwnService = Boolean(
-                        serviceUserId && (
-                          String(serviceUserId) === String(user?.user_id || user?.id || vendorStore?.user_id)
-                        )
-                      );
-                      const isRequestSent = Boolean(
-                        serviceUserId && (
-                          (communityUsers || []).some(
-                            u => String(u.user_id || u.id) === String(serviceUserId) && u.friendship_status === 'request_sent'
-                          )
-                        )
-                      );
+              {/* Services Grid - Mobile 2-Column Layout */}
+              {marketplaceType === 'services' && (
+                scatteredMarketServices.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {scatteredMarketServices.map((s) => {
+                      const currentVendorUserId = user?.id || user?.user_id;
+                      const sUserId = s.vendor_user_id || s.user_id;
+                      const isOwnService = currentVendorUserId && (String(sUserId) === String(currentVendorUserId) || String(s.vendor_id) === String(vendorStore?.id));
 
                       return (
-                        <div
-                          key={`svc-${s.id}`}
-                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md hover:border-emerald-200 transition-all flex flex-col group"
-                        >
-                          {/* Image Box */}
-                          <div className="relative aspect-square w-full bg-slate-100 overflow-hidden">
-                            <SafeImage
-                              src={s.image}
-                              alt={s.name}
-                              fallbackType="product"
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <span className="absolute top-2 left-2 bg-emerald-700 text-white text-[9px] font-black px-2 py-0.5 rounded-lg shadow-xs">
-                              Service
-                            </span>
-                            {(s.university_abbr || s.university_name || s.location) && (
+                        <div key={s.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between">
+                          <div>
+                            {/* Aspect Ratio Container for Zero CLS */}
+                            <div className="aspect-[4/3] w-full bg-slate-100 relative overflow-hidden">
+                              <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover" />
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -4238,117 +4278,77 @@ export default function VendorDashboard() {
                                     showToast(`Filtered to ${s.university_abbr || s.university_name || 'campus'} services`, 'info');
                                   }
                                 }}
-                                className="absolute bottom-2 left-2 bg-slate-900/85 hover:bg-slate-900 active:scale-95 transition-all text-white text-[9px] font-bold px-2 py-0.5 rounded-md flex items-center space-x-1 cursor-pointer z-10"
+                                className="absolute top-2 left-2 bg-white/90 hover:bg-slate-100 active:scale-95 transition-all backdrop-blur-xs px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold text-slate-700 flex items-center space-x-1 max-w-[85%] truncate cursor-pointer shadow-xs border border-slate-200 hover:border-slate-400 z-10"
                                 title={`Click to view services only in ${s.university_abbr || s.university_name || 'this campus'}`}
                               >
-                                <MapPin className="w-2.5 h-2.5 text-sky-400" />
-                                <span className="truncate max-w-[100px]">{s.university_abbr || s.university_name || s.location}</span>
+                                <MapPin className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                                <span className="truncate">{s.university_abbr || s.university_name || s.location || 'Campus'}</span>
                               </button>
-                            )}
+                            </div>
+                            <div className="p-2.5 sm:p-4">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] sm:text-xs font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 inline-flex items-center space-x-1">
+                                  <Wrench className="w-3 h-3 text-slate-600 shrink-0" />
+                                  <span className="truncate">Negotiable in Chat</span>
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{s.name}</h4>
+                              <span className="text-[11px] sm:text-xs text-slate-500 font-medium block truncate">By {s.vendor_name}</span>
+                              <p className="text-[11px] sm:text-xs text-slate-600 mt-1 line-clamp-2">{s.description}</p>
+                            </div>
                           </div>
 
-                          {/* Info Area */}
-                          <div className="p-3 sm:p-4 flex-1 flex flex-col justify-between space-y-2">
-                            <div>
-                              <span className="text-[10px] font-bold text-emerald-600 truncate uppercase block">
-                                {s.category_name || 'Campus Service'}
-                              </span>
-                              <h3 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 mt-0.5 group-hover:text-emerald-700 transition-colors">
-                                {s.name}
-                              </h3>
-                              <p className="text-[11px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">
-                                {s.description || 'Professional student/vendor service on campus.'}
-                              </p>
-                            </div>
-
-                            <div className="pt-2 border-t border-slate-100 space-y-2">
-                              {/* Price and Provider Badge */}
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <span className="text-[9px] text-slate-400 block font-semibold">Starts at</span>
-                                  <span className="text-sm sm:text-base font-black text-emerald-700">
-                                    ₦{Number(s.price || 0).toLocaleString()}
-                                  </span>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenProfile(serviceUserId, {
-                                    full_name: s.vendor_name,
-                                    role: 'vendor',
-                                    profile_picture_url: s.image,
-                                    hostel: s.location
-                                  })}
-                                  className="text-[10px] font-bold text-slate-600 hover:text-emerald-600 flex items-center space-x-1 truncate max-w-[120px] cursor-pointer"
-                                  title={s.vendor_name || 'Provider Profile'}
-                                >
-                                  <span className="truncate">{s.vendor_name || 'Provider'}</span>
-                                </button>
-                              </div>
-
-                              {/* Action Buttons */}
-                              <div className="grid grid-cols-2 gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenProfile(serviceUserId, {
-                                    full_name: s.vendor_name,
-                                    role: 'vendor',
-                                    profile_picture_url: s.image,
-                                    hostel: s.location
-                                  })}
-                                  className="py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
-                                >
-                                  Profile
-                                </button>
-                                {isOwnService ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveTab('inventory');
-                                      setCatalogType('services');
-                                    }}
-                                    className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors"
-                                  >
-                                    Manage
-                                  </button>
-                                ) : isFriendWithSeller ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const sid = serviceUserId;
-                                      setSelectedPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor', is_friend: true });
-                                      setActiveTab('messages');
-                                      setMessageSubtab('chats');
-                                      handleSelectPartner({ partner_id: sid, partner_name: s.vendor_name, role: 'vendor', is_friend: true });
-                                    }}
-                                    className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl text-center cursor-pointer shadow-xs transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <MessageSquare className="w-3 h-3" />
-                                    <span>Chat</span>
-                                  </button>
-                                ) : isRequestSent ? (
-                                  <span className="py-1.5 px-2 bg-slate-100 text-slate-500 text-[11px] font-bold rounded-xl text-center flex items-center justify-center space-x-1">
-                                    <Clock className="w-3 h-3 text-slate-400" />
-                                    <span>Pending</span>
-                                  </span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSendFriendRequest(serviceUserId)}
-                                    className="py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-xl text-center cursor-pointer transition-colors flex items-center justify-center space-x-1"
-                                  >
-                                    <UserPlus className="w-3 h-3" />
-                                    <span>Connect</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
+                          <div className="p-2.5 sm:p-4 pt-0">
+                            {isOwnService ? (
+                              <button
+                                onClick={() => {
+                                  setActiveTab('inventory');
+                                  setCatalogType('services');
+                                }}
+                                className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-700 font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                              >
+                                <span>Manage Your Service</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStartVendorChat(s)}
+                                className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                <span className="truncate">Chat with Provider</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                );
-              })()}
+                ) : (
+                  <div className="py-20 text-center bg-white rounded-3xl border border-slate-200 p-8 sm:p-10">
+                    <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <h4 className="text-base font-bold text-slate-800">
+                      {marketplaceUniFilter !== 'all'
+                        ? `No services found in ${getMarketplaceUniFilterLabel()}`
+                        : 'No services match your search'}
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                      {marketplaceUniFilter !== 'all'
+                        ? 'Try switching to all campuses or choosing another institution from the dropdown.'
+                        : 'Try selecting another category or typing different keywords.'}
+                    </p>
+                    {marketplaceUniFilter !== 'all' && (
+                      <button
+                        type="button"
+                        onClick={() => setMarketplaceUniFilter('all')}
+                        className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center space-x-1.5"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>Show Services Across All Campuses</span>
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
             </div>
           )}
 
@@ -5729,410 +5729,502 @@ export default function VendorDashboard() {
           {/* --- DEDICATED TAB: CAMPUS NETWORK & FRIENDS --- */}
           {/* ========================================================================= */}
           {activeTab === 'friends' && (
-            <div className="space-y-4 sm:space-y-6">
-              {/* Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                    Campus Network & Friends
-                  </h1>
-                  <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                    Connect with returning student buyers, fellow campus merchants & creative peers.
-                  </p>
+            <div className="max-w-3xl mx-auto space-y-4">
+              {/* Header: < Friends + Search */}
+              <div className="flex items-center justify-between py-1">
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('home')}
+                    className="p-1.5 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Back"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">Friends</h1>
                 </div>
-
-                {/* Subtabs Filter Pills */}
-                <div className="flex items-center space-x-1.5 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-2xs self-start sm:self-auto overflow-x-auto max-w-full">
-                  <button
-                    type="button"
-                    onClick={() => setFriendsTabFilter('find')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${friendsTabFilter === 'find'
-                        ? 'bg-sky-500 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                  >
-                    <Search className="w-3.5 h-3.5" />
-                    <span>Find Peers</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFriendsTabFilter('all')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${friendsTabFilter === 'all'
-                        ? 'bg-sky-500 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>Requests</span>
-                    {pendingRequests.length > 0 && (
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${friendsTabFilter === 'all' ? 'bg-white text-sky-600' : 'bg-rose-500 text-white animate-pulse'
-                        }`}>
-                        {pendingRequests.length}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFriendsTabFilter('friends')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${friendsTabFilter === 'friends'
-                        ? 'bg-sky-500 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Your Friends ({friendsList.length})</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('find')}
+                  className={`p-2 rounded-full hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors ${friendsTabFilter === 'find' ? 'bg-slate-200 text-sky-600' : ''}`}
+                  title="Search friends"
+                >
+                  <Search className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* View 1: Friend Requests */}
-              {friendsTabFilter === 'all' && (
-                <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
-                  <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Incoming Friend Requests</h3>
-                      <p className="text-xs text-slate-500">Students and merchants who requested to connect with your store network.</p>
-                    </div>
-                    {pendingRequests.length > 0 && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                        {pendingRequests.length} Pending
-                      </span>
-                    )}
-                  </div>
+              {/* Filter Chips: Find Friends (1st), Requests (2nd), Your Friends (3rd) */}
+              <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('find')}
+                  className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                    friendsTabFilter === 'find' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                  }`}
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Find Friends</span>
+                </button>
 
-                  {pendingRequests.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                      {pendingRequests.map((req) => (
-                        recentlyAcceptedFriends[req.id || req.request_id] ? (
-                          <div key={req.id} className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col space-y-2.5 animate-in fade-in">
-                            <div className="flex items-center space-x-2 text-emerald-800 font-bold text-xs">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                              <span>You're now friends with {req.sender_name}!</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
-                                className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-2xs transition-all cursor-pointer flex items-center justify-center space-x-1"
-                              >
-                                <User className="w-3.5 h-3.5 text-slate-500" />
-                                <span>View Profile</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const partnerObj = {
-                                    partner_id: req.sender_id || req.user_id,
-                                    partner_name: req.sender_name,
-                                    partner_avatar: req.sender_avatar,
-                                    department: req.sender_department,
-                                    is_friend: true
-                                  };
-                                  setSelectedPartner(partnerObj);
-                                  setActiveTab('messages');
-                                  setMessageSubtab('chats');
-                                  handleSelectPartner(partnerObj);
-                                }}
-                                className="flex-1 py-1.5 px-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1"
-                              >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                                <span>Send Message</span>
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div key={req.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
-                            <div
-                              onClick={() => handleOpenProfile(req.sender_id || req.user_id)}
-                              className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
-                            >
-                              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                                {req.sender_name?.charAt(0) || 'U'}
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="text-xs font-bold text-slate-900 group-hover:text-sky-600 transition-colors truncate">{req.sender_name}</h4>
-                                <p className="text-[10px] text-slate-500 truncate">{req.sender_department || 'Campus Student'}</p>
-                                <span className="text-[9px] text-slate-400 block truncate">{req.sender_hostel || 'Hostel Resident'}</span>
-                              </div>
-                            </div>
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('all')}
+                  className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center space-x-1.5 ${
+                    friendsTabFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                  }`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>Requests ({pendingRequests.length})</span>
+                </button>
 
-                            <div className="flex items-center space-x-2 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAcceptFriendRequest(req.id)}
-                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
-                              >
-                                Accept
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeclineFriendRequest(req.id)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
-                                title="Decline"
-                              >
-                                <UserX className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="py-14 text-center text-xs text-slate-400 space-y-2">
-                      <UserCheck className="w-10 h-10 mx-auto text-slate-300" />
-                      <p className="font-semibold text-slate-600">No pending friend requests right now.</p>
-                      <p className="text-slate-400">When students or peers send you requests, they will show up here.</p>
-                    </div>
-                  )}
-                </div>
-              )}
+                <button
+                  type="button"
+                  onClick={() => setFriendsTabFilter('friends')}
+                  className={`px-3.5 py-1.5 rounded-full font-bold text-xs transition-all cursor-pointer shrink-0 ${
+                    friendsTabFilter === 'friends' ? 'bg-slate-900 text-white' : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300'
+                  }`}
+                >
+                  Your friends ({friendsList.length})
+                </button>
+              </div>
 
-              {/* View 2: Connected Friends */}
-              {friendsTabFilter === 'friends' && (
-                <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
-                  <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Connected Campus Friends</h3>
-                      <p className="text-xs text-slate-500">Your network of student buyers, loyal patrons & business peers.</p>
-                    </div>
-                    <span className="text-xs font-bold bg-sky-50 text-sky-700 px-3 py-1 rounded-full border border-sky-200">
-                      {friendsList.length} Connected
-                    </span>
-                  </div>
+              {/* View: Your Friends List */}
+              {friendsTabFilter === 'friends' ? (
+                <div className="space-y-3 pt-1">
+                  <h2 className="text-base sm:text-lg font-black text-slate-900">
+                    Your Friends ({friendsList.length})
+                  </h2>
 
                   {friendsList.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    <div className="space-y-2.5">
                       {friendsList.map((f) => {
-                        const fid = f.user_id || f.id;
+                        const fid = f.user_id || f.friend_id || f.id;
                         return (
-                          <div key={fid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between space-x-3 hover:border-emerald-200 transition-all">
+                          <div key={f.friendship_id || fid} className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs gap-3">
                             <div
                               onClick={() => handleOpenProfile(fid)}
-                              className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
+                              className="flex items-center space-x-3 min-w-0 cursor-pointer flex-1"
                             >
-                              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center shrink-0 overflow-hidden">
-                                {f.profile_picture_url ? (
-                                  <SafeImage src={f.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  f.full_name?.charAt(0) || 'F'
-                                )}
-                              </div>
-                              <div className="overflow-hidden min-w-0">
-                                <h4 className="text-xs font-bold text-slate-900 truncate group-hover:text-emerald-700 transition-colors">{f.full_name}</h4>
-                                <p className="text-[10px] text-slate-500 truncate">{f.department || (f.role === 'vendor' ? 'Vendor' : 'Student')}</p>
-                                <span className="text-[9px] text-emerald-600 font-bold flex items-center space-x-1">
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  <span>Connected</span>
+                              {f.friend_avatar || f.profile_picture_url ? (
+                                <SafeImage
+                                  src={f.friend_avatar || f.profile_picture_url}
+                                  alt={f.friend_name || f.full_name}
+                                  fallbackType="avatar"
+                                  className="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0">
+                                  {(f.friend_name || f.full_name)?.charAt(0) || 'U'}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <span className="font-extrabold text-xs sm:text-sm text-slate-900 block truncate">
+                                  {f.friend_name || f.full_name}
+                                </span>
+                                <span className="text-[11px] text-slate-500 block truncate">
+                                  {f.department || (f.role === 'vendor' ? 'Campus Merchant' : 'Campus Friend')}
                                 </span>
                               </div>
                             </div>
 
-                            <div className="flex items-center space-x-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
-                                  setActiveTab('messages');
-                                  handleSelectPartner({ partner_id: fid, partner_name: f.full_name, role: f.role });
-                                }}
-                                className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
-                              >
-                                <MessageSquare className="w-3 h-3" />
-                                <span>Chat</span>
-                                {getUnreadCountForUser(fid) > 0 && (
-                                  <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
-                                    {getUnreadCountForUser(fid)}
-                                  </span>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveFriend(fid)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer transition-colors"
-                                title="Unfriend"
-                              >
-                                <UserX className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleSelectPartner({
+                                  partner_id: fid,
+                                  partner_name: f.friend_name || f.full_name || 'Campus Friend',
+                                  partner_avatar: f.friend_avatar || f.profile_picture_url,
+                                  partner_phone: f.phone_number,
+                                  department: f.department,
+                                  university_name: f.university_name,
+                                  role: f.role || 'student',
+                                  is_friend: true
+                                });
+                                setActiveTab('messages');
+                              }}
+                              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center space-x-1"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Message</span>
+                            </button>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="py-14 text-center text-xs text-slate-400 space-y-2">
-                      <Users className="w-10 h-10 mx-auto text-slate-300" />
-                      <p className="font-semibold text-slate-600">You haven't connected with any campus friends yet.</p>
+                    <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs space-y-3">
+                      <p>You don't have any added friends yet. Confirm incoming requests or search the campus directory to connect!</p>
                       <button
                         type="button"
                         onClick={() => setFriendsTabFilter('find')}
-                        className="mt-2 text-sky-600 font-bold hover:underline cursor-pointer"
+                        className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs inline-flex items-center space-x-1.5"
                       >
-                        Find and connect with students on campus now →
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Find Campus Friends</span>
                       </button>
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* View 3: Campus Directory (Find Peers) */}
-              {friendsTabFilter === 'find' && (
-                <div className="bg-white rounded-3xl border border-slate-200/80 p-5 sm:p-6 shadow-xs space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-                    <div>
-                      <h3 className="font-bold text-sm sm:text-base text-slate-900">Campus Directory</h3>
-                      <p className="text-xs text-slate-500">Discover and network with students, campus creators & fellow merchants.</p>
+              ) : friendsTabFilter === 'find' ? (
+                /* View: Find Campus Friends Directory */
+                <div className="space-y-3 pt-1">
+                  {/* Search & Filter Header */}
+                  <div className="p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search users by name, university, department, or seller store..."
+                        value={communitySearch}
+                        onChange={(e) => setCommunitySearch(e.target.value)}
+                        className="w-full pl-10 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all"
+                      />
+                      {communitySearch && (
+                        <button
+                          type="button"
+                          onClick={() => setCommunitySearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
 
-                    <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl">
+                    <div className="flex items-center space-x-1.5 text-xs overflow-x-auto pb-0.5 scrollbar-none">
                       <button
                         type="button"
                         onClick={() => setCommunityRoleFilter('all')}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${communityRoleFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                          communityRoleFilter === 'all'
+                            ? 'bg-sky-500 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
                       >
-                        All
+                        All Members
                       </button>
                       <button
                         type="button"
                         onClick={() => setCommunityRoleFilter('student')}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${communityRoleFilter === 'student' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                          communityRoleFilter === 'student'
+                            ? 'bg-sky-500 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
                       >
                         Students
                       </button>
                       <button
                         type="button"
                         onClick={() => setCommunityRoleFilter('vendor')}
-                        className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${communityRoleFilter === 'vendor' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                        className={`px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shrink-0 ${
+                          communityRoleFilter === 'vendor'
+                            ? 'bg-amber-500 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
                       >
-                        Vendors
+                        Vendors & Sellers
                       </button>
                     </div>
                   </div>
 
-                  {/* Search Bar */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search by name, department, hostel or business name..."
-                      value={communitySearch}
-                      onChange={(e) => setCommunitySearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-sky-400 rounded-2xl text-xs text-slate-800 focus:outline-none transition-all"
-                    />
-                    {communitySearch && (
-                      <button
-                        type="button"
-                        onClick={() => setCommunitySearch('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  {/* Member Cards Grid */}
+                  <div className="space-y-3">
+                    {filteredCommunity.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {filteredCommunity.map((commUser) => {
+                          const uid = commUser.user_id || commUser.id;
+                          const isSeller = commUser.is_seller || commUser.role === 'vendor';
+                          const isFriend = commUser.friendship_status === 'friends';
+                          const isSent = commUser.friendship_status === 'request_sent';
+                          const isReceived = commUser.friendship_status === 'request_received';
 
-                  {/* Directory Grid */}
-                  {filteredCommunity.length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[520px] overflow-y-auto pr-1">
-                      {filteredCommunity.map((commUser) => {
-                        const uid = commUser.user_id || commUser.id;
-                        const isFriend = commUser.friendship_status === 'friends';
-                        const isSent = commUser.friendship_status === 'request_sent';
-                        const isReceived = commUser.friendship_status === 'request_received';
-
-                        return (
-                          <div key={uid} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between space-x-3 hover:border-sky-200 transition-all">
+                          return (
                             <div
-                              onClick={() => handleOpenProfile(uid)}
-                              className="flex items-center space-x-3 overflow-hidden cursor-pointer group flex-1 min-w-0"
-                              title="Click to view profile"
+                              key={uid}
+                              className="p-4 rounded-2xl border border-slate-200 bg-white hover:shadow-xs hover:border-sky-200 transition-all flex flex-col justify-between gap-3"
                             >
-                              <div className="w-10 h-10 rounded-xl bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm overflow-hidden group-hover:ring-2 group-hover:ring-sky-500 transition-all">
-                                {commUser.profile_picture_url ? (
-                                  <SafeImage src={commUser.profile_picture_url} alt="Pic" fallbackType="avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  commUser.full_name?.charAt(0) || 'C'
+                              <div>
+                                {/* Profile Header */}
+                                <div className="flex items-start space-x-3">
+                                  {commUser.profile_picture_url ? (
+                                    <SafeImage
+                                      src={commUser.profile_picture_url}
+                                      alt={commUser.full_name}
+                                      fallbackType="avatar"
+                                      className="w-12 h-12 rounded-xl object-cover border border-slate-100 shadow-2xs shrink-0 cursor-pointer"
+                                      onClick={() => handleOpenProfile(uid)}
+                                    />
+                                  ) : (
+                                    <div
+                                      onClick={() => handleOpenProfile(uid)}
+                                      className="w-12 h-12 rounded-xl bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black flex items-center justify-center text-base shadow-2xs shrink-0 cursor-pointer"
+                                    >
+                                      {commUser.full_name?.charAt(0) || 'U'}
+                                    </div>
+                                  )}
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center space-x-1">
+                                      <h4
+                                        onClick={() => handleOpenProfile(uid)}
+                                        className="font-extrabold text-xs sm:text-sm text-slate-900 hover:text-blue-600 truncate cursor-pointer"
+                                      >
+                                        {commUser.full_name}
+                                      </h4>
+                                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                                    </div>
+
+                                    {/* Role Badge */}
+                                    <div className="mt-0.5">
+                                      {isSeller ? (
+                                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                          <ShoppingBag className="w-2.5 h-2.5 text-amber-700" />
+                                          <span>Campus Seller ({commUser.business_name || 'Store'})</span>
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                                          <GraduationCap className="w-2.5 h-2.5 text-sky-600" />
+                                          <span>Verified Student</span>
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* University & Department */}
+                                    <div className="text-[11px] text-slate-500 font-medium truncate mt-1">
+                                      {commUser.department ? `${commUser.department} • ` : ''}{commUser.hostel || commUser.level || commUser.university_name || 'Campus Member'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Bio Quote */}
+                                {commUser.bio && (
+                                  <div className="mt-2.5 p-2 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-600 line-clamp-2 italic">
+                                    "{commUser.bio}"
+                                  </div>
                                 )}
                               </div>
-                              <div className="overflow-hidden min-w-0">
-                                <h4 className="text-xs font-bold text-slate-900 truncate group-hover:text-sky-600 transition-colors">
-                                  {commUser.full_name}
-                                </h4>
-                                <p className="text-[10px] text-slate-500 truncate">
-                                  {commUser.role === 'vendor' ? (commUser.business_name || 'Campus Merchant') : (commUser.department || 'Student')}
-                                </p>
-                                <span className="text-[9px] text-slate-400 block truncate">
-                                  {commUser.hostel || 'Campus Resident'}
-                                </span>
+
+                              {/* Action Buttons */}
+                              <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenProfile(uid)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center space-x-1 cursor-pointer transition-colors"
+                                >
+                                  <Eye className="w-3 h-3" />
+                                  <span>Profile</span>
+                                </button>
+
+                                <div className="flex items-center space-x-1.5">
+                                  {isSelfUser(commUser) ? (
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-lg flex items-center space-x-1">
+                                        <User className="w-3 h-3 text-sky-600" />
+                                        <span>You</span>
+                                      </span>
+                                    </div>
+                                  ) : isFriend ? (
+                                    <>
+                                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-lg flex items-center space-x-1">
+                                        <UserCheck className="w-3 h-3 text-emerald-600" />
+                                        <span>Friends</span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleSelectPartner({
+                                            partner_id: uid,
+                                            partner_name: commUser.full_name,
+                                            partner_avatar: commUser.profile_picture_url,
+                                            role: commUser.role,
+                                            is_friend: true
+                                          });
+                                          setActiveTab('messages');
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs"
+                                      >
+                                        <MessageCircle className="w-3 h-3" />
+                                        <span>Chat</span>
+                                      </button>
+                                    </>
+                                  ) : isSent ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFriend(uid)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-rose-50 text-amber-800 hover:text-rose-700 border border-amber-200 text-xs font-bold cursor-pointer transition-colors"
+                                      title="Cancel request"
+                                    >
+                                      Request Sent (Cancel)
+                                    </button>
+                                  ) : isReceived ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAcceptFriendRequest(commUser.request_id)}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer shadow-xs flex items-center space-x-1"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>Accept</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSendFriendRequest(uid)}
+                                      className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center space-x-1 cursor-pointer shadow-xs transition-colors"
+                                    >
+                                      <UserPlus className="w-3 h-3" />
+                                      <span>Add Friend</span>
+                                    </button>
+                                  )}
+
+                                  {isSeller && !isFriend && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartVendorChat({
+                                        vendor_user_id: uid,
+                                        vendor_name: commUser.business_name || commUser.full_name,
+                                        vendor_phone: commUser.phone_number,
+                                        vendor_location: commUser.hostel
+                                      })}
+                                      className="px-2 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold flex items-center space-x-1 cursor-pointer"
+                                      title="Chat with Seller"
+                                    >
+                                      <ShoppingBag className="w-3 h-3 text-amber-600" />
+                                      <span>Chat Seller</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 p-6">
+                        <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                        <h4 className="text-sm font-bold text-slate-800">No members match your search</h4>
+                        <p className="text-xs text-slate-500 mt-1">Try searching another department or campus seller.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* View: Friend Requests */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pt-1">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900">
+                      Friend requests ({pendingRequests.length})
+                    </h2>
+                  </div>
 
-                            <div className="shrink-0 flex items-center space-x-1.5">
+                  {pendingRequests.length > 0 ? (
+                    <div className="space-y-3">
+                      {pendingRequests.map((req) => (
+                        <div key={req.request_id || req.id} className="flex items-start space-x-3 p-3 bg-white rounded-2xl border border-slate-200/80 shadow-2xs">
+                          {/* Big Circular Avatar */}
+                          <div
+                            onClick={() => (req.sender_id || req.user_id) && handleOpenProfile(req.sender_id || req.user_id)}
+                            className="cursor-pointer shrink-0"
+                          >
+                            {req.sender_avatar ? (
+                              <SafeImage
+                                src={req.sender_avatar}
+                                alt={req.sender_name}
+                                fallbackType="avatar"
+                                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border border-slate-200"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-tr from-sky-400 to-blue-600 text-white font-black text-lg flex items-center justify-center">
+                                {req.sender_name?.charAt(0) || 'U'}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
                               <button
                                 type="button"
-                                onClick={() => handleOpenProfile(uid)}
-                                className="p-1.5 text-slate-400 hover:text-sky-600 hover:bg-white rounded-xl cursor-pointer transition-colors"
-                                title="View Profile"
+                                onClick={() => (req.sender_id || req.user_id) && handleOpenProfile(req.sender_id || req.user_id)}
+                                className="font-extrabold text-sm sm:text-base text-slate-900 hover:text-blue-600 transition-colors text-left truncate cursor-pointer"
                               >
-                                <Eye className="w-3.5 h-3.5" />
+                                {req.sender_name}
                               </button>
-
-                              {isSelfUser(commUser) ? (
-                                <span className="px-2.5 py-1 bg-sky-50 border border-sky-200 text-sky-700 text-[10px] font-bold rounded-xl flex items-center space-x-1">
-                                  <User className="w-3 h-3" />
-                                  <span>You</span>
-                                </span>
-                              ) : isFriend ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedPartner({ partner_id: uid, partner_name: commUser.full_name, role: commUser.role });
-                                    setActiveTab('messages');
-                                    handleSelectPartner({ partner_id: uid, partner_name: commUser.full_name, role: commUser.role });
-                                  }}
-                                  className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
-                                >
-                                  <MessageSquare className="w-3 h-3" />
-                                  <span>Chat</span>
-                                  {getUnreadCountForUser(uid) > 0 && (
-                                    <span className="ml-1 px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-black shadow-xs animate-pulse">
-                                      {getUnreadCountForUser(uid)}
-                                    </span>
-                                  )}
-                                </button>
-                              ) : isSent ? (
-                                <span className="px-2.5 py-1 bg-slate-200 text-slate-600 text-[10px] font-bold rounded-xl">
-                                  Sent
-                                </span>
-                              ) : isReceived ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleAcceptFriendRequest(commUser.request_id)}
-                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl cursor-pointer active:scale-95 transition-transform"
-                                >
-                                  Accept
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleSendFriendRequest(uid)}
-                                  className="px-3 py-1.5 bg-white hover:bg-sky-50 border border-slate-200 text-sky-700 text-[11px] font-bold rounded-xl cursor-pointer flex items-center space-x-1 active:scale-95 transition-transform"
-                                >
-                                  <UserPlus className="w-3 h-3" />
-                                  <span>Add</span>
-                                </button>
-                              )}
+                              <span className="text-[11px] text-slate-400 shrink-0 font-medium">
+                                {safeDate(req.created_at, '1 w')}
+                              </span>
                             </div>
+
+                            {/* Mutual Friends / Tag */}
+                            <div className="flex items-center space-x-1.5 mt-1">
+                              <div className="flex -space-x-1.5 overflow-hidden">
+                                <div className="w-4 h-4 rounded-full bg-blue-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">A</div>
+                                <div className="w-4 h-4 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center ring-1 ring-white font-bold">T</div>
+                              </div>
+                              <span className="text-xs text-slate-500 font-medium">
+                                {req.mutual_count ? `${req.mutual_count} mutual friends` : 'Campus peer'}
+                              </span>
+                            </div>
+
+                            {/* Confirm & Delete Buttons OR Celebratory You're now friends */}
+                            {recentlyAcceptedFriends[req.request_id || req.id] ? (
+                              <div className="mt-2.5 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 animate-in fade-in">
+                                <span className="text-[11px] font-bold text-emerald-800 flex items-center space-x-1 mb-2">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>You're now friends with {req.sender_name}!</span>
+                                </span>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => (req.sender_id || req.user_id) && handleOpenProfile(req.sender_id || req.user_id)}
+                                    className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 font-bold text-xs rounded-xl shadow-2xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                                  >
+                                    <User className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>View Profile</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const partnerObj = {
+                                        partner_id: req.sender_id || req.user_id,
+                                        partner_name: req.sender_name,
+                                        role: req.sender_role || 'student',
+                                        partner_avatar: req.sender_avatar || null,
+                                        is_friend: true
+                                      };
+                                      handleSelectPartner(partnerObj);
+                                      setActiveTab('messages');
+                                    }}
+                                    className="flex-1 py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                    <span>Message</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-2 mt-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAcceptFriendRequest(req.request_id || req.id)}
+                                  className="flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition-all cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeclineFriendRequest(req.request_id || req.id)}
+                                  className="flex-1 py-2 px-3 bg-slate-200 hover:bg-slate-300 active:scale-98 text-slate-800 font-bold text-xs sm:text-sm rounded-xl transition-all cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <div className="py-12 text-center text-xs text-slate-400">
-                      No community members found matching "{communitySearch}".
+                    <div className="p-8 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 text-xs">
+                      No incoming friend requests at this time.
                     </div>
                   )}
                 </div>
