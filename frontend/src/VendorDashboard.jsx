@@ -1020,6 +1020,7 @@ export default function VendorDashboard() {
   }, [navigate]);
 
 
+  const [inAppBanner, setInAppBanner] = useState(null);
   const isSwitchingPartnerRef = useRef(false);
 
   // --- PRESENCE HEARTBEAT FOR VENDOR ---
