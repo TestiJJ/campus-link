@@ -3,9 +3,60 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, shrink-to-fit=no, viewport-fit=cover, interactive-widget=resizes-content" />
-    <title>CampusLink - Nigeria's Campus Student & Vendor Marketplace</title>
-    <meta name="description" content="CampusLink connects university students with trusted campus vendors for meals, dorm essentials, fashion, gadgets and student services across Nigeria." />
-    
+    <title>CampusLink - Nigeria's #1 Campus Student & Vendor Marketplace</title>
+    <meta name="description" content="CampusLink connects university students with verified campus vendors for meals, dorm essentials, fashion, gadgets, student services and campus rides across Nigeria." />
+    <meta name="keywords" content="CampusLink, campus marketplace, Nigeria university students, campus food delivery, student hostel marketplace, buy and sell in campus, UNILAG, UI, OAU, FUTA, UNN, ABU, student vendors" />
+    <meta name="author" content="CampusLink Nigeria" />
+    <link rel="canonical" href="https://campus-link.onrender.com/" />
+
+    <!-- Search Engine Crawlers & Indexing Directives -->
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+
+    <!-- Open Graph (Facebook, WhatsApp, LinkedIn, Discord previews) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CampusLink" />
+    <meta property="og:title" content="CampusLink - Nigeria's #1 Campus Student & Vendor Marketplace" />
+    <meta property="og:description" content="Connect with verified campus peers and vendors for food delivery, hostel essentials, fashion, gadgets and student services across Nigeria." />
+    <meta property="og:url" content="https://campus-link.onrender.com/" />
+    <meta property="og:image" content="https://campus-link.onrender.com/campus_hero.jpg" />
+    <meta property="og:image:alt" content="CampusLink Campus Marketplace" />
+    <meta property="og:locale" content="en_NG" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CampusLink - Nigeria's Campus Student & Vendor Marketplace" />
+    <meta name="twitter:description" content="Buy and sell safely on campus. Food delivery, dorm essentials, student services and more across Nigerian universities." />
+    <meta name="twitter:image" content="https://campus-link.onrender.com/campus_hero.jpg" />
+
+    <!-- Schema.org JSON-LD Structured Data for Google Search Knowledge Graph -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://campus-link.onrender.com/#website",
+          "url": "https://campus-link.onrender.com/",
+          "name": "CampusLink",
+          "description": "Nigeria's campus student and vendor marketplace",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://campus-link.onrender.com/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://campus-link.onrender.com/#organization",
+          "name": "CampusLink",
+          "url": "https://campus-link.onrender.com/",
+          "logo": "https://campus-link.onrender.com/pwa-512x512.png"
+        }
+      ]
+    }
+    </script>
+
     <!-- PWA & Mobile Web App Capabilities -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#2563eb" />
@@ -21,10 +72,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
     <!-- Performance: Pre-resolve DNS & pre-open TCP/TLS to backend before JS loads -->
-    <!-- Eliminates 100-400ms connection overhead on first API call -->
     <link rel="preconnect" href="https://campus-link-backend-vhxr.onrender.com" crossorigin />
     <link rel="dns-prefetch" href="https://campus-link-backend-vhxr.onrender.com" />
-    <!-- Cloudinary CDN for fast image loading -->
     <link rel="preconnect" href="https://res.cloudinary.com" crossorigin />
     <link rel="dns-prefetch" href="https://res.cloudinary.com" />
   </head>
