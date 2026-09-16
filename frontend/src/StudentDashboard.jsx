@@ -637,7 +637,36 @@ export default function StudentDashboard() {
     }, 4000);
   };
 
-  // Synchronize activeTab, marketType, and selectedPartner with browser URL and localStorage
+  // --- REFS FOR POPSTATE & MOBILE BACK BUTTON HANDLING ---
+  const menuDrawerOpenRef = useRef(menuDrawerOpen);
+  const notificationsOpenRef = useRef(notificationsOpen);
+  const isCampusModalOpenRef = useRef(isCampusModalOpen);
+  const editProfileModalOpenRef = useRef(editProfileModalOpen);
+  const changePasswordModalOpenRef = useRef(changePasswordModalOpen);
+  const profileModalOpenRef = useRef(profileModalOpen);
+  const quickPostModalOpenRef = useRef(quickPostModalOpen);
+  const isPopStateNavigatingRef = useRef(false);
+  const lastBackPressRef = useRef(0);
+
+  useEffect(() => { selectedPartnerRef.current = selectedPartner; }, [selectedPartner]);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { menuDrawerOpenRef.current = menuDrawerOpen; }, [menuDrawerOpen]);
+  useEffect(() => { notificationsOpenRef.current = notificationsOpen; }, [notificationsOpen]);
+  useEffect(() => { isCampusModalOpenRef.current = isCampusModalOpen; }, [isCampusModalOpen]);
+  useEffect(() => { editProfileModalOpenRef.current = editProfileModalOpen; }, [editProfileModalOpen]);
+  useEffect(() => { changePasswordModalOpenRef.current = changePasswordModalOpen; }, [changePasswordModalOpen]);
+  useEffect(() => { profileModalOpenRef.current = profileModalOpen; }, [profileModalOpen]);
+  useEffect(() => { quickPostModalOpenRef.current = quickPostModalOpen; }, [quickPostModalOpen]);
+
+  // Prime root history buffer on initial mount so pressing back on Home doesn't exit/logout
+  useEffect(() => {
+    try {
+      window.history.replaceState({ campuslink_root: true }, '', window.location.href);
+      window.history.pushState({ campuslink_app: true, tab: activeTab }, '', window.location.href);
+    } catch (_) {}
+  }, []);
+
+  // Synchronize activeTab, marketType, and selectedPartner with browser URL & history
   useEffect(() => {
     try {
       localStorage.setItem('campuslink_student_tab', activeTab);
@@ -659,46 +688,102 @@ export default function StudentDashboard() {
         changed = true;
       }
 
-      if (activeTab === 'messages' && selectedPartner) {
-        const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
-        if (pId) {
-          if (url.searchParams.get('chat') !== pId) {
-            url.searchParams.set('chat', pId);
-            changed = true;
-          }
-        }
-      } else if (url.searchParams.has('chat') || (!selectedPartner && activeTab === 'messages')) {
-        if (url.searchParams.has('chat')) {
-          url.searchParams.delete('chat');
+      const pId = selectedPartner ? String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '') : '';
+      if (activeTab === 'messages' && pId) {
+        if (url.searchParams.get('chat') !== pId) {
+          url.searchParams.set('chat', pId);
           changed = true;
         }
+      } else if (url.searchParams.has('chat')) {
+        url.searchParams.delete('chat');
+        changed = true;
       }
 
       if (changed) {
-        window.history.replaceState({}, '', url.toString());
+        if (!isPopStateNavigatingRef.current) {
+          // Push new history state when user opens a chat or switches tabs so phone Back returns naturally
+          window.history.pushState({ campuslink_app: true, tab: activeTab, chat: pId }, '', url.toString());
+        } else {
+          window.history.replaceState({ campuslink_app: true, tab: activeTab, chat: pId }, '', url.toString());
+        }
       }
     } catch {}
   }, [activeTab, marketType, selectedPartner]);
 
-  // Support browser Back/Forward navigation between tabs and closing active chat
+  // Support phone hardware Back button, swipe-back gesture, and browser Back button
   useEffect(() => {
     const handlePopState = () => {
+      isPopStateNavigatingRef.current = true;
+      setTimeout(() => {
+        isPopStateNavigatingRef.current = false;
+      }, 150);
+
       try {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && ['marketplace', 'reels', 'campus', 'messages', 'profile'].includes(tab)) {
-          setActiveTab(tab);
+        // Priority 1: Close active modals or drawers
+        if (editProfileModalOpenRef.current) {
+          setEditProfileModalOpen(false);
+          return;
         }
-        const mt = params.get('marketType');
-        if (mt === 'products' || mt === 'services') {
-          setMarketType(mt);
+        if (changePasswordModalOpenRef.current) {
+          setChangePasswordModalOpen(false);
+          return;
         }
-        const chatId = params.get('chat');
-        if (!chatId && selectedPartnerRef.current) {
+        if (profileModalOpenRef.current) {
+          setProfileModalOpen(false);
+          return;
+        }
+        if (quickPostModalOpenRef.current) {
+          setQuickPostModalOpen(false);
+          return;
+        }
+        if (menuDrawerOpenRef.current) {
+          setMenuDrawerOpen(false);
+          return;
+        }
+        if (notificationsOpenRef.current) {
+          setNotificationsOpen(false);
+          return;
+        }
+        if (isCampusModalOpenRef.current) {
+          setIsCampusModalOpen(false);
+          return;
+        }
+
+        // Priority 2: Close active message thread (returns to messages list without closing app or logging out!)
+        if (selectedPartnerRef.current) {
           setSelectedPartner(null);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('chat');
+          window.history.replaceState({ campuslink_app: true, tab: 'messages' }, '', url.toString());
+          return;
+        }
+
+        // Priority 3: If on any sub-tab (Market, Messages list, Notices, Friends, Profile), return to Home (reels)
+        if (activeTabRef.current !== 'reels') {
+          setActiveTab('reels');
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', 'reels');
+          url.searchParams.delete('chat');
+          url.searchParams.delete('marketType');
+          window.history.replaceState({ campuslink_app: true, tab: 'reels' }, '', url.toString());
+          return;
+        }
+
+        // Priority 4: User is already on Home ('reels') with no modal/chat open.
+        // Confirm before leaving so accidental back swipe doesn't abruptly quit or logout!
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 2000) {
+          // Double-tap within 2 seconds: permit browser exit
+          window.history.back();
+        } else {
+          lastBackPressRef.current = now;
+          showToast('Press back again to exit', 'info');
+          // Re-arm history buffer
+          window.history.pushState({ campuslink_app: true, tab: 'reels' }, '', window.location.href);
         }
       } catch {}
     };
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -712,14 +797,6 @@ export default function StudentDashboard() {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    selectedPartnerRef.current = selectedPartner;
-  }, [selectedPartner]);
-
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
 
   // --- PRESENCE HEARTBEAT ---
   useEffect(() => {
@@ -1228,24 +1305,16 @@ export default function StudentDashboard() {
     });
   }, [conversations, campusStudents, myFriends, communityUsers, chatSearchQuery, currentUser?.user_id]);
 
-  // Mobile back button & Escape key support for notification slide-over drawer
+  // Escape key support for notification slide-over drawer
   useEffect(() => {
     if (!notificationsOpen) return;
-    const handlePopState = () => {
-      setNotificationsOpen(false);
-    };
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setNotificationsOpen(false);
       }
     };
-    try {
-      window.history.pushState({ notifDrawerOpen: true }, '', window.location.href);
-    } catch {}
-    window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [notificationsOpen]);

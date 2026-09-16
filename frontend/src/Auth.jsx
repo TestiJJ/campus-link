@@ -415,11 +415,11 @@ export default function Auth() {
         }
 
         if (data.user?.role === 'admin') {
-          navigate('/admin');
+          navigate('/admin', { replace: true });
         } else if (data.user?.role === 'vendor') {
-          navigate('/vendor-dashboard');
+          navigate('/vendor-dashboard', { replace: true });
         } else {
-          navigate('/student-dashboard');
+          navigate('/student-dashboard', { replace: true });
         }
       } else {
         localStorage.setItem('campuslink_new_signup_pending', 'true');
@@ -479,9 +479,9 @@ export default function Auth() {
         if (loginRes.ok) {
           localStorage.setItem('token', loginData.access_token);
           localStorage.setItem('user', JSON.stringify(loginData.user));
-          if (loginData.user?.role === 'admin') navigate('/admin');
-          else if (loginData.user?.role === 'vendor') navigate('/vendor-dashboard');
-          else navigate('/student-dashboard');
+          if (loginData.user?.role === 'admin') navigate('/admin', { replace: true });
+          else if (loginData.user?.role === 'vendor') navigate('/vendor-dashboard', { replace: true });
+          else navigate('/student-dashboard', { replace: true });
         } else {
           setErrorMessage(formatAuthError(null, loginData, 'Login after verification failed.'));
         }

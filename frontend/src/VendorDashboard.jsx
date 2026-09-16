@@ -645,34 +645,178 @@ export default function VendorDashboard() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Synchronize activeTab with URL query params and localStorage
+  // --- REFS FOR POPSTATE & MOBILE BACK BUTTON HANDLING ---
+  const selectedPartnerRef = useRef(selectedPartner);
+  const activeTabRef = useRef(activeTab);
+  const menuDrawerOpenRef = useRef(menuDrawerOpen);
+  const editProfileModalOpenRef = useRef(editProfileModalOpen);
+  const changePasswordModalOpenRef = useRef(changePasswordModalOpen);
+  const bankModalOpenRef = useRef(bankModalOpen);
+  const broadcastModalOpenRef = useRef(broadcastModalOpen);
+  const profileModalOpenRef = useRef(profileModalOpen);
+  const showProductModalRef = useRef(showProductModal);
+  const showServiceModalRef = useRef(showServiceModal);
+  const showReelModalRef = useRef(showReelModal);
+  const isCampusModalOpenRef = useRef(isCampusModalOpen);
+  const marketplaceSelectedItemRef = useRef(marketplaceSelectedItem);
+  const activeStatusViewerRef = useRef(activeStatusViewer);
+  const activeMediaViewerRef = useRef(activeMediaViewer);
+  const isPopStateNavigatingRef = useRef(false);
+  const lastBackPressRef = useRef(0);
+
+  useEffect(() => { selectedPartnerRef.current = selectedPartner; }, [selectedPartner]);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  useEffect(() => { menuDrawerOpenRef.current = menuDrawerOpen; }, [menuDrawerOpen]);
+  useEffect(() => { editProfileModalOpenRef.current = editProfileModalOpen; }, [editProfileModalOpen]);
+  useEffect(() => { changePasswordModalOpenRef.current = changePasswordModalOpen; }, [changePasswordModalOpen]);
+  useEffect(() => { bankModalOpenRef.current = bankModalOpen; }, [bankModalOpen]);
+  useEffect(() => { broadcastModalOpenRef.current = broadcastModalOpen; }, [broadcastModalOpen]);
+  useEffect(() => { profileModalOpenRef.current = profileModalOpen; }, [profileModalOpen]);
+  useEffect(() => { showProductModalRef.current = showProductModal; }, [showProductModal]);
+  useEffect(() => { showServiceModalRef.current = showServiceModal; }, [showServiceModal]);
+  useEffect(() => { showReelModalRef.current = showReelModal; }, [showReelModal]);
+  useEffect(() => { isCampusModalOpenRef.current = isCampusModalOpen; }, [isCampusModalOpen]);
+  useEffect(() => { marketplaceSelectedItemRef.current = marketplaceSelectedItem; }, [marketplaceSelectedItem]);
+  useEffect(() => { activeStatusViewerRef.current = activeStatusViewer; }, [activeStatusViewer]);
+  useEffect(() => { activeMediaViewerRef.current = activeMediaViewer; }, [activeMediaViewer]);
+
+  // Prime root history buffer on initial mount so pressing back on Home doesn't exit/logout
+  useEffect(() => {
+    try {
+      window.history.replaceState({ campuslink_root: true }, '', window.location.href);
+      window.history.pushState({ campuslink_app: true, tab: activeTab }, '', window.location.href);
+    } catch (_) {}
+  }, []);
+
+  // Synchronize activeTab and selectedPartner with URL query params and browser history
   useEffect(() => {
     try {
       localStorage.setItem('campuslink_vendor_tab', activeTab);
       const url = new URL(window.location.href);
+      let changed = false;
+
       if (url.searchParams.get('tab') !== activeTab) {
         url.searchParams.set('tab', activeTab);
-        window.history.replaceState({}, '', url.toString());
+        changed = true;
+      }
+
+      const pId = selectedPartner ? String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '') : '';
+      if (activeTab === 'messages' && pId) {
+        if (url.searchParams.get('chat') !== pId) {
+          url.searchParams.set('chat', pId);
+          changed = true;
+        }
+      } else if (url.searchParams.has('chat')) {
+        url.searchParams.delete('chat');
+        changed = true;
+      }
+
+      if (changed) {
+        if (!isPopStateNavigatingRef.current) {
+          window.history.pushState({ campuslink_app: true, tab: activeTab, chat: pId }, '', url.toString());
+        } else {
+          window.history.replaceState({ campuslink_app: true, tab: activeTab, chat: pId }, '', url.toString());
+        }
       }
     } catch { }
-  }, [activeTab]);
+  }, [activeTab, selectedPartner]);
 
   const isVerified = Boolean(
     vendorStore?.verification_status === 'approved' ||
     vendorStore?.verification_status === 'verified'
   );
+
+  // Support phone hardware Back button, swipe-back gesture, and browser Back button
   useEffect(() => {
     const handlePopState = () => {
+      isPopStateNavigatingRef.current = true;
+      setTimeout(() => {
+        isPopStateNavigatingRef.current = false;
+      }, 150);
+
       try {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab === 'services') {
-          setCatalogType('services');
-          setActiveTab('inventory');
-        } else if (tab === 'home') {
-          setActiveTab('reels');
-        } else if (tab && ['inventory', 'services', 'marketplace', 'messages', 'reels', 'friends', 'notifications', 'hub', 'settings', 'verification'].includes(tab)) {
-          setActiveTab(tab);
+        // Priority 1: Close active modals, drawers, or viewers
+        if (activeStatusViewerRef.current) {
+          setActiveStatusViewer(null);
+          return;
+        }
+        if (activeMediaViewerRef.current) {
+          setActiveMediaViewer(null);
+          return;
+        }
+        if (editProfileModalOpenRef.current) {
+          setEditProfileModalOpen(false);
+          return;
+        }
+        if (changePasswordModalOpenRef.current) {
+          setChangePasswordModalOpen(false);
+          return;
+        }
+        if (bankModalOpenRef.current) {
+          setBankModalOpen(false);
+          return;
+        }
+        if (broadcastModalOpenRef.current) {
+          setBroadcastModalOpen(false);
+          return;
+        }
+        if (showProductModalRef.current) {
+          setShowProductModal(false);
+          return;
+        }
+        if (showServiceModalRef.current) {
+          setShowServiceModal(false);
+          return;
+        }
+        if (showReelModalRef.current) {
+          setShowReelModal(false);
+          return;
+        }
+        if (profileModalOpenRef.current) {
+          setProfileModalOpen(false);
+          return;
+        }
+        if (isCampusModalOpenRef.current) {
+          setIsCampusModalOpen(false);
+          return;
+        }
+        if (marketplaceSelectedItemRef.current) {
+          setMarketplaceSelectedItem(null);
+          return;
+        }
+        if (menuDrawerOpenRef.current) {
+          setMenuDrawerOpen(false);
+          return;
+        }
+
+        // Priority 2: Close active message thread (returns to messages list without closing app or logging out!)
+        if (selectedPartnerRef.current) {
+          setSelectedPartner(null);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('chat');
+          window.history.replaceState({ campuslink_app: true, tab: 'messages' }, '', url.toString());
+          return;
+        }
+
+        // Priority 3: If on any sub-tab, return to Home tab
+        if (activeTabRef.current !== 'home' && activeTabRef.current !== 'reels') {
+          setActiveTab('home');
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', 'home');
+          url.searchParams.delete('chat');
+          window.history.replaceState({ campuslink_app: true, tab: 'home' }, '', url.toString());
+          return;
+        }
+
+        // Priority 4: User is already on Home with nothing open.
+        // Confirm before leaving so accidental back swipe doesn't abruptly quit or logout!
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 2000) {
+          window.history.back();
+        } else {
+          lastBackPressRef.current = now;
+          showToast('Press back again to exit', 'info');
+          window.history.pushState({ campuslink_app: true, tab: 'home' }, '', window.location.href);
         }
       } catch { }
     };
@@ -876,19 +1020,7 @@ export default function VendorDashboard() {
   }, [navigate]);
 
 
-  const [inAppBanner, setInAppBanner] = useState(null);
-  const selectedPartnerRef = useRef(null);
-  const activeTabRef = useRef(activeTab);
-
   const isSwitchingPartnerRef = useRef(false);
-
-  useEffect(() => {
-    selectedPartnerRef.current = selectedPartner;
-  }, [selectedPartner]);
-
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
 
   // --- PRESENCE HEARTBEAT FOR VENDOR ---
   useEffect(() => {
