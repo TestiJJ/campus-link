@@ -7,7 +7,7 @@ import {
   User, Building2, Store, CheckCircle2,
   AlertCircle, ChevronDown, Eye, EyeOff, X,
   GraduationCap, Car, Video, ShoppingBag,
-  Activity, RefreshCw, Wifi, WifiOff
+  Activity, RefreshCw, Wifi, WifiOff, KeyRound
 } from 'lucide-react';
 import InstallAppButton from './components/InstallAppButton';
 
@@ -71,6 +71,19 @@ export default function Auth() {
   const [otpCode, setOtpCode] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
+
+  // Forgot Password Modal State
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1); // 1: Enter email, 2: Enter code & new password
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [forgotShowPassword, setForgotShowPassword] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotCooldown, setForgotCooldown] = useState(0);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
 
   // Alert & Feedback Messages
   const [errorMessage, setErrorMessage] = useState(() => {
@@ -164,6 +177,15 @@ export default function Auth() {
     }
     return () => clearTimeout(timer);
   }, [resendCooldown]);
+
+  // Timer countdown for forgot password resend cooldown
+  useEffect(() => {
+    let timer;
+    if (forgotCooldown > 0) {
+      timer = setTimeout(() => setForgotCooldown((prev) => prev - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [forgotCooldown]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -507,6 +529,139 @@ export default function Auth() {
     }
   };
 
+  const handleOpenForgotPassword = (prefillEmail) => {
+    const targetEmail = (typeof prefillEmail === 'string' && prefillEmail) ? prefillEmail : (formData.email || '');
+    setForgotEmail(targetEmail);
+    setForgotOtp('');
+    setForgotNewPassword('');
+    setForgotConfirmPassword('');
+    setForgotStep(1);
+    setForgotError('');
+    setForgotSuccess('');
+    setShowForgotModal(true);
+  };
+
+  const handleSendResetCode = async (e) => {
+    if (e) e.preventDefault();
+    const cleanEmail = forgotEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setForgotError('Please enter a valid email address.');
+      return;
+    }
+
+    setForgotLoading(true);
+    setForgotError('');
+    setForgotSuccess('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+
+      let data = {};
+      try { data = await response.json(); } catch {}
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Could not find an account with this email.');
+      }
+
+      setForgotStep(2);
+      setForgotCooldown(60);
+      setForgotSuccess(data.message || 'A 6-digit reset code has been sent to your email.');
+    } catch (err) {
+      setForgotError(err.message || 'Failed to send password reset code.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResendResetCode = async () => {
+    if (forgotCooldown > 0 || forgotLoading) return;
+    setForgotLoading(true);
+    setForgotError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() })
+      });
+
+      let data = {};
+      try { data = await response.json(); } catch {}
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to resend code.');
+      }
+
+      setForgotCooldown(60);
+      setForgotSuccess('A fresh 6-digit reset code has been sent to your email.');
+    } catch (err) {
+      setForgotError(err.message || 'Failed to resend reset code.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e) => {
+    if (e) e.preventDefault();
+    setForgotError('');
+
+    const cleanCode = forgotOtp.trim();
+    if (cleanCode.length !== 6) {
+      setForgotError('Please enter the full 6-digit code sent to your email.');
+      return;
+    }
+
+    if (!forgotNewPassword || forgotNewPassword.length < 6) {
+      setForgotError('New password must be at least 6 characters long.');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError('Passwords do not match. Please verify both fields.');
+      return;
+    }
+
+    setForgotLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotEmail.trim().toLowerCase(),
+          code: cleanCode,
+          new_password: forgotNewPassword
+        })
+      });
+
+      let data = {};
+      try { data = await response.json(); } catch {}
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Password reset failed. Please check the code.');
+      }
+
+      // Success! Close modal and prompt user to sign in
+      setShowForgotModal(false);
+      setIsLogin(true);
+      setFormData(prev => ({
+        ...prev,
+        email: forgotEmail.trim().toLowerCase(),
+        password: ''
+      }));
+      setOtpSuccessMessage(data.message || 'Password reset successful! Please sign in with your new password.');
+      setErrorMessage('');
+    } catch (err) {
+      setForgotError(err.message || 'Failed to reset password.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   const filteredInstitutions = institutions.filter((inst) =>
     inst.name.toLowerCase().includes(instSearch.toLowerCase())
   );
@@ -630,20 +785,30 @@ export default function Auth() {
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span className="flex-1">{errorMessage}</span>
               </div>
-              {/* Show "Sign In Instead" CTA when email is already registered */}
+              {/* Show "Sign In Instead" & "Forgot Password" CTAs when email is already registered */}
               {emailAlreadyExists && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsLogin(true);
-                    setEmailAlreadyExists(false);
-                    setErrorMessage('');
-                  }}
-                  className="mt-2.5 w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
-                >
-                  <span>Sign In Instead</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <div className="mt-2.5 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLogin(true);
+                      setEmailAlreadyExists(false);
+                      setErrorMessage('');
+                    }}
+                    className="w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                  >
+                    <span>Sign In Instead</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenForgotPassword(formData.email)}
+                    className="w-full py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Forgot password? Reset it here</span>
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -893,9 +1058,20 @@ export default function Auth() {
 
             {/* Password */}
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 uppercase">
+                  Password
+                </label>
+                {isLogin && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenForgotPassword(formData.email)}
+                    className="text-[11px] font-bold text-sky-600 hover:text-sky-700 hover:underline cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
@@ -963,18 +1139,28 @@ export default function Auth() {
                   <span className="flex-1">{errorMessage}</span>
                 </div>
                 {emailAlreadyExists && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsLogin(true);
-                      setEmailAlreadyExists(false);
-                      setErrorMessage('');
-                    }}
-                    className="mt-2.5 w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
-                  >
-                    <span>Sign In Instead</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="mt-2.5 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setEmailAlreadyExists(false);
+                        setErrorMessage('');
+                      }}
+                      className="w-full py-2 bg-sky-500 hover:bg-sky-600 active:scale-98 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm"
+                    >
+                      <span>Sign In Instead</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenForgotPassword(formData.email)}
+                      className="w-full py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 shadow-2xs"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Forgot password? Reset it here</span>
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -1085,6 +1271,196 @@ export default function Auth() {
                   {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Did not receive code? Resend'}
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- FORGOT PASSWORD MODAL --- */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative border border-slate-200 text-slate-900"
+            >
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="absolute top-5 right-5 text-slate-400 hover:text-slate-700 cursor-pointer p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center mb-4">
+                <KeyRound className="w-6 h-6" />
+              </div>
+
+              {forgotStep === 1 ? (
+                <>
+                  <h3 className="text-xl font-black text-slate-900 tracking-tight">Reset Your Password</h3>
+                  <p className="text-xs text-slate-500 mt-1 mb-5 leading-relaxed">
+                    Enter your registered email address and we'll send you a 6-digit verification code to choose a new password.
+                  </p>
+
+                  {forgotError && (
+                    <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSendResetCode} className="space-y-4">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1.5">
+                        Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="student@university.edu.ng or your email"
+                          value={forgotEmail}
+                          onChange={(e) => setForgotEmail(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={forgotLoading || !forgotEmail.trim()}
+                      className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-500/25 cursor-pointer disabled:opacity-50 transition-all flex items-center justify-center space-x-1.5"
+                    >
+                      <span>{forgotLoading ? 'Sending code...' : 'Send 6-Digit Reset Code'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(false)}
+                      className="w-full py-2 text-center text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                    >
+                      Cancel and return to sign in
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-xl font-black text-slate-900 tracking-tight">Set New Password</h3>
+                  <p className="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
+                    Enter the 6-digit code sent to <strong className="text-slate-800">{forgotEmail}</strong> and choose a secure new password.
+                  </p>
+
+                  {forgotSuccess && (
+                    <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>{forgotSuccess}</span>
+                    </div>
+                  )}
+
+                  {forgotError && (
+                    <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start space-x-2">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                        6-Digit Verification Code
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="Enter 6-digit code"
+                        value={forgotOtp}
+                        onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
+                        className="w-full text-center tracking-widest text-lg font-black p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                        New Password (Min. 6 Characters)
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type={forgotShowPassword ? 'text' : 'password'}
+                          required
+                          placeholder="••••••••"
+                          value={forgotNewPassword}
+                          onChange={(e) => setForgotNewPassword(e.target.value)}
+                          className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setForgotShowPassword(!forgotShowPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                        >
+                          {forgotShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
+                        Confirm New Password
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type={forgotShowPassword ? 'text' : 'password'}
+                          required
+                          placeholder="••••••••"
+                          value={forgotConfirmPassword}
+                          onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                          className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-sky-500 focus:bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={forgotLoading || forgotOtp.length < 6 || forgotNewPassword.length < 6 || forgotNewPassword !== forgotConfirmPassword}
+                      className="w-full py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-500/25 cursor-pointer disabled:opacity-50 transition-all flex items-center justify-center space-x-1.5 mt-2"
+                    >
+                      <span>{forgotLoading ? 'Updating Password...' : 'Save New Password & Sign In'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+
+                    <div className="pt-2 flex items-center justify-between text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForgotStep(1);
+                          setForgotOtp('');
+                          setForgotError('');
+                        }}
+                        className="text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
+                      >
+                        ← Change email
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={forgotCooldown > 0 || forgotLoading}
+                        onClick={handleResendResetCode}
+                        className="font-bold text-sky-600 hover:underline disabled:text-slate-400 cursor-pointer"
+                      >
+                        {forgotCooldown > 0 ? `Resend code in ${forgotCooldown}s` : 'Resend code'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
             </motion.div>
           </div>
         )}

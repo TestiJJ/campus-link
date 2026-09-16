@@ -54,6 +54,18 @@ class VerifyEmailSchema(BaseModel):
 class ResendOTPSchema(BaseModel):
     email: EmailStr
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
 class UserOut(UserBase):
     user_id: str
     matric_number: Optional[str] = None

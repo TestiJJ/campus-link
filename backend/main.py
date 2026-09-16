@@ -761,6 +761,191 @@ def resend_otp(payload: schemas.ResendOTPSchema, db: Session = Depends(database.
         "dev_code": otp if not email_dispatched else None
     }
 
+
+def send_password_reset_email(to_email: str, otp_code: str) -> bool:
+    """Dispatches a specialized password reset OTP code email via Webhook/SMTP."""
+    clean_to = (to_email or "").strip().lower()
+    if not clean_to:
+        return False
+
+    sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
+    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+    smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
+    webhook_url     = get_clean_webhook_url()
+
+    subject = f"{otp_code} is your CampusLink Password Reset Code"
+
+    text_body = (
+        f"Hello,\n\n"
+        f"We received a request to reset your password on CampusLink.\n"
+        f"Your 6-digit password reset code is: {otp_code}\n\n"
+        f"Enter this code on the password reset screen along with your new password.\n"
+        f"This code expires in 15 minutes.\n\n"
+        f"If you did not request a password reset, you can safely ignore this email — your account remains secure.\n\n"
+        f"-- CampusLink Support Team"
+    )
+
+    html_body = (
+        "<!DOCTYPE html>"
+        "<html><head>"
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        "<title>CampusLink Password Reset</title>"
+        "</head>"
+        '<body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;padding:32px 16px;">'
+        '<tr><td align="center">'
+        '<table role="presentation" width="100%" style="max-width:480px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);border:1px solid #e2e8f0;">'
+        '<tr><td style="background:linear-gradient(135deg,#0284c7,#0369a1);padding:32px 24px;text-align:center;">'
+        '<h1 style="color:#fff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">CAMPUS<span style="color:#7dd3fc;">LINK</span></h1>'
+        '<p style="color:#e0f2fe;margin:6px 0 0 0;font-size:13px;">Password Reset Request</p>'
+        "</td></tr>"
+        '<tr><td style="padding:32px 24px;">'
+        '<h2 style="color:#0f172a;margin:0 0 12px 0;font-size:18px;font-weight:700;">Reset Your Password</h2>'
+        '<p style="color:#475569;margin:0 0 24px 0;font-size:14px;line-height:1.6;">We received a request to reset your password. Use the 6-digit verification code below to set a new password for your account.</p>'
+        '<div style="background:#f0f9ff;border:2px dashed #0284c7;border-radius:12px;padding:20px;text-align:center;margin:0 0 24px 0;">'
+        f'<span style="font-family:Courier New,monospace;font-size:36px;font-weight:800;letter-spacing:8px;color:#0369a1;display:inline-block;">{otp_code}</span>'
+        "</div>"
+        '<p style="color:#64748b;margin:0 0 8px 0;font-size:12px;">This code is valid for <strong>15 minutes</strong>.</p>'
+        '<p style="color:#64748b;margin:0;font-size:12px;">If you did not request a password reset, you can safely ignore this message.</p>'
+        "</td></tr>"
+        '<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px;text-align:center;">'
+        '<p style="color:#94a3b8;margin:0;font-size:11px;">&copy; CampusLink Nigeria. Connecting students, vendors, and campus life.</p>'
+        "</td></tr>"
+        "</table></td></tr></table>"
+        "</body></html>"
+    )
+
+    print(f"[CAMPUSLINK PASSWORD RESET OTP for {clean_to}]: {otp_code}")
+
+    # 1. Apps Script Webhook
+    urls_to_try = [webhook_url]
+    if webhook_url != DEFAULT_GOOGLE_MAIL_WEBHOOK:
+        urls_to_try.append(DEFAULT_GOOGLE_MAIL_WEBHOOK)
+
+    for target_url in urls_to_try:
+        try:
+            resp = httpx.post(
+                target_url,
+                json={
+                    "to": clean_to,
+                    "subject": subject,
+                    "html": html_body,
+                    "text": text_body,
+                    "code": otp_code,
+                },
+                follow_redirects=True,
+                timeout=15.0,
+            )
+            if resp.status_code in (200, 201, 302):
+                print(f"[EMAIL] Password reset code sent to {clean_to} via Webhook")
+                return True
+        except Exception as e_wh:
+            print(f"[EMAIL] Webhook error on {target_url[:35]}...: {e_wh}")
+
+    # 2. Gmail SMTP SSL
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"CampusLink <{sender_email}>"
+    msg["To"]      = clean_to
+    msg.attach(MIMEText(text_body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
+
+    try:
+        ssl_ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, 465, context=ssl_ctx, timeout=10) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, clean_to, msg.as_string())
+            print(f"[EMAIL] Password reset code sent to {clean_to} via Gmail SSL 465")
+            return True
+    except Exception as e_ssl:
+        try:
+            with smtplib.SMTP(smtp_host, 587, timeout=10) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(sender_email, sender_password)
+                server.sendmail(sender_email, clean_to, msg.as_string())
+                print(f"[EMAIL] Password reset code sent to {clean_to} via Gmail STARTTLS 587")
+                return True
+        except Exception as e_tls:
+            print(f"[EMAIL ERROR] Password reset email failed: {e_tls}")
+            return False
+
+
+@app.post("/api/forgot-password")
+def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depends(database.get_db)):
+    clean_email = (payload.email or "").strip().lower()
+    user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="No account found with this email address. Please verify your email or sign up."
+        )
+
+    user_status = (getattr(user, "status", "active") or "active").lower().strip()
+    if user_status in ["suspended", "banned"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Your account has been {user_status} by platform administration. Access revoked."
+        )
+
+    otp = str(random.randint(100000, 999999))
+    user.verification_code = otp
+    user.code_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
+    db.commit()
+
+    email_dispatched = send_password_reset_email(user.email, otp)
+    return {
+        "message": "A 6-digit password reset code has been sent to your email." if email_dispatched else "Password reset code generated.",
+        "email_dispatched": email_dispatched,
+        "dev_code": otp if not email_dispatched else None
+    }
+
+
+@app.post("/api/verify-reset-code")
+def verify_reset_code(payload: schemas.VerifyResetCodeRequest, db: Session = Depends(database.get_db)):
+    clean_email = (payload.email or "").strip().lower()
+    user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    if not user.verification_code or user.verification_code != payload.code.strip():
+        raise HTTPException(status_code=400, detail="Invalid reset code. Please check your email and try again.")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if user.code_expires_at and user.code_expires_at < now:
+        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new code.")
+
+    return {"message": "Reset code verified successfully."}
+
+
+@app.post("/api/reset-password")
+def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(database.get_db)):
+    clean_email = (payload.email or "").strip().lower()
+    user = db.query(models.User).filter(func.lower(models.User.email) == clean_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Account not found.")
+
+    if not user.verification_code or user.verification_code != payload.code.strip():
+        raise HTTPException(status_code=400, detail="Invalid reset code. Please check your email and try again.")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if user.code_expires_at and user.code_expires_at < now:
+        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new code.")
+
+    new_pwd = payload.new_password.strip()
+    if len(new_pwd) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+
+    user.password_hash = auth.hash_password(new_pwd)
+    user.verification_code = None
+    user.code_expires_at = None
+    user.is_email_verified = True
+    db.commit()
+
+    return {"message": "Password reset successful! You can now log in with your new password."}
+
+
 @app.post("/api/login", response_model=schemas.Token)
 def login_user(credentials: schemas.UserLogin, db: Session = Depends(database.get_db)):
     clean_email = (credentials.email or "").strip().lower()
