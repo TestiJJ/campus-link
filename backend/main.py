@@ -188,6 +188,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "https://campus-link-dzjz.onrender.com",
         "https://campus-link.onrender.com",
+        "https://campus-link.com.ng",
+        "https://www.campus-link.com.ng",
         "https://campus-link-backend-vhxr.onrender.com",
         "capacitor://localhost",
         "ionic://localhost",

@@ -7,4 +7,4 @@ Disallow: /api/
 User-agent: Googlebot
 Allow: /
 
-Sitemap: https://campus-link.onrender.com/sitemap.xml
+Sitemap: https://campus-link.com.ng/sitemap.xml
