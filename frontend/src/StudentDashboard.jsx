@@ -246,6 +246,14 @@ export function getInitialStudentTab() {
   return 'reels';
 }
 
+const formatItemPrice = (val) => {
+  if (val === null || val === undefined || val === '') return '₦0';
+  const str = String(val).trim();
+  if (str.startsWith('₦')) return str;
+  const num = Number(str.replace(/[^0-9.-]+/g, ''));
+  return !isNaN(num) ? `₦${num.toLocaleString()}` : `₦${str}`;
+};
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState(() => {
@@ -4561,7 +4569,7 @@ export default function StudentDashboard() {
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                           />
                           <span className="absolute bottom-1.5 left-1.5 bg-slate-900/90 text-white font-black text-[10px] px-2 py-0.5 rounded-lg shadow-xs backdrop-blur-xs">
-                            {p.price?.startsWith('₦') ? p.price : `₦${p.price}`}
+                            {formatItemPrice(p.price)}
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-slate-900 truncate leading-snug">{p.name}</h4>
@@ -4596,7 +4604,7 @@ export default function StudentDashboard() {
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                           />
                           <span className="absolute bottom-1.5 left-1.5 bg-indigo-900/90 text-white font-black text-[10px] px-2 py-0.5 rounded-lg shadow-xs backdrop-blur-xs">
-                            {s.price?.startsWith('₦') ? s.price : `₦${s.price}`}
+                            {formatItemPrice(s.price)}
                           </span>
                         </div>
                         <h4 className="text-xs font-bold text-slate-900 truncate leading-snug">{s.name}</h4>
@@ -4988,7 +4996,7 @@ export default function StudentDashboard() {
                                   className="w-full h-full object-cover"
                                 />
                                 <span className="absolute bottom-2 left-2 bg-slate-900/90 text-white font-black text-[11px] px-2 py-0.5 rounded-lg shadow-xs backdrop-blur-xs">
-                                  {p.price?.startsWith('₦') ? p.price : `₦${p.price}`}
+                                  {formatItemPrice(p.price)}
                                 </span>
                               </div>
                               <div className="p-2.5 sm:p-3">
