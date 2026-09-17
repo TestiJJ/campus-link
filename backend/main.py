@@ -2512,8 +2512,15 @@ async def broadcast_announcement_admin(
         raise HTTPException(status_code=400, detail="Announcement message cannot be empty.")
 
     query = db.query(models.User).filter(models.User.status == "active")
-    if payload.target_role and payload.target_role != "all":
-        query = query.filter(models.User.role == payload.target_role)
+    target_role = (payload.target_role or "all").lower().strip()
+    if target_role in ("vendor", "vendors"):
+        query = query.filter(models.User.role == "vendor")
+    elif target_role in ("student", "students"):
+        query = query.filter(models.User.role == "student")
+    elif target_role in ("admin", "admins"):
+        query = query.filter(models.User.role == "admin")
+    elif target_role != "all":
+        query = query.filter(models.User.role == target_role)
     recipients = query.all()
 
     now = datetime.utcnow()
