@@ -778,7 +778,7 @@ export default function AdminDashboard() {
                         ? (tab.badgeColor ? 'bg-rose-500 text-white' : 'bg-slate-800 text-slate-300')
                         : (tab.badgeColor ? 'bg-rose-500 text-white animate-bounce' : 'bg-slate-300/80 text-slate-700')
                     }`}>
-                      {tab.badge > 99 ? '99+' : tab.badge}
+                      {tab.badge > 9999 ? '9.9k+' : tab.badge}
                     </span>
                   )}
                   {tab.isLive && (
@@ -1546,15 +1546,27 @@ export default function AdminDashboard() {
                 </p>
               </div>
 
-              <div className="relative w-full sm:w-72">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search name, email, campus, matric..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
-                />
+              <div className="flex items-center space-x-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search name, email, campus, matric..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={loadAdminData}
+                  disabled={loading}
+                  className="px-3 py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center space-x-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
+                  title="Refresh user list from database"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-sky-600 ${loading ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
               </div>
             </div>
 

@@ -2376,7 +2376,7 @@ def get_all_users_admin(
     if search:
         s = f"%{search.strip()}%"
         query = query.filter((models.User.full_name.ilike(s)) | (models.User.email.ilike(s)) | (models.User.phone_number.ilike(s)))
-    users = query.order_by(models.User.created_at.desc()).limit(1000).all()
+    users = query.order_by(models.User.created_at.desc()).all()
     return [
         {
             "user_id": u.user_id,
