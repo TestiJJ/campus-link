@@ -3906,6 +3906,58 @@ export default function StudentDashboard() {
         {/* Main Content Body */}
         <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
 
+        {/* Proactive Push Notification Opt-in Banner */}
+        {isPushSupported() && pushState === 'default' && !pushBannerDismissed && (
+          <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md animate-in fade-in slide-in-from-top-2 duration-300">
+            <div className="flex items-start space-x-3.5 min-w-0">
+              <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 text-xl shadow-xs">
+                🔔
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white tracking-tight">
+                  Turn on Phone Notifications
+                </h4>
+                <p className="text-xs text-blue-100 mt-0.5 leading-relaxed">
+                  Get instant lockscreen alerts for chats, friend requests, orders & campus announcements even when the app is closed.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2 shrink-0 self-end sm:self-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setPushBannerDismissed(true);
+                  try { localStorage.setItem('campuslink_push_dismissed', 'true'); } catch (_) {}
+                }}
+                className="px-3.5 py-1.5 text-xs font-semibold text-white/80 hover:text-white rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                Later
+              </button>
+              <button
+                type="button"
+                disabled={pushLoading}
+                onClick={handleEnablePush}
+                className="px-4 py-2 text-xs font-bold bg-white text-blue-700 hover:bg-blue-50 active:scale-95 rounded-2xl shadow-xs transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+              >
+                {pushLoading ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    <span>Enabling...</span>
+                  </>
+                ) : (
+                  <span>Enable Now</span>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {pushMessage && (
+          <div className="mb-4 p-3 rounded-2xl bg-slate-900 text-white text-xs font-medium flex items-center justify-between shadow-xs">
+            <span>{pushMessage}</span>
+            <button onClick={() => setPushMessage('')} className="text-white/60 hover:text-white cursor-pointer">✕</button>
+          </div>
+        )}
 
         {/* Toast Alert */}
         {toast.text && (

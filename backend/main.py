@@ -2541,6 +2541,23 @@ async def broadcast_announcement_admin(
     except Exception as _err:
         print(f"[WebSocket] Admin broadcast notice: {_err}")
 
+    # Deliver native phone lockscreen push notifications to all subscribed user devices
+    def _broadcast_phone_push():
+        for u in recipients:
+            try:
+                dest_url = "/vendor/dashboard" if u.role == "vendor" else "/"
+                dispatch_push_notification_to_user(
+                    user_id=str(u.user_id),
+                    title=title,
+                    body=msg_text,
+                    url=dest_url,
+                    tag=f"broadcast-{int(datetime.utcnow().timestamp())}"
+                )
+            except Exception as _p_err:
+                print(f"[Push] Broadcast error for {u.user_id}: {_p_err}")
+
+    threading.Thread(target=_broadcast_phone_push, daemon=True).start()
+
     return {
         "status": "success",
         "recipients_count": len(recipients),
