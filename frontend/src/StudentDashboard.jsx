@@ -314,6 +314,7 @@ export default function StudentDashboard() {
   });
 
   // Reels State
+  const [dropsNonce, setDropsNonce] = useState(() => Math.floor(Math.random() * 1000));
   const [reels, setReels] = useState(() => getCachedData('reels', []));
   const [reelText, setReelText] = useState('');
   const [reelLocation, setReelLocation] = useState('Campus Hub');
@@ -3747,6 +3748,10 @@ export default function StudentDashboard() {
 
   const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3 });
 
+  // Home Feed dynamic random rotating products & services (shuffles every 2 minutes across all sellers)
+  const rotatingHomeProducts = useRotatingFeed(products, { timeWindowMinutes: 2, seedOffset: dropsNonce });
+  const rotatingHomeServices = useRotatingFeed(services, { timeWindowMinutes: 2, seedOffset: dropsNonce });
+
   const filteredStudents = campusStudents.filter(s => {
     if (isSelfUser(s)) return false;
     const q = studentSearch.toLowerCase().trim();
@@ -4535,22 +4540,33 @@ export default function StudentDashboard() {
                       <p className="text-[10px] text-slate-400 font-medium">Fresh listings from verified campus sellers</p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('marketplace');
-                      localStorage.setItem('campuslink_student_tab', 'marketplace');
-                    }}
-                    className="text-[11px] font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-0.5 cursor-pointer hover:underline"
-                  >
-                    <span>View All</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setDropsNonce(n => n + 1)}
+                      className="p-1 sm:px-2 py-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors cursor-pointer flex items-center space-x-1 text-[11px] font-bold"
+                      title="Shuffle drops"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span className="hidden xs:inline">Shuffle</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('marketplace');
+                        localStorage.setItem('campuslink_student_tab', 'marketplace');
+                      }}
+                      className="text-[11px] font-bold text-sky-600 hover:text-sky-700 flex items-center space-x-0.5 cursor-pointer hover:underline"
+                    >
+                      <span>View All</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-stretch space-x-3 overflow-x-auto scrollbar-none momentum-scroll py-1 px-1">
                   {/* Top Products */}
-                  {products.slice(0, 8).map((p) => (
+                  {rotatingHomeProducts.slice(0, 8).map((p) => (
                     <div
                       key={`home-drop-${p.id}`}
                       onClick={() => {
@@ -4588,7 +4604,7 @@ export default function StudentDashboard() {
                   ))}
 
                   {/* Top Services */}
-                  {services.slice(0, 6).map((s) => (
+                  {rotatingHomeServices.slice(0, 6).map((s) => (
                     <div
                       key={`home-service-${s.id}`}
                       onClick={() => handleStartVendorChat(s)}
@@ -4981,7 +4997,7 @@ export default function StudentDashboard() {
                       </div>
 
                       <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
-                        {products.slice(0, 6).map((p) => (
+                        {rotatingHomeProducts.slice(0, 6).map((p) => (
                           <div
                             key={`home-feed-prod-${p.id}`}
                             className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between"

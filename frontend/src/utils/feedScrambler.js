@@ -43,8 +43,8 @@ export function scatterFeed(items = [], options = {}) {
     )
   } = options;
 
-  // Windowed time seed (changes every `timeWindowMinutes` minutes)
-  const timeSlot = Math.floor(Date.now() / (timeWindowMinutes * 60 * 1000));
+  // Windowed time seed (changes every `timeWindowMinutes` minutes or with seedOffset)
+  const timeSlot = Math.floor(Date.now() / (timeWindowMinutes * 60 * 1000)) + (options.seedOffset || 0);
   const rng = createMulberry32(timeSlot);
 
   // Group items by creator / vendor
@@ -119,6 +119,6 @@ export function useRotatingFeed(items = [], options = {}) {
   return useMemo(() => {
     return scatterFeed(items, { ...options, timeWindowMinutes: timeWindow });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, rotationTick, timeWindow]);
+  }, [items, rotationTick, timeWindow, options.seedOffset]);
 }
 
