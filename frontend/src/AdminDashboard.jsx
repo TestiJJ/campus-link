@@ -12,7 +12,7 @@ import {
   ExternalLink, Layers, UserX, UserCheck, Ban,
   Settings, Megaphone, ShieldAlert,
   ToggleLeft, ToggleRight, Radio, Server, RefreshCw,
-  Loader2, Send, Zap, Wifi
+  Loader2, Send, Zap, Wifi, Copy
 } from 'lucide-react';
 import API, { getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
@@ -416,6 +416,28 @@ export default function AdminDashboard() {
       u.matric_number?.toLowerCase().includes(q)
     );
   }, [users, userSearch, userStatusFilter]);
+
+  // List of emails matching current broadcast audience filter
+  const audienceEmails = useMemo(() => {
+    const list = [];
+    if (broadcastAudience === 'all' || broadcastAudience === 'students') {
+      users.forEach((u) => {
+        if (u.email) {
+          const em = u.email.toLowerCase().trim();
+          if (em && !list.includes(em)) list.push(em);
+        }
+      });
+    }
+    if (broadcastAudience === 'all' || broadcastAudience === 'vendors') {
+      allVendors.forEach((v) => {
+        if (v.email) {
+          const em = v.email.toLowerCase().trim();
+          if (em && !list.includes(em)) list.push(em);
+        }
+      });
+    }
+    return list;
+  }, [broadcastAudience, users, allVendors]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row w-full max-w-full overflow-x-hidden">
@@ -909,6 +931,7 @@ export default function AdminDashboard() {
                             <h3 className="font-bold text-base text-slate-900 leading-snug truncate">{vendor.business_name}</h3>
                             <span className="text-xs text-slate-500 block truncate">
                               Applicant: <strong className="text-slate-800">{vendor.user_name}</strong>
+                              {vendor.email && <span className="text-slate-400 ml-1 font-mono text-[11px]">({vendor.email})</span>}
                             </span>
                           </div>
                         </div>
@@ -967,6 +990,41 @@ export default function AdminDashboard() {
                             <span className="truncate">Category</span>
                           </span>
                           <span className="font-semibold text-sky-700 truncate block">{vendor.category_name}</span>
+                        </div>
+
+                        {/* Vendor Email Row */}
+                        <div className="bg-slate-50 p-2.5 rounded-xl min-w-0 overflow-hidden col-span-2 flex items-center justify-between border border-slate-100">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase flex items-center space-x-1 mb-0.5 truncate">
+                              <Mail className="w-3 h-3 text-sky-500 shrink-0" />
+                              <span className="truncate">Vendor Email</span>
+                            </span>
+                            <span className="font-semibold text-slate-800 truncate block text-xs select-all">
+                              {vendor.email || 'No email registered'}
+                            </span>
+                          </div>
+                          {vendor.email && (
+                            <div className="flex items-center space-x-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(vendor.email);
+                                  setToastMessage({ type: 'success', text: `Copied ${vendor.email} to clipboard!` });
+                                }}
+                                className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold cursor-pointer transition-colors"
+                                title="Copy Email"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                              <a
+                                href={`mailto:${vendor.email}`}
+                                className="p-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[10px] font-bold transition-colors"
+                                title="Send Email"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1565,8 +1623,23 @@ export default function AdminDashboard() {
                           </div>
                         </td>
                         <td className="p-4">
-                          <span className="text-slate-800 block font-medium">{u.email}</span>
-                          <span className="text-[10px] text-slate-400">{u.phone_number}</span>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-slate-800 font-medium select-all truncate max-w-[200px]">{u.email}</span>
+                            {u.email && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(u.email);
+                                  setToastMessage({ type: 'success', text: `Copied ${u.email} to clipboard!` });
+                                }}
+                                className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 cursor-pointer transition-colors shrink-0"
+                                title="Copy email address"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 block">{u.phone_number}</span>
                         </td>
                         <td className="p-4 text-slate-700 font-medium">
                           {u.university_name}
@@ -1725,7 +1798,20 @@ export default function AdminDashboard() {
                   <div className="text-xs text-slate-600 space-y-1 pt-1">
                     <div className="flex items-center space-x-1.5 text-slate-500 overflow-hidden">
                       <Mail className="w-3 h-3 text-slate-400 shrink-0" />
-                      <span className="truncate">{u.email}</span>
+                      <span className="truncate select-all flex-1">{u.email}</span>
+                      {u.email && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(u.email);
+                            setToastMessage({ type: 'success', text: `Copied ${u.email} to clipboard!` });
+                          }}
+                          className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 cursor-pointer transition-colors shrink-0"
+                          title="Copy email address"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                     {u.phone_number && (
                       <div className="flex items-center space-x-1.5 text-slate-500 overflow-hidden">
@@ -2059,6 +2145,76 @@ export default function AdminDashboard() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* Recipient Email Directory & Quick Copy */}
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <Mail className="w-4 h-4 text-amber-700 shrink-0" />
+                        <span className="text-xs font-bold text-amber-950">
+                          Recipient Email Directory ({audienceEmails.length} {audienceEmails.length === 1 ? 'address' : 'addresses'})
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800/80 mt-0.5">
+                        Copy emails to paste directly into your email provider's (Gmail/Outlook) Bcc field or open your mail app.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={audienceEmails.length === 0}
+                        onClick={() => {
+                          if (audienceEmails.length === 0) return;
+                          navigator.clipboard.writeText(audienceEmails.join(', '));
+                          setToastMessage({
+                            type: 'success',
+                            text: `Copied ${audienceEmails.length} recipient email(s) to clipboard!`
+                          });
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy All ({audienceEmails.length})</span>
+                      </button>
+
+                      {audienceEmails.length > 0 && (
+                        <a
+                          href={`mailto:?bcc=${encodeURIComponent(audienceEmails.join(','))}&subject=${encodeURIComponent(broadcastTitle || 'CampusLink Announcement')}`}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                          title="Open default email client with all recipient emails in Bcc"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Open in Mail</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick Preview Chips (capped preview) */}
+                  {audienceEmails.length > 0 ? (
+                    <div className="max-h-24 overflow-y-auto flex flex-wrap gap-1 pt-1">
+                      {audienceEmails.slice(0, 25).map((em) => (
+                        <span
+                          key={em}
+                          className="px-2 py-0.5 rounded-md bg-white text-slate-700 text-[10px] font-mono border border-amber-200 select-all"
+                        >
+                          {em}
+                        </span>
+                      ))}
+                      {audienceEmails.length > 25 && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-900 text-[10px] font-bold">
+                          +{audienceEmails.length - 25} more
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-amber-700 italic">
+                      No emails found for the selected audience.
+                    </div>
+                  )}
                 </div>
 
                 {/* Broadcast Subject */}
