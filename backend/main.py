@@ -2316,6 +2316,15 @@ async def admin_vendor_action(
     if action_data.action == "approve":
         vendor.verification_status = "verified"
         vendor.rejection_reason = None
+        # Activate all pre-uploaded draft items
+        db.query(models.Product).filter(
+            models.Product.vendor_id == vendor.id,
+            models.Product.status == "pending_verification"
+        ).update({"status": "available"}, synchronize_session=False)
+        db.query(models.Service).filter(
+            models.Service.vendor_id == vendor.id,
+            models.Service.availability == "pending_verification"
+        ).update({"availability": "available"}, synchronize_session=False)
         message = f"Vendor '{vendor.business_name}' approved and verified successfully!"
     elif action_data.action == "reject":
         vendor.verification_status = "rejected"
@@ -2722,11 +2731,8 @@ def create_product(
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor store not found.")
 
-    if vendor.verification_status != "verified":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your vendor account is pending admin verification. You cannot publish products until approved."
-        )
+    # Allow all registered vendors to build their catalog immediately
+    initial_status = "available" if vendor.verification_status == "verified" else "pending_verification"
 
     target_uni_id = product_data.university_id or vendor.university_id
 
@@ -2746,7 +2752,7 @@ def create_product(
         university_id=target_uni_id,
         image=prod_image,
         quantity=product_data.quantity or 1,
-        status="available"
+        status=initial_status
     )
     db.add(new_prod)
     db.commit()
@@ -2919,11 +2925,8 @@ def create_service(
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor store not found.")
 
-    if vendor.verification_status != "verified":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your vendor account is pending admin verification. You cannot publish services until approved."
-        )
+    # Allow all registered vendors to build their service catalog immediately
+    svc_status = "available" if vendor.verification_status == "verified" else "pending_verification"
 
     new_svc = models.Service(
         vendor_id=vendor.id,
@@ -2934,7 +2937,7 @@ def create_service(
         university_id=vendor.university_id,
         location=service_data.location or vendor.location,
         image=service_data.image.strip() if service_data.image else "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80",
-        availability="available"
+        availability=svc_status
     )
     db.add(new_svc)
     db.commit()

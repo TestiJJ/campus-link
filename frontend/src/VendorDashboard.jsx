@@ -3912,26 +3912,42 @@ export default function VendorDashboard() {
         {/* Main Content Body */}
         <div className={`flex-1 w-full min-w-0 ${activeTab === 'messages' ? 'p-0 flex flex-col overflow-hidden min-h-0 h-full' : 'p-3.5 sm:p-6 lg:p-8 pb-24 md:pb-8'}`}>
 
-          {/* Verification Alert Banner */}
+          {/* Verification Alert Banner & Setup Motivation */}
           {!isVerified && !isStoreLoading && vendorStore && (
             <div className="mb-6 p-4 sm:p-5 rounded-3xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
               <div className="flex items-start space-x-3">
                 <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <h4 className="text-sm font-bold text-amber-900">
-                    {vendorStore?.verification_status === 'rejected' ? 'Verification Rejected' : 'Store Verification Pending'}
+                    {vendorStore?.verification_status === 'rejected' ? 'Verification Needs Attention' : 'Store Verification Pending'}
                   </h4>
                   <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                    {vendorStore?.rejection_reason || 'Undergraduate or graduate restaurant owners, campus food operators, and external kiosks can verify with Student ID, National ID (NIN), Voter\'s Card, Driver\'s License, or CAC/Commercial Lease.'}
+                    {products.length > 0
+                      ? `🎉 Awesome progress! You have ${products.length} product(s) in your store. Verify now so your store goes live across campus!`
+                      : (vendorStore?.rejection_reason || 'You can add all your products and services right now! Submit your ID or chat on WhatsApp to activate marketplace visibility.')}
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setActiveTab('verification')}
-                className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shrink-0 cursor-pointer shadow-xs"
-              >
-                {vendorStore?.id_card_front ? 'Update Verification Details' : 'Verify ID / Business'}
-              </button>
+              <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-2">
+                <a
+                  href={`https://wa.me/2347045230675?text=${encodeURIComponent(
+                    `Hi Testimony! I just registered my store "${vendorStore?.business_name || 'My Store'}" on CampusLink and would like to verify my vendor account.`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-xs"
+                  title="Verify instantly by chatting with admin on WhatsApp"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>WhatsApp Verify</span>
+                </a>
+                <button
+                  onClick={() => setActiveTab('verification')}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-95 text-white text-xs font-bold cursor-pointer transition-all shadow-xs"
+                >
+                  {vendorStore?.id_card_front ? 'Update Details' : 'Upload ID'}
+                </button>
+              </div>
             </div>
           )}
 
@@ -3976,10 +3992,8 @@ export default function VendorDashboard() {
                     </button>
 
                     <button
-                      disabled={!isVerified}
                       onClick={catalogType === 'products' ? handleOpenAddProduct : () => setShowServiceModal(true)}
-                      title={!isVerified ? 'Complete ID verification first' : ''}
-                      className="px-3.5 sm:px-4 py-1.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold shadow-xs flex items-center justify-center space-x-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
+                      className="px-3.5 sm:px-4 py-1.5 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold shadow-xs flex items-center justify-center space-x-1 cursor-pointer transition-all shrink-0"
                     >
                       <Plus className="w-4 h-4" />
                       <span className="hidden xs:inline">{catalogType === 'products' ? 'Add Product' : 'Add Service'}</span>
@@ -4097,6 +4111,19 @@ export default function VendorDashboard() {
                             <span className="absolute top-2 right-2 bg-slate-900/80 backdrop-blur-xs text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-xs">
                               Qty: {item.quantity}
                             </span>
+                            <div className="absolute bottom-2 left-2 z-10">
+                              {isVerified ? (
+                                <span className="bg-emerald-600/90 backdrop-blur-xs text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-xs flex items-center space-x-0.5">
+                                  <Check className="w-2.5 h-2.5" />
+                                  <span>Live</span>
+                                </span>
+                              ) : (
+                                <span className="bg-amber-600/90 backdrop-blur-xs text-white px-2 py-0.5 rounded-full text-[9px] font-bold shadow-xs flex items-center space-x-0.5">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  <span>In Review</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="p-2.5 sm:p-4">
@@ -4145,12 +4172,12 @@ export default function VendorDashboard() {
                         ? 'Try different search keywords or clear the search filter.'
                         : isVerified
                           ? 'Add your products to start selling to students on campus.'
-                          : 'Your store will be ready to list products once your ID or business document is approved by campus admins.'}
+                          : 'Start building your campus store! Upload your products now so your store is ready to launch.'}
                     </p>
-                    {isVerified && !catalogSearchQuery && (
+                    {!catalogSearchQuery && (
                       <button
                         onClick={handleOpenAddProduct}
-                        className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
+                        className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold rounded-full shadow-md cursor-pointer transition-all"
                       >
                         + Add Your First Product
                       </button>
@@ -4209,10 +4236,10 @@ export default function VendorDashboard() {
                     <p className="text-xs text-slate-500 mt-1">
                       {catalogSearchQuery ? 'Try another keyword or clear the search query.' : 'Offer laundry pickup, phone repair, styling or photography.'}
                     </p>
-                    {isVerified && !catalogSearchQuery && (
+                    {!catalogSearchQuery && (
                       <button
                         onClick={() => setShowServiceModal(true)}
-                        className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-full shadow-md cursor-pointer"
+                        className="mt-4 px-6 py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white text-xs font-bold rounded-full shadow-md cursor-pointer transition-all"
                       >
                         + Add Your First Service
                       </button>
@@ -7874,6 +7901,40 @@ export default function VendorDashboard() {
               ) : (
                 /* Verification Form (For unverified vendors, or if explicitly updating docs) */
                 <div className="space-y-6">
+                  {/* Instant WhatsApp Fast Track Card */}
+                  <div className="p-5 rounded-3xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+                    <div className="flex items-start space-x-3.5">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <MessageSquare className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wide">Fast Track Verification</span>
+                        <h4 className="text-sm font-bold text-emerald-950 mt-0.5">
+                          Verify Instantly via WhatsApp
+                        </h4>
+                        <p className="text-xs text-emerald-800/80 mt-1 leading-relaxed">
+                          Don't have your ID card photo ready right now? Chat directly with Campus Administration on WhatsApp to verify your store in under 2 minutes.
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href={`https://wa.me/2347045230675?text=${encodeURIComponent(
+                        `Hi Testimony! I registered my store "${vendorStore?.business_name || 'My Store'}" on CampusLink and would like to verify my vendor account.`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold shrink-0 flex items-center space-x-2 transition-all shadow-xs"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Chat on WhatsApp</span>
+                    </a>
+                  </div>
+
+                  <div className="flex items-center my-2">
+                    <div className="flex-1 border-t border-slate-200"></div>
+                    <span className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Or Upload Documents In-App</span>
+                    <div className="flex-1 border-t border-slate-200"></div>
+                  </div>
                   {/* Graduate / Restaurant Explanatory Notice */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-sky-50 border border-sky-200 flex items-start space-x-3 text-xs text-sky-900">
                     <Building2 className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
