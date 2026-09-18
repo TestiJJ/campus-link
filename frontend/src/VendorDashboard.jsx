@@ -6926,13 +6926,13 @@ export default function VendorDashboard() {
                           )
                         )}
 
-                        {/* Media Display */}
+                        {/* Media Display - Occupies the container cleanly without excess height */}
                         {reel.media_url && (
-                          <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '70vw', minHeight: '200px' }}>
+                          <div className="w-full bg-slate-950 overflow-hidden flex items-center justify-center" style={{ maxHeight: '70vw', minHeight: '200px' }}>
                             {isVideo ? (
                               <FeedVideoPlayer
                                 src={getMediaUrl(reel.media_url)}
-                                className="w-full h-full object-contain"
+                                className="w-full h-full object-cover"
                                 style={{ maxHeight: '70vw', minHeight: '200px' }}
                               />
                             ) : (
@@ -6940,7 +6940,7 @@ export default function VendorDashboard() {
                                 src={reel.media_url}
                                 alt={reel.title || 'Reel media'}
                                 fallbackType="product"
-                                className="w-full h-full object-contain"
+                                className="w-full h-full object-cover"
                                 style={{ maxHeight: '70vw', minHeight: '200px' }}
                               />
                             )}

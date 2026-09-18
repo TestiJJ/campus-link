@@ -9,8 +9,8 @@ import React, { useRef, useEffect } from 'react';
 export default function FeedVideoPlayer({
   src,
   poster = null,
-  className = 'w-full max-h-[620px] object-contain mx-auto',
-  style = { maxHeight: '620px', minHeight: '260px' },
+  className = 'w-full h-full object-cover',
+  style = { maxHeight: '72vw', minHeight: '200px' },
   autoPlayOnVisible = false,
 }) {
   const videoRef = useRef(null);

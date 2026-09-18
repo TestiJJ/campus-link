@@ -4816,27 +4816,21 @@ export default function StudentDashboard() {
                             {reel.description}
                           </div>
                         )}
-                        {/* Media Display - Responsive container with ambient backdrop for portrait media */}
-                        <div className="relative w-full bg-slate-950 overflow-hidden flex items-center justify-center min-h-[260px] max-h-[640px]">
-                          {reel.media_url && (
-                            <div 
-                              className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-40 scale-125 pointer-events-none"
-                              style={{ backgroundImage: `url("${getMediaUrl(reel.media_url)}")` }}
-                            />
-                          )}
+                        {/* Media Display - Occupies the container cleanly without excess height */}
+                        <div className="w-full bg-slate-950 overflow-hidden flex items-center justify-center" style={{ maxHeight: '72vw', minHeight: '200px' }}>
                           {reel.media_type === 'video' ? (
                             <FeedVideoPlayer
                               src={getMediaUrl(reel.media_url)}
-                              className="relative z-10 w-full max-h-[620px] object-contain mx-auto"
-                              style={{ maxHeight: '620px', minHeight: '260px' }}
+                              className="w-full h-full object-cover"
+                              style={{ maxHeight: '72vw', minHeight: '200px' }}
                             />
                           ) : (
                             <SafeImage
                               src={reel.media_url}
                               alt={reel.title || 'Campus drop'}
                               fallbackType="product"
-                              className="relative z-10 w-full max-h-[640px] object-cover sm:object-contain mx-auto"
-                              style={{ maxHeight: '640px', minHeight: '260px' }}
+                              className="w-full h-full object-cover"
+                              style={{ maxHeight: '72vw', minHeight: '200px' }}
                             />
                           )}
                         </div>
