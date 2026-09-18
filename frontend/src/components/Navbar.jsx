@@ -12,9 +12,11 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
         {/* Brand Logo */}
         <Link to="/" className="flex items-center space-x-2.5 group min-tap-target">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
-            <ShieldCheck className="w-5 h-5 text-white" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="CampusLink"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl object-contain shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform"
+          />
           <span className="text-lg sm:text-xl font-black tracking-tight text-slate-900">
             CAMPUS<span className="text-sky-600">LINK</span>
           </span>

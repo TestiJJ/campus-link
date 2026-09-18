@@ -966,9 +966,11 @@ export default function LandingPage() {
       <footer className="bg-white border-t border-slate-200 py-12 px-4 lg:px-8 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-bold text-white text-xs">
-              CL
-            </div>
+            <img
+              src="/logo.png"
+              alt="CampusLink"
+              className="w-8 h-8 rounded-xl object-contain"
+            />
             <span className="font-extrabold text-sm text-slate-900">
               CAMPUS<span className="text-sky-600">LINK</span>
             </span>

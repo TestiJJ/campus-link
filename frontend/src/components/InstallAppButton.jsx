@@ -23,9 +23,11 @@ export default function InstallAppButton({
         <div className={`p-4 sm:p-5 rounded-2xl bg-sky-50/80 border border-sky-200 ${className}`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-sky-500/20">
-                <Smartphone className="w-5 h-5" />
-              </div>
+              <img
+                src="/logo.png"
+                alt="CampusLink App"
+                className="w-10 h-10 rounded-xl object-contain shrink-0 shadow-md shadow-sky-500/20"
+              />
               <div>
                 <div className="flex items-center space-x-2">
                   <h4 className="text-sm font-bold text-slate-900">

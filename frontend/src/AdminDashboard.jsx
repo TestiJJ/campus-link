@@ -445,9 +445,11 @@ export default function AdminDashboard() {
       {/* --- MOBILE HEADER (md:hidden) --- */}
       <header className="md:hidden bg-white/95 backdrop-blur-md border-b border-slate-200 px-3.5 py-2.5 safe-top flex items-center justify-between sticky top-0 z-30 shadow-xs w-full">
         <Link to="/" className="flex items-center space-x-2 shrink-0 min-tap-target-sm">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-xs text-white shadow-xs">
-            CL
-          </div>
+          <img
+            src="/logo.png"
+            alt="CampusLink"
+            className="w-8 h-8 rounded-xl object-contain shadow-xs"
+          />
           <div className="flex flex-col">
             <span className="font-extrabold text-xs text-slate-900 tracking-tight leading-none">
               CAMPUS<span className="text-sky-600">ADMIN</span>
@@ -498,9 +500,11 @@ export default function AdminDashboard() {
       <aside className="hidden md:flex w-64 bg-white border-r border-slate-200 p-5 flex-col justify-between shrink-0 shadow-xs z-20">
         <div>
           <Link to="/" className="flex items-center space-x-2.5 mb-8 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center font-black text-sm text-white shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
-              CL
-            </div>
+            <img
+              src="/logo.png"
+              alt="CampusLink"
+              className="w-9 h-9 rounded-xl object-contain shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform"
+            />
             <div>
               <span className="font-extrabold text-base tracking-tight text-slate-900 block leading-tight">
                 CAMPUS<span className="text-sky-600">LINK</span>

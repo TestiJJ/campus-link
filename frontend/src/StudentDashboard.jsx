@@ -3826,9 +3826,11 @@ export default function StudentDashboard() {
                 onClick={() => setActiveTab('reels')}
                 className="flex items-center space-x-2 text-left cursor-pointer group"
               >
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-sky-400 flex items-center justify-center text-white font-black text-xs tracking-tight shadow-xs group-hover:scale-105 transition-transform">
-                  CL
-                </div>
+                <img
+                  src="/logo.png"
+                  alt="CampusLink"
+                  className="w-8 h-8 rounded-xl object-contain shadow-xs group-hover:scale-105 transition-transform"
+                />
                 <div className="flex items-baseline space-x-1.5">
                   <span className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
                     Campus<span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">Link</span>
@@ -9136,9 +9138,11 @@ export default function StudentDashboard() {
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
                 <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center font-black text-xs shadow-xs">
-                    CL
-                  </div>
+                  <img
+                    src="/logo.png"
+                    alt="CampusLink"
+                    className="w-8 h-8 rounded-xl object-contain shadow-xs"
+                  />
                   <div>
                     <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">Create Campus Drop</h3>
                     <p className="text-[10px] text-slate-400 font-medium">Post to your campus feed & classmates</p>

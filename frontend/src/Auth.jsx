@@ -672,9 +672,11 @@ export default function Auth() {
       {/* Top Navigation */}
       <div className="w-full max-w-4xl mb-6 flex items-center justify-between z-10">
         <Link to="/" className="inline-flex items-center space-x-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
+          <img
+            src="/logo.png"
+            alt="CampusLink"
+            className="w-9 h-9 rounded-xl object-contain shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform"
+          />
           <span className="font-extrabold text-sm tracking-tight text-slate-900">
             CAMPUS<span className="text-sky-600">LINK</span>
           </span>
@@ -693,8 +695,8 @@ export default function Auth() {
         {/* Left Brand Panel (Desktop) */}
         <div className="hidden lg:flex lg:col-span-5 bg-gradient-to-br from-sky-500 via-sky-600 to-blue-600 text-white p-8 lg:p-10 flex-col justify-between relative overflow-hidden">
           <div className="relative z-10">
-            <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-xs flex items-center justify-center mb-6 border border-white/20">
-              <ShieldCheck className="w-7 h-7 text-white" />
+            <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs p-1 mb-6 border border-white/30 shadow-md">
+              <img src="/logo.png" alt="CampusLink" className="w-full h-full object-contain rounded-xl" />
             </div>
             <h2 className="text-2xl lg:text-3xl font-black tracking-tight leading-snug">
               Trade safely with verified campus peers.
