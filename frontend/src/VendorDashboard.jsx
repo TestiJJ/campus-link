@@ -347,6 +347,8 @@ export default function VendorDashboard() {
   const [categories, setCategories] = useState(() => getCachedData('categories', []));
   const [marketplaceSearchQuery, setMarketplaceSearchQuery] = useState('');
   const [marketplaceSelectedItem, setMarketplaceSelectedItem] = useState(null);
+  const [viewProductDetails, setViewProductDetails] = useState(null);
+  const [viewServiceDetails, setViewServiceDetails] = useState(null);
   const [marketplaceLoading, setMarketplaceLoading] = useState(false);
   const [marketplaceUniFilter, setMarketplaceUniFilter] = useState('all');
   const [isCampusModalOpen, setIsCampusModalOpen] = useState(false);
@@ -4139,7 +4141,11 @@ export default function VendorDashboard() {
                 displayedProducts.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {displayedProducts.map((item) => (
-                      <div key={item.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
+                      <div
+                        key={item.id}
+                        onClick={() => setViewProductDetails(item)}
+                        className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer"
+                      >
                         <div>
                           {/* Aspect Ratio Container for Zero Cumulative Layout Shift */}
                           <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
@@ -4189,14 +4195,18 @@ export default function VendorDashboard() {
                               </span>
                             </div>
 
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{item.name}</h4>
+                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{item.name}</h4>
                             <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
                           </div>
                         </div>
 
                         <div className="p-2.5 sm:p-4 pt-0 flex items-center space-x-1.5 border-t border-slate-100 mt-2">
                           <button
-                            onClick={() => handleOpenEditProduct(item)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditProduct(item);
+                            }}
                             className="flex-1 py-1.5 sm:py-2 bg-sky-50 hover:bg-sky-100 active:scale-95 text-sky-700 font-bold text-[11px] sm:text-xs rounded-xl transition-all flex items-center justify-center space-x-1 cursor-pointer"
                             title="Edit product"
                           >
@@ -4204,7 +4214,11 @@ export default function VendorDashboard() {
                             <span>Edit</span>
                           </button>
                           <button
-                            onClick={() => handleDeleteProduct(item.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteProduct(item.id);
+                            }}
                             className="p-1.5 sm:p-2 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 rounded-xl transition-all cursor-pointer"
                             title="Delete product"
                           >
@@ -4218,14 +4232,10 @@ export default function VendorDashboard() {
                   <div className="py-16 sm:py-20 text-center bg-white rounded-3xl border border-dashed border-slate-300 p-8 sm:p-10">
                     <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                     <h4 className="text-base font-bold text-slate-800">
-                      {catalogSearchQuery ? `No products match "${catalogSearchQuery}"` : 'Your store catalog is empty'}
+                      {catalogSearchQuery ? `No products match "${catalogSearchQuery}"` : 'No products in catalog yet'}
                     </h4>
-                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      {catalogSearchQuery
-                        ? 'Try different search keywords or clear the search filter.'
-                        : isVerified
-                          ? 'Add your products to start selling to students on campus.'
-                          : 'Start building your campus store! Upload your products now so your store is ready to launch.'}
+                    <p className="text-xs text-slate-500 mt-1">
+                      {catalogSearchQuery ? 'Try another keyword or clear the search query.' : 'Upload photos, set prices and publish items to campus marketplace.'}
                     </p>
                     {!catalogSearchQuery && (
                       <button
@@ -4239,12 +4249,16 @@ export default function VendorDashboard() {
                 )
               )}
 
-              {/* Services Grid - Mobile 2-Column Responsive Layout */}
+              {/* Services Grid - Mobile Responsive Matching Student Marketplace */}
               {catalogType === 'services' && (
                 displayedServices.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {displayedServices.map((svc) => (
-                      <div key={svc.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
+                      <div
+                        key={svc.id}
+                        onClick={() => setViewServiceDetails(svc)}
+                        className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer"
+                      >
                         <div>
                           {/* Aspect Ratio Container */}
                           <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
@@ -4262,7 +4276,7 @@ export default function VendorDashboard() {
                             <span className="text-xs sm:text-sm font-black text-sky-700 block mb-1">
                               From ₦{Number(svc.price).toLocaleString()}
                             </span>
-                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{svc.name}</h4>
+                            <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{svc.name}</h4>
                             <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{svc.description}</p>
                           </div>
                         </div>
@@ -4270,7 +4284,11 @@ export default function VendorDashboard() {
                         <div className="p-2.5 sm:p-4 pt-0 flex items-center justify-between border-t border-slate-100 mt-2">
                           <span className="text-[10px] text-slate-400 truncate">{svc.location || 'Campus'}</span>
                           <button
-                            onClick={() => handleDeleteService(svc.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteService(svc.id);
+                            }}
                             className="p-1.5 sm:p-2 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-600 rounded-xl transition-all cursor-pointer"
                             title="Delete Service"
                           >
@@ -4500,7 +4518,11 @@ export default function VendorDashboard() {
                       const isOwnItem = currentVendorUserId && (String(pUserId) === String(currentVendorUserId) || String(p.vendor_id) === String(vendorStore?.id));
 
                       return (
-                        <div key={p.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
+                        <div
+                          key={p.id}
+                          onClick={() => setViewProductDetails(p)}
+                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer"
+                        >
                           <div>
                             {/* Aspect Ratio Container for Zero CLS */}
                             <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
@@ -4537,7 +4559,7 @@ export default function VendorDashboard() {
                                 )}
                               </div>
 
-                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{p.name}</h4>
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{p.name}</h4>
                               <div className="flex items-center justify-between mt-0.5">
                                 <span className="text-[11px] sm:text-xs text-slate-500 font-medium truncate">By {p.vendor_name}</span>
                                 {p.price && <span className="text-xs sm:text-sm font-black text-slate-900">₦{Number(p.price).toLocaleString()}</span>}
@@ -4549,7 +4571,9 @@ export default function VendorDashboard() {
                           <div className="p-2.5 sm:p-4 pt-0 space-y-1.5">
                             {isOwnItem ? (
                               <button
-                                onClick={() => {
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setActiveTab('inventory');
                                   handleOpenEditProduct(p);
                                 }}
@@ -4559,7 +4583,11 @@ export default function VendorDashboard() {
                               </button>
                             ) : (
                               <button
-                                onClick={() => handleStartVendorChat(p)}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartVendorChat(p);
+                                }}
                                 className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -4608,11 +4636,15 @@ export default function VendorDashboard() {
                       const isOwnService = currentVendorUserId && (String(sUserId) === String(currentVendorUserId) || String(s.vendor_id) === String(vendorStore?.id));
 
                       return (
-                        <div key={s.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between">
+                        <div
+                          key={s.id}
+                          onClick={() => setViewServiceDetails(s)}
+                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
+                        >
                           <div>
                             {/* Aspect Ratio Container for Zero CLS */}
                             <div className="aspect-[4/3] w-full bg-slate-100 relative overflow-hidden">
-                              <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover" />
+                              <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -4637,7 +4669,7 @@ export default function VendorDashboard() {
                                   <span className="truncate">Negotiable in Chat</span>
                                 </span>
                               </div>
-                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{s.name}</h4>
+                              <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{s.name}</h4>
                               <span className="text-[11px] sm:text-xs text-slate-500 font-medium block truncate">By {s.vendor_name}</span>
                               <p className="text-[11px] sm:text-xs text-slate-600 mt-1 line-clamp-2">{s.description}</p>
                             </div>
@@ -4646,7 +4678,9 @@ export default function VendorDashboard() {
                           <div className="p-2.5 sm:p-4 pt-0">
                             {isOwnService ? (
                               <button
-                                onClick={() => {
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setActiveTab('inventory');
                                   setCatalogType('services');
                                 }}
@@ -4656,7 +4690,11 @@ export default function VendorDashboard() {
                               </button>
                             ) : (
                               <button
-                                onClick={() => handleStartVendorChat(s)}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartVendorChat(s);
+                                }}
                                 className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -10172,6 +10210,313 @@ export default function VendorDashboard() {
             </div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* --- VENDOR PRODUCT DETAILS MODAL --- */}
+      <AnimatePresence>
+        {viewProductDetails && (() => {
+          const p = viewProductDetails;
+          const currentVendorUserId = user?.id || user?.user_id;
+          const pUserId = p.vendor_user_id || p.user_id;
+          const isOwn = currentVendorUserId && (String(pUserId) === String(currentVendorUserId) || String(p.vendor_id) === String(vendorStore?.id));
+          const prodImg = p.image || p.image_url;
+
+          return (
+            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 30 }}
+                className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl relative border-t sm:border border-slate-200 safe-drawer-bottom max-h-[92vh] overflow-y-auto"
+              >
+                {/* Mobile Drawer Handle */}
+                <div className="sm:hidden -mt-1 mb-2 flex justify-center">
+                  <div className="w-12 h-1.5 bg-slate-300 rounded-full" />
+                </div>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setViewProductDetails(null)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors z-10"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                {/* Product Image with Ambient Backdrop */}
+                <div className="w-full h-64 sm:h-72 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 mb-4 relative flex items-center justify-center">
+                  {prodImg ? (
+                    <>
+                      <div 
+                        className="absolute inset-0 bg-cover bg-center filter blur-xl opacity-35 scale-110 pointer-events-none"
+                        style={{ backgroundImage: `url("${prodImg}")` }}
+                      />
+                      <SafeImage
+                        src={prodImg}
+                        alt={p.name}
+                        fallbackType="product"
+                        className="relative z-10 w-full h-full object-contain mx-auto"
+                      />
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+                      <Store className="w-12 h-12 stroke-[1.5] mb-2 text-slate-300" />
+                      <span className="text-xs font-semibold">No product image preview</span>
+                    </div>
+                  )}
+                  <div className="absolute bottom-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
+                    <span className="px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold shadow-xs">
+                      {p.category_name || 'Campus Marketplace'}
+                    </span>
+                    {p.quantity !== undefined && (
+                      <span className="px-2.5 py-1 rounded-lg bg-sky-950/80 backdrop-blur-xs text-sky-200 text-[10px] font-bold shadow-xs border border-sky-500/30">
+                        Qty: {p.quantity}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Price & Title */}
+                <div className="mb-4">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+                    <div className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                      ₦{Number(p.price || 0).toLocaleString()}
+                    </div>
+                    {isOwn ? (
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-lg">
+                        Your Catalog Listing
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg inline-flex items-center space-x-1">
+                        <MessageCircle className="w-3 h-3 text-sky-600" />
+                        <span>Negotiable in Chat</span>
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
+                    {p.name}
+                  </h3>
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1.5 flex-wrap">
+                    <span className="inline-flex items-center text-slate-600 font-semibold">
+                      <MapPin className="w-3.5 h-3.5 text-sky-600 mr-1 shrink-0" />
+                      {p.university_abbr || p.university_name || p.dispatch_location || vendorStore?.university_abbr || 'Campus'}
+                    </span>
+                    <span>•</span>
+                    <span>By {p.vendor_name || vendorStore?.business_name || 'Vendor'}</span>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="mb-4">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1.5">
+                    Product Description
+                  </h4>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                    {p.description || 'No detailed description provided.'}
+                  </p>
+                </div>
+
+                {/* Actions */}
+                <div className="space-y-2">
+                  {isOwn ? (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewProductDetails(null);
+                          handleOpenEditProduct(p);
+                        }}
+                        className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                        <span>Edit Product</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewProductDetails(null);
+                          handleDeleteProduct(p.id);
+                        }}
+                        className="py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setViewProductDetails(null);
+                          handleStartVendorChat(p);
+                        }}
+                        className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                        <span>Chat with Seller ({p.vendor_name || 'Vendor'})</span>
+                      </button>
+
+                      {p.vendor_phone && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <a
+                            href={`tel:${p.vendor_phone}`}
+                            className="py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5"
+                          >
+                            <Phone className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Call</span>
+                          </a>
+                          <a
+                            href={`https://wa.me/${p.vendor_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                              `Hello ${p.vendor_name || 'Vendor'}, I saw your listing for "${p.name}" (₦${Number(p.price).toLocaleString()}) on CampusLink.`
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs rounded-xl border border-emerald-200 transition-all flex items-center justify-center space-x-1.5"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>WhatsApp</span>
+                          </a>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setViewProductDetails(null)}
+                    className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-semibold cursor-pointer transition-colors text-center"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* --- VENDOR SERVICE DETAILS MODAL --- */}
+      <AnimatePresence>
+        {viewServiceDetails && (() => {
+          const s = viewServiceDetails;
+          const currentVendorUserId = user?.id || user?.user_id;
+          const sUserId = s.vendor_user_id || s.user_id;
+          const isOwn = currentVendorUserId && (String(sUserId) === String(currentVendorUserId) || String(s.vendor_id) === String(vendorStore?.id));
+          const svcImg = s.image || s.image_url;
+
+          return (
+            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 30 }}
+                className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl relative border-t sm:border border-slate-200 safe-drawer-bottom max-h-[92vh] overflow-y-auto"
+              >
+                <div className="sm:hidden -mt-1 mb-2 flex justify-center">
+                  <div className="w-12 h-1.5 bg-slate-300 rounded-full" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setViewServiceDetails(null)}
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors z-10"
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="w-full h-56 sm:h-64 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 mb-4 relative flex items-center justify-center">
+                  {svcImg ? (
+                    <>
+                      <div 
+                        className="absolute inset-0 bg-cover bg-center filter blur-xl opacity-35 scale-110 pointer-events-none"
+                        style={{ backgroundImage: `url("${svcImg}")` }}
+                      />
+                      <SafeImage
+                        src={svcImg}
+                        alt={s.name}
+                        fallbackType="product"
+                        className="relative z-10 w-full h-full object-contain mx-auto"
+                      />
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+                      <Wrench className="w-12 h-12 stroke-[1.5] mb-2 text-slate-300" />
+                      <span className="text-xs font-semibold">Campus Skill & Service</span>
+                    </div>
+                  )}
+                  <span className="absolute bottom-2.5 left-2.5 z-20 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold">
+                    {s.category_name || 'Campus Service'}
+                  </span>
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+                    <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 inline-flex items-center space-x-1">
+                      <Wrench className="w-3.5 h-3.5 text-slate-600" />
+                      <span>From ₦{Number(s.price || 0).toLocaleString()} • Negotiable</span>
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 mt-2 leading-snug">
+                    {s.name}
+                  </h3>
+                  <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1">
+                    <span className="inline-flex items-center font-semibold text-slate-600">
+                      <MapPin className="w-3.5 h-3.5 text-sky-600 mr-1 shrink-0" />
+                      {s.university_abbr || s.university_name || s.location || 'Campus'}
+                    </span>
+                    <span>•</span>
+                    <span>By {s.vendor_name || vendorStore?.business_name || 'Provider'}</span>
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1.5">Service Details</h4>
+                  <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                    {s.description || 'No additional description provided.'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {isOwn ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewServiceDetails(null);
+                        handleDeleteService(s.id);
+                      }}
+                      className="w-full py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Service Listing</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewServiceDetails(null);
+                        handleStartVendorChat(s);
+                      }}
+                      className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Chat with Provider</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setViewServiceDetails(null)}
+                    className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-semibold cursor-pointer transition-colors text-center"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
       </AnimatePresence>
 
 

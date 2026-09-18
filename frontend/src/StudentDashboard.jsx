@@ -534,8 +534,9 @@ export default function StudentDashboard() {
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const profileCacheRef = useRef({});
 
-  // Orders State (SWR Instant Load)
+  // Orders & Item Details State (SWR Instant Load)
   const [orderModalItem, setOrderModalItem] = useState(null);
+  const [selectedServiceItem, setSelectedServiceItem] = useState(null);
   const [orderDeliveryLocation, setOrderDeliveryLocation] = useState('');
   const [orderQuantity, setOrderQuantity] = useState(1);
   const [myOrders, setMyOrders] = useState(() => getCachedData('myOrders', []));
@@ -4172,7 +4173,14 @@ export default function StudentDashboard() {
               scatteredProducts.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {scatteredProducts.map((p) => (
-                    <div key={p.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group">
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setOrderModalItem(p);
+                        setOrderQuantity(1);
+                      }}
+                      className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between group cursor-pointer"
+                    >
                       <div>
                         {/* Aspect Ratio Container for Zero Cumulative Layout Shift (CLS = 0) */}
                         <div className="aspect-square w-full bg-slate-100 relative overflow-hidden">
@@ -4209,9 +4217,14 @@ export default function StudentDashboard() {
                             )}
                           </div>
 
-                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{p.name}</h4>
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{p.name}</h4>
                           <div className="flex items-center justify-between mt-0.5">
                             <span className="text-[11px] sm:text-xs text-slate-500 font-medium truncate">By {p.vendor_name}</span>
+                            {p.price && (
+                              <span className="text-xs sm:text-sm font-black text-slate-900">
+                                {formatItemPrice(p.price)}
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] sm:text-xs text-slate-500 mt-1 line-clamp-2">{p.description}</p>
                         </div>
@@ -4219,7 +4232,11 @@ export default function StudentDashboard() {
 
                       <div className="p-2.5 sm:p-4 pt-0 space-y-1.5">
                         <button
-                          onClick={() => handleStartVendorChat(p)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartVendorChat(p);
+                          }}
                           className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <MessageCircle className="w-3.5 h-3.5" />
@@ -4227,14 +4244,16 @@ export default function StudentDashboard() {
                         </button>
 
                         <button
-                          onClick={() => {
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setOrderModalItem(p);
                             setOrderQuantity(1);
                           }}
                           className="w-full min-tap-target-sm py-1.5 bg-slate-50 hover:bg-slate-100 active:scale-95 text-slate-600 font-semibold text-[10px] sm:text-[11px] rounded-lg transition-all flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <ShoppingBag className="w-3 h-3" />
-                          <span className="truncate">Place Order</span>
+                          <span className="truncate">View & Order</span>
                         </button>
                       </div>
                     </div>
@@ -4272,11 +4291,15 @@ export default function StudentDashboard() {
               scatteredServices.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {scatteredServices.map((s) => (
-                    <div key={s.id} className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between">
+                    <div
+                      key={s.id}
+                      onClick={() => setSelectedServiceItem(s)}
+                      className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-sky-300 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between cursor-pointer group"
+                    >
                       <div>
                         {/* Aspect Ratio Container for Zero CLS */}
                         <div className="aspect-[4/3] w-full bg-slate-100 relative overflow-hidden">
-                          <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover" />
+                          <SafeImage src={s.image} alt={s.name} fallbackType="product" showShimmer className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                           <button
                             type="button"
                             onClick={(e) => {
@@ -4301,7 +4324,7 @@ export default function StudentDashboard() {
                               <span className="truncate">Negotiable in Chat</span>
                             </span>
                           </div>
-                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1">{s.name}</h4>
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900 line-clamp-1 group-hover:text-sky-600 transition-colors">{s.name}</h4>
                           <span className="text-[11px] sm:text-xs text-slate-500 font-medium block truncate">By {s.vendor_name}</span>
                           <p className="text-[11px] sm:text-xs text-slate-600 mt-1 line-clamp-2">{s.description}</p>
                         </div>
@@ -4309,7 +4332,11 @@ export default function StudentDashboard() {
 
                       <div className="p-2.5 sm:p-4 pt-0">
                         <button
-                          onClick={() => handleStartVendorChat(s)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStartVendorChat(s);
+                          }}
                           className="w-full min-tap-target-sm py-2 sm:py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-[11px] sm:text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <MessageCircle className="w-3.5 h-3.5" />
@@ -4789,21 +4816,27 @@ export default function StudentDashboard() {
                             {reel.description}
                           </div>
                         )}
-                        {/* Media Display */}
-                        <div className="w-full bg-slate-950 overflow-hidden" style={{ maxHeight: '72vw', minHeight: '200px' }}>
+                        {/* Media Display - Responsive container with ambient backdrop for portrait media */}
+                        <div className="relative w-full bg-slate-950 overflow-hidden flex items-center justify-center min-h-[260px] max-h-[640px]">
+                          {reel.media_url && (
+                            <div 
+                              className="absolute inset-0 bg-cover bg-center filter blur-2xl opacity-40 scale-125 pointer-events-none"
+                              style={{ backgroundImage: `url("${getMediaUrl(reel.media_url)}")` }}
+                            />
+                          )}
                           {reel.media_type === 'video' ? (
                             <FeedVideoPlayer
                               src={getMediaUrl(reel.media_url)}
-                              className="w-full h-full object-contain"
-                              style={{ maxHeight: '72vw', minHeight: '200px' }}
+                              className="relative z-10 w-full max-h-[620px] object-contain mx-auto"
+                              style={{ maxHeight: '620px', minHeight: '260px' }}
                             />
                           ) : (
                             <SafeImage
                               src={reel.media_url}
                               alt={reel.title || 'Campus drop'}
                               fallbackType="product"
-                              className="w-full h-full object-contain"
-                              style={{ maxHeight: '72vw', minHeight: '200px' }}
+                              className="relative z-10 w-full max-h-[640px] object-cover sm:object-contain mx-auto"
+                              style={{ maxHeight: '640px', minHeight: '260px' }}
                             />
                           )}
                         </div>
@@ -8728,38 +8761,126 @@ export default function StudentDashboard() {
                 <X className="w-4 h-4" />
               </button>
 
-              {/* Product Image Banner */}
-              <div className="w-full h-56 sm:h-64 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 mb-4 relative">
-                {orderModalItem.image_url ? (
-                  <SafeImage
-                    src={orderModalItem.image_url}
-                    alt={orderModalItem.name}
-                    fallbackType="product"
-                    className="w-full h-full object-cover"
-                  />
+              {/* Product Image Banner with Ambient Backdrop */}
+              <div className="w-full h-64 sm:h-72 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 mb-4 relative flex items-center justify-center">
+                {(orderModalItem.image || orderModalItem.image_url) ? (
+                  <>
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center filter blur-xl opacity-35 scale-110 pointer-events-none"
+                      style={{ backgroundImage: `url("${orderModalItem.image || orderModalItem.image_url}")` }}
+                    />
+                    <SafeImage
+                      src={orderModalItem.image || orderModalItem.image_url}
+                      alt={orderModalItem.name}
+                      fallbackType="product"
+                      className="relative z-10 w-full h-full object-contain mx-auto"
+                    />
+                  </>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
                     <Store className="w-12 h-12 stroke-[1.5] mb-2 text-slate-300" />
                     <span className="text-xs font-semibold">No product image preview</span>
                   </div>
                 )}
-                <span className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold">
-                  {orderModalItem.category_name || 'Marketplace Item'}
-                </span>
+                <div className="absolute bottom-2.5 left-2.5 z-20 flex items-center gap-1.5 flex-wrap">
+                  <span className="px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold shadow-xs">
+                    {orderModalItem.category_name || 'Marketplace Item'}
+                  </span>
+                  {orderModalItem.quantity !== undefined && (
+                    <span className="px-2.5 py-1 rounded-lg bg-sky-950/80 backdrop-blur-xs text-sky-200 text-[10px] font-bold shadow-xs border border-sky-500/30">
+                      {orderModalItem.quantity > 0 ? `${orderModalItem.quantity} in stock` : 'Available on order'}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Price & Title */}
               <div className="mb-4">
-                <div className="text-2xl font-black text-slate-900 tracking-tight">
-                  ₦{Number(orderModalItem.price).toLocaleString()}
+                <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+                  <div className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                    {formatItemPrice(orderModalItem.price)}
+                  </div>
+                  <span className="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-0.5 rounded-lg inline-flex items-center space-x-1">
+                    <MessageCircle className="w-3 h-3 text-sky-600" />
+                    <span>Negotiable in Chat</span>
+                  </span>
                 </div>
-                <h3 className="text-base font-bold text-slate-800 mt-0.5 leading-snug">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">
                   {orderModalItem.name}
                 </h3>
-                <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1">
-                  <span>Listed in {orderModalItem.location || orderModalItem.vendor_location || 'Campus'}</span>
+                <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1.5 flex-wrap">
+                  <span className="inline-flex items-center text-slate-600 font-semibold">
+                    <MapPin className="w-3.5 h-3.5 text-sky-600 mr-1 shrink-0" />
+                    {orderModalItem.university_abbr || orderModalItem.university_name || orderModalItem.location || orderModalItem.vendor_location || 'Campus'}
+                  </span>
                   <span>•</span>
                   <span>Direct Campus Sale</span>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="mb-4">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1.5">
+                  Full Description & Details
+                </h4>
+                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                  {orderModalItem.description || 'No detailed description provided by the seller.'}
+                </p>
+              </div>
+
+              {/* Quantity Selector & Direct Buy Request */}
+              <div className="p-3.5 bg-sky-50/70 border border-sky-100 rounded-2xl mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-900 block">Quantity to Order:</span>
+                  <span className="text-[11px] text-slate-500">Order directly from vendor</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setOrderQuantity(q => Math.max(1, q - 1))}
+                      className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 font-black text-sm"
+                    >
+                      -
+                    </button>
+                    <span className="px-3 py-1 text-xs font-bold text-slate-900 min-w-[28px] text-center">
+                      {orderQuantity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOrderQuantity(q => q + 1)}
+                      className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 font-black text-sm"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const item = orderModalItem;
+                      const totalAmt = Number(item.price || 0) * orderQuantity;
+                      const msg = `Hi! I would like to place an order for ${orderQuantity}x "${item.name}" (Total: ${formatItemPrice(totalAmt)}). Please let me know how to proceed with delivery!`;
+                      setOrderModalItem(null);
+                      
+                      const vUserId = item.vendor_user_id || item.user_id;
+                      const partnerId = vUserId || (item.vendor_id ? `v_${item.vendor_id}` : (item.vendor_name ? `v_${item.vendor_name}` : 'vendor'));
+                      const partner = {
+                        partner_id: String(partnerId),
+                        partner_name: item.vendor_name || 'Campus Merchant',
+                        partner_phone: item.vendor_phone,
+                        partner_role: 'Vendor',
+                        location: item.vendor_location || item.location
+                      };
+
+                      handleSelectPartner(partner);
+                      await handleSendMessage(null, msg, null, partner);
+                      setToast({ text: `Order request sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
+                    }}
+                    className="px-4 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer"
+                  >
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    <span>Order Now</span>
+                  </button>
                 </div>
               </div>
 
@@ -8767,7 +8888,7 @@ export default function StudentDashboard() {
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl mb-4">
                 <div className="flex items-center space-x-2 mb-2">
                   <MessageSquare className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-black text-slate-800">Send seller a message</span>
+                  <span className="text-xs font-black text-slate-800">Send seller a quick message</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <input
@@ -8808,7 +8929,7 @@ export default function StudentDashboard() {
               </div>
 
               {/* Seller Information Box */}
-              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl mb-4">
+              <div className="p-3.5 bg-white border border-slate-200 rounded-2xl mb-4 shadow-2xs">
                 <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-2.5">Seller Information</h4>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3 min-w-0">
@@ -8833,22 +8954,13 @@ export default function StudentDashboard() {
                       setOrderModalItem(null);
                       handleStartVendorChat(itemToChat);
                     }}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                    className="px-3.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs rounded-xl cursor-pointer transition-colors border border-sky-200 flex items-center space-x-1"
                   >
-                    Chat
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>Open Chat</span>
                   </button>
                 </div>
               </div>
-
-              {/* Description */}
-              {orderModalItem.description && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1">Description</h4>
-                  <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    {orderModalItem.description}
-                  </p>
-                </div>
-              )}
 
               {/* Direct Actions: Call, WhatsApp, Copy Phone */}
               <div className="space-y-2">
@@ -8881,7 +8993,7 @@ export default function StudentDashboard() {
 
                       <a
                         href={`https://wa.me/${orderModalItem.vendor_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                          `Hello ${orderModalItem.vendor_name || 'Vendor'}, I found your listing for "${orderModalItem.name}" (₦${Number(orderModalItem.price).toLocaleString()}) on CampusLink. Is it available for purchase/delivery?`
+                          `Hello ${orderModalItem.vendor_name || 'Vendor'}, I found your listing for "${orderModalItem.name}" (${formatItemPrice(orderModalItem.price)}) on CampusLink. Is it available for purchase/delivery?`
                         )}`}
                         target="_blank"
                         rel="noreferrer"
@@ -8897,6 +9009,116 @@ export default function StudentDashboard() {
                 <button
                   type="button"
                   onClick={() => setOrderModalItem(null)}
+                  className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-semibold cursor-pointer transition-colors text-center"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- SERVICE DETAIL MODAL FOR STUDENTS --- */}
+      <AnimatePresence>
+        {selectedServiceItem && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 30 }}
+              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-4 sm:p-6 shadow-2xl relative border-t sm:border border-slate-200 safe-drawer-bottom max-h-[92vh] overflow-y-auto"
+            >
+              <div className="sm:hidden -mt-1 mb-2 flex justify-center">
+                <div className="drawer-handle" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedServiceItem(null)}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors z-10"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="w-full h-56 sm:h-64 rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 mb-4 relative flex items-center justify-center">
+                {(selectedServiceItem.image || selectedServiceItem.image_url) ? (
+                  <>
+                    <div 
+                      className="absolute inset-0 bg-cover bg-center filter blur-xl opacity-35 scale-110 pointer-events-none"
+                      style={{ backgroundImage: `url("${selectedServiceItem.image || selectedServiceItem.image_url}")` }}
+                    />
+                    <SafeImage
+                      src={selectedServiceItem.image || selectedServiceItem.image_url}
+                      alt={selectedServiceItem.name}
+                      fallbackType="product"
+                      className="relative z-10 w-full h-full object-contain mx-auto"
+                    />
+                  </>
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+                    <Wrench className="w-12 h-12 stroke-[1.5] mb-2 text-slate-300" />
+                    <span className="text-xs font-semibold">Campus Skill & Service</span>
+                  </div>
+                )}
+                <span className="absolute bottom-2.5 left-2.5 z-20 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-xs text-white text-[10px] font-bold">
+                  {selectedServiceItem.category_name || 'Campus Skill & Service'}
+                </span>
+              </div>
+
+              <div className="mb-4">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 inline-flex items-center space-x-1">
+                    <Wrench className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Price Negotiable in Chat</span>
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 mt-2 leading-snug">
+                  {selectedServiceItem.name}
+                </h3>
+                <div className="flex items-center space-x-2 text-xs text-slate-500 mt-1">
+                  <span className="inline-flex items-center font-semibold text-slate-600">
+                    <MapPin className="w-3.5 h-3.5 text-sky-600 mr-1 shrink-0" />
+                    {selectedServiceItem.university_abbr || selectedServiceItem.university_name || selectedServiceItem.location || 'Campus'}
+                  </span>
+                  <span>•</span>
+                  <span>By {selectedServiceItem.vendor_name || 'Campus Provider'}</span>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider mb-1.5">Service Details</h4>
+                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                  {selectedServiceItem.description || 'No additional description provided.'}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const svc = selectedServiceItem;
+                    setSelectedServiceItem(null);
+                    handleStartVendorChat(svc);
+                  }}
+                  className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Chat with Service Provider</span>
+                </button>
+                {selectedServiceItem.vendor_phone && (
+                  <a
+                    href={`tel:${selectedServiceItem.vendor_phone}`}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Call Provider ({selectedServiceItem.vendor_phone})</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedServiceItem(null)}
                   className="w-full py-2 text-slate-400 hover:text-slate-600 text-xs font-semibold cursor-pointer transition-colors text-center"
                 >
                   Close
