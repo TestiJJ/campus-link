@@ -18,6 +18,22 @@ const API_BASE_URL = (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onren
   ? rawEnvUrl.replace(/\/+$/, '').replace(/\/api$/, '')
   : DEFAULT_BACKEND_URL;
 
+const DEFAULT_INSTITUTIONS = [
+  { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU", state: "Osun", type: "Private" },
+  { id: 25, name: "University of Lagos", abbreviation: "UNILAG", state: "Lagos", type: "Federal" },
+  { id: 22, name: "University of Ibadan", abbreviation: "UI", state: "Oyo", type: "Federal" },
+  { id: 18, name: "Obafemi Awolowo University, Ile-Ife", abbreviation: "OAU", state: "Osun", type: "Federal" },
+  { id: 12, name: "Federal University of Technology, Akure", abbreviation: "FUTA", state: "Ondo", type: "Federal" },
+  { id: 44, name: "Afe Babalola University, Ado-Ekiti", abbreviation: "ABUAD", state: "Ekiti", type: "Private" },
+  { id: 49, name: "Covenant University, Ota", abbreviation: "CU", state: "Ogun", type: "Private" },
+  { id: 46, name: "Babcock University, Ilishan-Remo", abbreviation: "BABCOCK", state: "Ogun", type: "Private" },
+  { id: 38, name: "Lagos State University, Ojo", abbreviation: "LASU", state: "Lagos", type: "State" },
+  { id: 37, name: "Ladoke Akintola University of Technology", abbreviation: "LAUTECH", state: "Oyo", type: "State" },
+  { id: 50, name: "Elizade University, Ilara-Mokin", abbreviation: "ELIZADE", state: "Ondo", type: "Private" },
+  { id: 51, name: "Lead City University, Ibadan", abbreviation: "LCU", state: "Oyo", type: "Private" },
+  { id: 54, name: "Redeemer's University, Ede", abbreviation: "RUN", state: "Osun", type: "Private" }
+];
+
 export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,20 +44,20 @@ export default function Auth() {
     new URLSearchParams(location.search).get('type') !== null;
 
   const initialRoleParam = new URLSearchParams(location.search).get('type');
+  const initialRole = (initialRoleParam === 'vendor' || initialRoleParam === 'student') ? initialRoleParam : 'student';
 
   const [isLogin, setIsLogin] = useState(!isInitialSignUp);
-  const [role, setRole] = useState(initialRoleParam === 'vendor' ? 'vendor' : 'student');
-  const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState(initialRole);
   const [loading, setLoading] = useState(false);
-  // Set true when backend says email is already registered — shows "Sign In Instead" CTA
-  const [emailAlreadyExists, setEmailAlreadyExists] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Server Live Health Status Indicator
-  const [serverStatus, setServerStatus] = useState('checking'); // 'checking' | 'online' | 'waking' | 'offline'
+  // Diagnostic Server Status State
+  const [serverStatus, setServerStatus] = useState('checking'); // 'online' | 'waking' | 'offline' | 'checking'
   const [serverPingMs, setServerPingMs] = useState(null);
   const [isCheckingHealth, setIsCheckingHealth] = useState(false);
 
-  // Form Fields
+  // Form State
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -60,7 +76,28 @@ export default function Auth() {
   });
 
   // Institution Selector State
-  const [institutions, setInstitutions] = useState([]);
+  const [institutions, setInstitutions] = useState(() => {
+    try {
+      const cached = localStorage.getItem('cached_universities');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasJabu = parsed.some(u => (u.abbreviation || '').toUpperCase() === 'JABU' || (u.name || '').includes('Babalola'));
+          if (!hasJabu) {
+            parsed.unshift({
+              id: 52,
+              name: "Joseph Ayo Babalola University, Ikeji-Arakeji",
+              abbreviation: "JABU",
+              state: "Osun",
+              type: "Private"
+            });
+          }
+          return parsed;
+        }
+      }
+    } catch {}
+    return DEFAULT_INSTITUTIONS;
+  });
   const [instSearch, setInstSearch] = useState('');
   const [showInstDropdown, setShowInstDropdown] = useState(false);
   const dropdownRef = useRef(null);
@@ -139,7 +176,23 @@ export default function Auth() {
         const res = await fetch(`${API_BASE_URL}/api/universities`);
         if (res.ok) {
           const data = await res.json();
-          setInstitutions(data);
+          if (Array.isArray(data) && data.length > 0) {
+            const hasJabu = data.some(u => (u.abbreviation || '').toUpperCase() === 'JABU' || (u.name || '').includes('Joseph Ayo Babalola'));
+            if (!hasJabu) {
+              data.push({
+                id: 52,
+                name: "Joseph Ayo Babalola University, Ikeji-Arakeji",
+                abbreviation: "JABU",
+                state: "Osun",
+                type: "Private"
+              });
+            }
+            data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            setInstitutions(data);
+            try {
+              localStorage.setItem('cached_universities', JSON.stringify(data));
+            } catch {}
+          }
         }
       } catch (err) {
         console.warn('Could not load institutions list:', err);
@@ -201,9 +254,9 @@ export default function Auth() {
   const handleSelectInstitution = (inst) => {
     setFormData((prev) => ({
       ...prev,
-      university_id: inst.id,
+      university_id: inst.id || inst.abbreviation || inst.name,
     }));
-    setInstSearch(inst.name);
+    setInstSearch(inst.abbreviation ? `${inst.name} (${inst.abbreviation})` : inst.name);
     setShowInstDropdown(false);
     setErrorMessage('');
     setInvalidFieldId(null);
@@ -662,9 +715,27 @@ export default function Auth() {
     }
   };
 
-  const filteredInstitutions = institutions.filter((inst) =>
-    inst.name.toLowerCase().includes(instSearch.toLowerCase())
-  );
+  const filteredInstitutions = institutions.filter((inst) => {
+    const q = (instSearch || '').toLowerCase().trim();
+    if (!q) return true;
+
+    const cleanQ = q.replace(/\buni\b/g, 'university').trim();
+    const nameLower = (inst.name || '').toLowerCase();
+    const abbrLower = (inst.abbreviation || '').toLowerCase();
+    const stateLower = (inst.state || '').toLowerCase();
+
+    // 1. Direct matches
+    if (nameLower.includes(q) || abbrLower.includes(q) || stateLower.includes(q)) return true;
+    if (cleanQ && nameLower.includes(cleanQ)) return true;
+
+    // 2. Tokenized search (e.g. "joseph ayo babalola uni")
+    const words = q.split(/\s+/).filter(Boolean);
+    const allTokensMatch = words.every((token) => {
+      const tokenNorm = token === 'uni' ? 'university' : token;
+      return nameLower.includes(tokenNorm) || abbrLower.includes(token) || stateLower.includes(token);
+    });
+    return allTokensMatch;
+  });
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-sky-50/70 via-white to-slate-50 text-slate-900 font-sans flex flex-col items-center justify-start sm:justify-center py-8 px-4 relative overflow-x-hidden">
@@ -977,14 +1048,26 @@ export default function Auth() {
                     <div className="space-y-1">
                       {filteredInstitutions.map((inst) => (
                         <div
-                          key={inst.id}
+                          key={inst.id || inst.name}
                           onClick={() => handleSelectInstitution(inst)}
-                          className="p-2.5 rounded-xl hover:bg-sky-50 text-xs font-semibold text-slate-700 hover:text-sky-700 cursor-pointer flex items-center justify-between"
+                          className="p-2.5 rounded-xl hover:bg-sky-50 text-xs font-semibold text-slate-700 hover:text-sky-700 cursor-pointer flex items-center justify-between transition-colors"
                         >
-                          <span>{inst.name}</span>
-                          <span className="text-[10px] text-slate-400 uppercase">{inst.type}</span>
+                          <div className="flex items-center space-x-2">
+                            <span>{inst.name}</span>
+                            {inst.abbreviation && (
+                              <span className="text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded-md">
+                                {inst.abbreviation}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 uppercase shrink-0 ml-2">{inst.type || 'University'}</span>
                         </div>
                       ))}
+                      {filteredInstitutions.length === 0 && (
+                        <div className="p-3 text-center text-xs text-slate-400">
+                          No institution found matching "{instSearch}".
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

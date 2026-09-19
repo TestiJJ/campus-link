@@ -58,11 +58,18 @@ export default function CampusSelectModal({
   const filteredInstitutions = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return availableInstitutions;
+    const cleanQ = q.replace(/\buni\b/g, 'university').trim();
+    const words = q.split(/\s+/).filter(Boolean);
     return availableInstitutions.filter((u) => {
-      const nameMatch = u.name && u.name.toLowerCase().includes(q);
-      const abbrMatch = u.abbreviation && u.abbreviation.toLowerCase().includes(q);
-      const stateMatch = u.state && u.state.toLowerCase().includes(q);
-      return nameMatch || abbrMatch || stateMatch;
+      const name = (u.name || '').toLowerCase();
+      const abbr = (u.abbreviation || '').toLowerCase();
+      const state = (u.state || '').toLowerCase();
+      if (name.includes(q) || abbr.includes(q) || state.includes(q)) return true;
+      if (cleanQ && name.includes(cleanQ)) return true;
+      return words.every((token) => {
+        const tokenNorm = token === 'uni' ? 'university' : token;
+        return name.includes(tokenNorm) || abbr.includes(token) || state.includes(token);
+      });
     });
   }, [availableInstitutions, searchQuery]);
 

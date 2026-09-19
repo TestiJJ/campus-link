@@ -856,13 +856,17 @@ def register_user(
 
     parsed_uni_id = None
     if user_data.university_id:
-        if isinstance(user_data.university_id, int) or str(user_data.university_id).isdigit():
-            target_id = int(user_data.university_id)
-            uni = db.query(models.University).filter(models.University.id == target_id).first()
+        u_val = str(user_data.university_id).strip()
+        if u_val.isdigit():
+            uni = db.query(models.University).filter(models.University.id == int(u_val)).first()
             if uni:
                 parsed_uni_id = uni.id
-        else:
-            uni = db.query(models.University).filter(models.University.name == user_data.university_id).first()
+        if not parsed_uni_id:
+            uni = db.query(models.University).filter(
+                (models.University.name == u_val) |
+                (models.University.abbreviation == u_val) |
+                (models.University.name.ilike(f"%{u_val}%"))
+            ).first()
             if uni:
                 parsed_uni_id = uni.id
 
@@ -3667,6 +3671,21 @@ def get_vendor_reviews(vendor_id: int, db: Session = Depends(database.get_db)):
 def get_universities(db: Session = Depends(database.get_db)):
     try:
         import seed_universities
+        jabu_entry = db.query(models.University).filter(
+            (models.University.abbreviation == "JABU") |
+            (models.University.name.like("%Joseph Ayo Babalola%"))
+        ).first()
+        if not jabu_entry:
+            new_jabu = models.University(
+                name="Joseph Ayo Babalola University, Ikeji-Arakeji",
+                state="Osun",
+                type="Private",
+                abbreviation="JABU"
+            )
+            db.add(new_jabu)
+            db.commit()
+            print("[CampusLink] Auto-seeded JABU on demand.")
+
         if db.query(models.University).count() < len(seed_universities.NIGERIAN_INSTITUTIONS):
             seed_universities.seed_database()
     except Exception as _e:
