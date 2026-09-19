@@ -222,19 +222,27 @@ if (typeof window !== 'undefined') {
 export const getWsUrl = (path = '') => {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const rawHost = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+  let baseWs;
   if (rawHost && (rawHost.includes('127.0.0.1:8000') || rawHost.includes('localhost:8000'))) {
-    return `ws://127.0.0.1:8000${cleanPath}`;
-  }
-  
-  const root = (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL)
-    .replace(/\/+$/, '')
-    .replace(/\/api$/, '');
-  
-  const wsRoot = root.startsWith('https://')
-    ? root.replace('https://', 'wss://')
-    : root.replace('http://', 'ws://');
+    baseWs = `ws://127.0.0.1:8000${cleanPath}`;
+  } else {
+    const root = (rawHost && !rawHost.includes('campuslink-backend.onrender.com') ? rawHost : DEFAULT_BACKEND_URL)
+      .replace(/\/+$/, '')
+      .replace(/\/api$/, '');
     
-  return `${wsRoot}${cleanPath}`;
+    const wsRoot = root.startsWith('https://')
+      ? root.replace('https://', 'wss://')
+      : root.replace('http://', 'ws://');
+      
+    baseWs = `${wsRoot}${cleanPath}`;
+  }
+
+  const token = getAuthToken();
+  if (token) {
+    const separator = baseWs.includes('?') ? '&' : '?';
+    return `${baseWs}${separator}token=${encodeURIComponent(token)}`;
+  }
+  return baseWs;
 };
 
 export default API;

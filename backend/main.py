@@ -131,20 +131,120 @@ EATERIES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fr
 if os.path.exists(EATERIES_DIR):
     app.mount("/eateries", StaticFiles(directory=EATERIES_DIR), name="eateries")
 
-# Global CORS & Exception Interceptor Middleware
-# Guarantees Access-Control headers on ALL responses (2xx, 3xx, 4xx, 5xx, OPTIONS)
-@app.middleware("http")
-async def add_cors_and_catch_exceptions(request: Request, call_next):
-    origin = request.headers.get("origin") or "*"
+# --- SECURITY UTILITIES & RATE LIMITING ---
+import time
+from collections import defaultdict
+
+def sanitize_input_text(val: Optional[str]) -> Optional[str]:
+    """Sanitizes user-submitted text by stripping script tags, malicious event handlers, and javascript: protocols."""
+    if not val or not isinstance(val, str):
+        return val
+    cleaned = val
+    cleaned = re.sub(r'(?i)<script[^>]*>.*?</script>', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'(?i)<(iframe|object|embed|applet)[^>]*>.*?</\1>', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'(?i)\son\w+\s*=\s*(["\']?).*?\1', '', cleaned)
+    cleaned = re.sub(r'(?i)javascript:', '', cleaned)
+    cleaned = re.sub(r'(?i)vbscript:', '', cleaned)
+    return cleaned.strip()
+
+class SimpleRateLimiter:
+    """Thread-safe in-memory sliding-window rate limiter per client IP."""
+    def __init__(self):
+        self.requests = defaultdict(list)
+
+    def is_allowed(self, client_ip: str, path: str) -> tuple[bool, int]:
+        now = time.time()
+        window = 60.0  # 1-minute evaluation window
+        clean_path = path.split("?")[0].rstrip("/")
+
+        if any(clean_path.startswith(p) for p in ["/api/login", "/api/forgot-password"]):
+            max_reqs = 10
+        elif clean_path.startswith("/api/register"):
+            max_reqs = 10
+        elif any(clean_path.startswith(p) for p in ["/api/verify-email", "/api/resend-otp", "/api/verify-reset-code"]):
+            max_reqs = 10
+        elif "/api/ai/chat" in clean_path or clean_path.startswith("/ai/chat"):
+            max_reqs = 40
+        elif clean_path.startswith("/api/upload"):
+            max_reqs = 25
+        else:
+            max_reqs = 180  # Standard endpoint limit
+
+        key = f"{client_ip}:{clean_path}"
+        req_times = [t for t in self.requests[key] if now - t < window]
+        self.requests[key] = req_times
+
+        if len(req_times) >= max_reqs:
+            retry_after = int(window - (now - req_times[0])) + 1
+            return False, max(1, retry_after)
+
+        self.requests[key].append(now)
+        return True, 0
+
+rate_limiter = SimpleRateLimiter()
+
+# Strict Trusted Origin Whitelist
+ALLOWED_ORIGINS = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://campus-link-dzjz.onrender.com",
+    "https://campus-link.onrender.com",
+    "https://campus-link.com.ng",
+    "https://www.campus-link.com.ng",
+    "https://campus-link-backend-vhxr.onrender.com",
+    "capacitor://localhost",
+    "ionic://localhost",
+    "http://localhost",
+    "https://localhost",
+}
+_extra_fe = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+if _extra_fe:
+    ALLOWED_ORIGINS.add(_extra_fe)
+
+def apply_security_and_cors_headers(response, origin: Optional[str]):
+    """Applies OWASP security headers and strictly whitelisted CORS headers to every response."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
-    # Direct short-circuit handling for OPTIONS preflights
-    if request.method == "OPTIONS":
-        response = JSONResponse(content={"status": "ok"})
+    if origin and origin in ALLOWED_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        response.headers["Access-Control-Allow-Headers"] = "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        return response
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
+    return response
+
+# Global CORS, Rate Limiting & Security Headers Middleware
+@app.middleware("http")
+async def security_and_cors_middleware(request: Request, call_next):
+    origin = request.headers.get("origin")
+    
+    # 1. Direct short-circuit handling for OPTIONS preflights
+    if request.method == "OPTIONS":
+        resp = JSONResponse(content={"status": "ok"})
+        return apply_security_and_cors_headers(resp, origin)
+
+    # 2. Rate Limiting enforcement
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
+    is_allowed, retry_after = rate_limiter.is_allowed(client_ip, request.url.path)
+    if not is_allowed:
+        rate_resp = JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"detail": "Too many requests. Please slow down and try again."}
+        )
+        rate_resp.headers["Retry-After"] = str(retry_after)
+        return apply_security_and_cors_headers(rate_resp, origin)
 
     try:
         response = await call_next(request)
@@ -155,50 +255,23 @@ async def add_cors_and_catch_exceptions(request: Request, call_next):
             content={"detail": "An internal server error occurred. Please try again."}
         )
 
-    response.headers["Access-Control-Allow-Origin"] = origin
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
+    return apply_security_and_cors_headers(response, origin)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"[CampusLink Global Exception] {request.method} {request.url.path}: {exc}")
-    origin = request.headers.get("origin") or "*"
+    origin = request.headers.get("origin")
     response = JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"}
     )
-    response.headers["Access-Control-Allow-Origin"] = origin
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
+    return apply_security_and_cors_headers(response, origin)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://campus-link-dzjz.onrender.com",
-        "https://campus-link.onrender.com",
-        "https://campus-link.com.ng",
-        "https://www.campus-link.com.ng",
-        "https://campus-link-backend-vhxr.onrender.com",
-        "capacitor://localhost",
-        "ionic://localhost",
-        "http://localhost",
-        "https://localhost",
-    ],
-    allow_origin_regex=r"^https?://.*$",
+    allow_origins=list(ALLOWED_ORIGINS),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -206,12 +279,10 @@ app.add_middleware(
 try:
     import cloudinary
     import cloudinary.uploader
-    import base64
-    _DEF_SEC = base64.b64decode("MU5WLWVPcUh6MmxrSGE1WXQySVNrYzdySW1R").decode("utf-8")
     cloudinary_url = os.getenv("CLOUDINARY_URL")
-    cld_name = os.getenv("CLOUDINARY_CLOUD_NAME") or "yreonkuc"
-    cld_key = os.getenv("CLOUDINARY_API_KEY") or "614882588885961"
-    cld_secret = os.getenv("CLOUDINARY_API_SECRET") or _DEF_SEC
+    cld_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    cld_key = os.getenv("CLOUDINARY_API_KEY")
+    cld_secret = os.getenv("CLOUDINARY_API_SECRET")
 
     if cloudinary_url:
         cloudinary.config(cloudinary_url=cloudinary_url, secure=True)
@@ -222,8 +293,11 @@ try:
             api_secret=cld_secret,
             secure=True
         )
-    CLOUDINARY_AVAILABLE = True
-    print("[CAMPUSLINK] Cloudinary module loaded and configured successfully.")
+    CLOUDINARY_AVAILABLE = bool(cloudinary_url or (cld_name and cld_key and cld_secret))
+    if CLOUDINARY_AVAILABLE:
+        print("[CAMPUSLINK] Cloudinary storage configured securely from environment.")
+    else:
+        print("[CAMPUSLINK] Cloudinary credentials not configured; local disk upload fallback active.")
 except Exception as _cld_err:
     print(f"[CAMPUSLINK] Cloudinary initialization notice: {_cld_err}")
     CLOUDINARY_AVAILABLE = False
@@ -332,8 +406,8 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
         print("[EMAIL ERROR] Missing recipient address.")
         return False
 
-    sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
-    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+    sender_email    = os.getenv("SMTP_EMAIL", "").strip()
+    sender_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
     smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
     webhook_url     = get_clean_webhook_url()
 
@@ -379,8 +453,8 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
         "</body></html>"
     )
 
-    # Always log OTP to server console for debugging
-    print(f"[CAMPUSLINK OTP for {clean_to}]: {otp_code}")
+    # Secure logging: Do not leak plain OTP code in logs
+    print(f"[CAMPUSLINK] Dispatched OTP email to {clean_to} (code hidden for security)")
 
     # --- Attempt 1: Google Apps Script Webhook (HTTPS 443 - bypasses Render port blocks) ---
     urls_to_try = [webhook_url]
@@ -448,15 +522,18 @@ def send_otp_email(to_email: str, otp_code: str) -> bool:
 
 @app.get("/api/test-email")
 @app.post("/api/test-email")
-def test_email_dispatch(email: str = "testimonyjokotoye65@gmail.com"):
+def test_email_dispatch(
+    email: str = Query(..., description="Recipient email address"),
+    current_user: models.User = Depends(require_role(["admin"]))
+):
     """
     Diagnostic endpoint to test live email delivery.
-    GET /api/test-email?email=anyone@example.com
+    Admin-only protected endpoint to prevent spam relay abuse.
     """
-    clean_email = (email or "testimonyjokotoye65@gmail.com").strip().lower()
+    clean_email = (email or "").strip().lower()
     test_otp    = str(random.randint(100000, 999999))
     webhook_url = get_clean_webhook_url()
-    sender      = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
+    sender      = os.getenv("SMTP_EMAIL", "").strip()
 
     attempts = []
     urls_to_test = [webhook_url]
@@ -709,10 +786,18 @@ def register_user(
     user_data: schemas.UserCreate, 
     db: Session = Depends(database.get_db)
 ):
+    # Enforce allowed roles strictly
+    allowed_roles = {"student", "vendor", "admin"}
+    if user_data.role not in allowed_roles:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role specified.")
+
     if user_data.role == "admin":
-        ADMIN_SECURITY_KEY = "CAMPUS_ADMIN_SECRET_2026"
-        if user_data.admin_secret_key != ADMIN_SECURITY_KEY:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid Admin Security Key.")
+        admin_security_key = os.getenv("ADMIN_SECURITY_KEY", "").strip()
+        if not admin_security_key or user_data.admin_secret_key != admin_security_key:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin registration is restricted. Invalid or unconfigured Admin Security Key."
+            )
 
     clean_email = (user_data.email or "").strip().lower()
     clean_phone = (user_data.phone_number or "").strip()
@@ -728,7 +813,7 @@ def register_user(
             existing_user.code_expires_at = expiry
             existing_user.password_hash = auth.hash_password(user_data.password)
             if user_data.full_name:
-                existing_user.full_name = user_data.full_name.strip()
+                existing_user.full_name = sanitize_input_text(user_data.full_name)
             if clean_phone:
                 existing_user.phone_number = clean_phone
             if user_data.role:
@@ -755,7 +840,6 @@ def register_user(
                 "matric_number": existing_user.matric_number,
                 "created_at": existing_user.created_at,
                 "email_dispatched": email_dispatched,
-                "dev_code": otp if not email_dispatched else None,
                 "message": "Account pending verification! A fresh 6-digit verification code has been dispatched to your email."
             }
         else:
@@ -787,18 +871,18 @@ def register_user(
     expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=15)
 
     new_user = models.User(
-        full_name=user_data.full_name.strip() if user_data.full_name else "",
+        full_name=sanitize_input_text(user_data.full_name) if user_data.full_name else "",
         email=clean_email,
         phone_number=clean_phone,
         password_hash=hashed_pw,
         role=user_data.role,
         university_id=parsed_uni_id,
-        state=user_data.state,
-        matric_number=user_data.matric_number,
-        department=user_data.department,
-        level=user_data.level,
-        hostel=user_data.hostel,
-        bio=user_data.bio,
+        state=sanitize_input_text(user_data.state),
+        matric_number=sanitize_input_text(user_data.matric_number),
+        department=sanitize_input_text(user_data.department),
+        level=sanitize_input_text(user_data.level),
+        hostel=sanitize_input_text(user_data.hostel),
+        bio=sanitize_input_text(user_data.bio),
         profile_picture_url=user_data.profile_picture_url,
         is_email_verified=False,
         verification_code=otp,
@@ -812,11 +896,11 @@ def register_user(
     if user_data.role == "vendor":
         vendor_entry = models.Vendor(
             user_id=new_user.user_id,
-            business_name=user_data.business_name or f"{new_user.full_name}'s Store",
-            business_description=user_data.business_description,
+            business_name=sanitize_input_text(user_data.business_name) or f"{new_user.full_name}'s Store",
+            business_description=sanitize_input_text(user_data.business_description),
             category_id=user_data.category_id or 1,
             university_id=parsed_uni_id,
-            location=user_data.hostel,
+            location=sanitize_input_text(user_data.hostel),
             phone=clean_phone,
             email=clean_email,
             verification_status="pending"
@@ -843,7 +927,6 @@ def register_user(
         "matric_number": new_user.matric_number,
         "created_at": new_user.created_at,
         "email_dispatched": email_dispatched,
-        "dev_code": otp if not email_dispatched else None,
         "message": "Account registered! A 6-digit verification code has been dispatched to your email." if email_dispatched else "Account registered! Verification code generated."
     }
 
@@ -890,8 +973,7 @@ def resend_otp(payload: schemas.ResendOTPSchema, db: Session = Depends(database.
     email_dispatched = send_otp_email(user.email, otp)
     return {
         "message": "A fresh verification code has been dispatched to your email." if email_dispatched else "A fresh verification code has been generated.",
-        "email_dispatched": email_dispatched,
-        "dev_code": otp if not email_dispatched else None
+        "email_dispatched": email_dispatched
     }
 
 
@@ -901,8 +983,8 @@ def send_password_reset_email(to_email: str, otp_code: str) -> bool:
     if not clean_to:
         return False
 
-    sender_email    = os.getenv("SMTP_EMAIL",    "testimonyjokotoye65@gmail.com").strip()
-    sender_password = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+    sender_email    = os.getenv("SMTP_EMAIL", "").strip()
+    sender_password = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
     smtp_host       = os.getenv("SMTP_HOST",     "smtp.gmail.com").strip()
     webhook_url     = get_clean_webhook_url()
 
@@ -949,7 +1031,7 @@ def send_password_reset_email(to_email: str, otp_code: str) -> bool:
         "</body></html>"
     )
 
-    print(f"[CAMPUSLINK PASSWORD RESET OTP for {clean_to}]: {otp_code}")
+    print(f"[CAMPUSLINK] Sent password reset email to {clean_to} (code hidden for security)")
 
     # 1. Apps Script Webhook
     urls_to_try = [webhook_url]
@@ -974,9 +1056,9 @@ def send_password_reset_email(to_email: str, otp_code: str) -> bool:
                 print(f"[EMAIL] Password reset code sent to {clean_to} via Webhook")
                 return True
         except Exception as e_wh:
-            print(f"[EMAIL] Webhook error on {target_url[:35]}...: {e_wh}")
+            print(f"[EMAIL] Reset webhook error on {target_url[:35]}...: {e_wh}")
 
-    # 2. Gmail SMTP SSL
+    # 2. Gmail SMTP Fallback
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = f"CampusLink <{sender_email}>"
@@ -1030,9 +1112,9 @@ def forgot_password(payload: schemas.ForgotPasswordRequest, db: Session = Depend
     email_dispatched = send_password_reset_email(user.email, otp)
     return {
         "message": "A 6-digit password reset code has been sent to your email." if email_dispatched else "Password reset code generated.",
-        "email_dispatched": email_dispatched,
-        "dev_code": otp if not email_dispatched else None
+        "email_dispatched": email_dispatched
     }
+
 
 
 @app.post("/api/verify-reset-code")
@@ -1260,10 +1342,26 @@ def delete_own_profile(
     }
 
 
+ALLOWED_UPLOAD_EXTS = {
+    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".mp4", ".mov", ".webm",
+    ".mp3", ".wav", ".ogg", ".m4a"
+}
+DISALLOWED_UPLOAD_EXTS = {
+    ".svg", ".html", ".htm", ".exe", ".sh", ".php", ".py", ".js", ".bat", ".cmd", ".msi", ".jar"
+}
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB maximum upload limit
+
 @app.post("/api/upload")
-async def upload_file(request: Request, file: UploadFile = File(...)):
-    ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+async def upload_file(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(get_current_user)
+):
+    raw_filename = file.filename or ""
+    ext = os.path.splitext(raw_filename)[1].lower() if raw_filename else ""
     content_type = (file.content_type or "").lower()
+
     if not ext:
         if "audio" in content_type:
             ext = ".webm"
@@ -1273,14 +1371,27 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             ext = ".png"
         else:
             ext = ".jpg"
+
+    if ext in DISALLOWED_UPLOAD_EXTS or ext not in ALLOWED_UPLOAD_EXTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File extension '{ext}' is not permitted for security reasons."
+        )
+
+    # File size validation (up to 25MB)
+    await file.seek(0)
+    file_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File exceeds maximum allowed upload size (25MB)."
+        )
+
     unique_filename = f"{uuid.uuid4().hex}{ext}"
 
     # 1. Cloudinary upload (Permanent cloud storage for Render - images, reels, status stories, voice notes)
     if CLOUDINARY_AVAILABLE:
         try:
-            await file.seek(0)
-            file_bytes = await file.read()
-            
             # In Cloudinary, audio and video both use resource_type='video'
             is_video_or_audio = (
                 "video" in content_type or 
@@ -1304,9 +1415,8 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     # 2. Local filesystem storage fallback
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
-    await file.seek(0)
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        buffer.write(file_bytes)
 
     # Determine public URL dynamically
     base_url = str(request.base_url).rstrip("/")
@@ -1336,17 +1446,17 @@ def update_user_profile(
     db: Session = Depends(database.get_db)
 ):
     if profile_data.full_name and profile_data.full_name.strip():
-        current_user.full_name = profile_data.full_name.strip()
+        current_user.full_name = sanitize_input_text(profile_data.full_name)
     if profile_data.bio is not None:
-        current_user.bio = profile_data.bio.strip()
+        current_user.bio = sanitize_input_text(profile_data.bio)
     if profile_data.phone_number is not None:
         current_user.phone_number = profile_data.phone_number.strip()
     if profile_data.department is not None:
-        current_user.department = profile_data.department.strip()
+        current_user.department = sanitize_input_text(profile_data.department)
     if profile_data.level is not None:
-        current_user.level = profile_data.level.strip()
+        current_user.level = sanitize_input_text(profile_data.level)
     if profile_data.hostel is not None:
-        current_user.hostel = profile_data.hostel.strip()
+        current_user.hostel = sanitize_input_text(profile_data.hostel)
     if profile_data.profile_picture_url is not None:
         current_user.profile_picture_url = profile_data.profile_picture_url.strip()
 
@@ -2769,8 +2879,8 @@ def create_product(
 
     new_prod = models.Product(
         vendor_id=vendor.id,
-        name=product_data.name.strip(),
-        description=product_data.description.strip() if product_data.description else None,
+        name=sanitize_input_text(product_data.name),
+        description=sanitize_input_text(product_data.description) if product_data.description else None,
         price=product_data.price,
         category_id=product_data.category_id,
         university_id=target_uni_id,
@@ -2824,9 +2934,9 @@ def update_product(
         raise HTTPException(status_code=403, detail="Not authorized to edit this product.")
 
     if product_data.name is not None:
-        product.name = product_data.name.strip()
+        product.name = sanitize_input_text(product_data.name)
     if product_data.description is not None:
-        product.description = product_data.description.strip()
+        product.description = sanitize_input_text(product_data.description)
     if product_data.price is not None:
         product.price = product_data.price
     if product_data.category_id is not None:
@@ -2954,12 +3064,12 @@ def create_service(
 
     new_svc = models.Service(
         vendor_id=vendor.id,
-        name=service_data.name.strip(),
-        description=service_data.description.strip(),
+        name=sanitize_input_text(service_data.name),
+        description=sanitize_input_text(service_data.description),
         price=service_data.price,
         category_id=service_data.category_id,
         university_id=vendor.university_id,
-        location=service_data.location or vendor.location,
+        location=sanitize_input_text(service_data.location) if service_data.location else vendor.location,
         image=service_data.image.strip() if service_data.image else "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80",
         availability=svc_status
     )
@@ -3124,11 +3234,11 @@ def create_reel(
     new_reel = models.Reel(
         user_id=current_user.user_id,
         vendor_id=vendor.id if vendor else None,
-        title=reel_data.title.strip() if reel_data.title else "Campus Post",
-        description=reel_data.description.strip() if reel_data.description else None,
+        title=sanitize_input_text(reel_data.title) if reel_data.title else "Campus Post",
+        description=sanitize_input_text(reel_data.description) if reel_data.description else None,
         media_url=media_url,
         media_type=media_type,
-        location=reel_data.location.strip() if reel_data.location else "Campus Hub",
+        location=sanitize_input_text(reel_data.location) if reel_data.location else "Campus Hub",
         likes_count=0
     )
     db.add(new_reel)
@@ -3203,7 +3313,7 @@ def add_reel_comment(
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found.")
 
-    content = comment_data.content.strip()
+    content = sanitize_input_text(comment_data.content)
     if not content:
         raise HTTPException(status_code=400, detail="Comment cannot be empty.")
 
@@ -3491,6 +3601,15 @@ def update_order_status(
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found.")
+
+    if current_user.role != "admin":
+        vendor = db.query(models.Vendor).filter(models.Vendor.user_id == current_user.user_id).first()
+        if not vendor or order.vendor_id != vendor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to update orders belonging to another merchant store."
+            )
+
     order.status = status_update
     db.commit()
     return {"message": f"Order marked as {status_update}", "status": order.status}
@@ -3509,7 +3628,7 @@ def create_review(
         user_id=current_user.user_id,
         vendor_id=review_data.vendor_id,
         rating=max(1, min(5, review_data.rating)),
-        comment=review_data.comment.strip() if review_data.comment else None
+        comment=sanitize_input_text(review_data.comment) if review_data.comment else None
     )
     db.add(new_rev)
     db.commit()
@@ -3590,8 +3709,8 @@ def create_post(
         user_id=current_user.user_id,
         vendor_id=vendor.id if vendor else None,
         category_id=post_data.category_id,
-        title=post_data.title,
-        description=post_data.description,
+        title=sanitize_input_text(post_data.title),
+        description=sanitize_input_text(post_data.description) if post_data.description else None,
         price=post_data.price,
         image_url=post_data.image_url
     )
@@ -3647,7 +3766,22 @@ def resolve_target_user_id(target_id: Any, db: Session) -> Optional[models.User]
     return None
 
 @app.websocket("/ws/{user_id}")
-async def websocket_chat_endpoint(websocket: WebSocket, user_id: str):
+async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Optional[str] = Query(None)):
+    # Authenticate WebSocket session via JWT token
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    token_data = auth.verify_token(token)
+    if not token_data or not token_data.user_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Enforce authorization: users can only subscribe to their own stream unless platform administrator
+    if token_data.user_id != str(user_id) and token_data.role != "admin":
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     connected = await ws_manager.connect(str(user_id), websocket)
     if not connected:
         return
@@ -3752,11 +3886,11 @@ async def send_message(
         except (ValueError, TypeError):
             clean_reply_to_id = None
 
-    raw_content = msg_data.content.strip() if msg_data.content else ""
+    raw_content = sanitize_input_text(msg_data.content) if msg_data.content else ""
     if not raw_content and msg_data.media_url:
         raw_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else "Photo")
     elif not raw_content:
-        raw_content = msg_data.reply_to_text or "Message"
+        raw_content = sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else "Message"
 
     new_msg = models.Message(
         sender_id=current_user.user_id,
@@ -3767,8 +3901,8 @@ async def send_message(
         media_url=msg_data.media_url,
         duration=msg_data.duration,
         reply_to_id=clean_reply_to_id,
-        reply_to_sender=msg_data.reply_to_sender,
-        reply_to_text=msg_data.reply_to_text,
+        reply_to_sender=sanitize_input_text(msg_data.reply_to_sender) if msg_data.reply_to_sender else None,
+        reply_to_text=sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else None,
         is_read=False
     )
     db.add(new_msg)
@@ -4559,12 +4693,12 @@ def create_campus_notice(
         university_id=target_uni_id,
         user_id=current_user.user_id,
         type=payload.type,
-        title=payload.title.strip(),
+        title=sanitize_input_text(payload.title),
         category=payload.category,
-        description=payload.description.strip(),
-        location=payload.location.strip(),
+        description=sanitize_input_text(payload.description),
+        location=sanitize_input_text(payload.location),
         date_lost_or_found=payload.date_lost_or_found,
-        contact_phone=payload.contact_phone.strip() if payload.contact_phone else None,
+        contact_phone=sanitize_input_text(payload.contact_phone) if payload.contact_phone else None,
         image_url=payload.image_url,
         status="open",
         created_at=datetime.utcnow()

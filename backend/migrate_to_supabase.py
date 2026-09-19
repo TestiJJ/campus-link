@@ -9,7 +9,10 @@ from datetime import datetime
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
-SUPABASE_URL = os.getenv("DATABASE_URL") or "postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
+SUPABASE_URL = os.getenv("DATABASE_URL")
+if not SUPABASE_URL:
+    print("[Error] DATABASE_URL environment variable is required for migration.")
+    sys.exit(1)
 
 if SUPABASE_URL.startswith("postgres://"):
     SUPABASE_URL = SUPABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)

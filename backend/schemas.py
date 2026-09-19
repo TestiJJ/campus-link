@@ -81,7 +81,6 @@ class UserOut(UserBase):
 
 class UserRegistrationOut(UserOut):
     email_dispatched: Optional[bool] = True
-    dev_code: Optional[str] = None
     message: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):

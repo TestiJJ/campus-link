@@ -10,8 +10,8 @@ import httpx
 import database
 import models
 
-SENDER_EMAIL = os.getenv("SMTP_EMAIL", "testimonyjokotoye65@gmail.com").strip()
-SENDER_PASS = os.getenv("SMTP_PASSWORD", "pvytfgxjjcycacrj").replace(" ", "").strip()
+SENDER_EMAIL = os.getenv("SMTP_EMAIL", "").strip()
+SENDER_PASS = os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
 
 SENT_LOG_FILE = "sent_vendors.json"

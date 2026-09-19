@@ -85,7 +85,7 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('node_modules')) {
             // Animation & icon libs — loaded only by dashboards, not landing page
-            if (id.includes('framer-motion') || id.includes('lucide-react') || id.includes('lenis')) {
+            if (id.includes('framer-motion') || id.includes('lucide-react')) {
               return 'vendor-ui';
             }
             // Core React runtime — needed immediately on all pages

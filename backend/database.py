@@ -6,13 +6,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
 
-# Supabase Cloud Database URL (Default persistent cloud database)
-DEFAULT_SUPABASE_URL = "postgresql+psycopg2://postgres.vaevyoagenaptmjxfzmp:Ajibola2007%23@aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
-
-# 1. Primary: Cloud Database via DATABASE_URL or Supabase default for cloud deployments
+# 1. Primary: Cloud Database via DATABASE_URL
 raw_db_url = os.getenv("DATABASE_URL")
 if not raw_db_url and (os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID")):
-    raw_db_url = DEFAULT_SUPABASE_URL
+    print("[Database Warning] DATABASE_URL is not set on Render. Please configure it in your Render dashboard.")
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "campuslink.db")
 SQLITE_URL = f"sqlite:///{DB_PATH}"
