@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
-import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx
+import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx, re
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
