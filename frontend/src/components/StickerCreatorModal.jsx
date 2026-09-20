@@ -268,13 +268,13 @@ export default function StickerCreatorModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 30 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-100 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden"
+        className="relative w-full sm:max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-100 dark:border-slate-800 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden z-[121]"
       >
         {/* Mobile Drag Pill */}
         <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mt-2.5 sm:hidden shrink-0" />

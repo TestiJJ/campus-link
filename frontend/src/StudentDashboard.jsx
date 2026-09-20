@@ -11355,7 +11355,10 @@ export default function StudentDashboard() {
       <StickerPickerDrawer
         isOpen={stickerPickerOpen}
         onClose={() => setStickerPickerOpen(false)}
-        onSelectSticker={handleSendSticker}
+        onSelectSticker={(sticker) => {
+          setStickerPickerOpen(false);
+          handleSendSticker(sticker);
+        }}
       />
 
       {/* --- FACEBOOK LITE MODE: MOBILE NAVIGATION IS ANCHORED AT TOP TAB BAR --- */}
