@@ -48,7 +48,8 @@ def init_db_schema():
             "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);",
             "CREATE TABLE IF NOT EXISTS groups (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, description TEXT, avatar_url VARCHAR(500), creator_id VARCHAR(36) NOT NULL, only_admins_can_message BOOLEAN DEFAULT FALSE, only_admins_can_edit_info BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
             "CREATE TABLE IF NOT EXISTS group_members (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, user_id VARCHAR(36) NOT NULL, role VARCHAR(20) DEFAULT 'member', joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_group_member UNIQUE (group_id, user_id));",
-            "CREATE TABLE IF NOT EXISTS group_messages (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, sender_id VARCHAR(36) NOT NULL, content TEXT NOT NULL, message_type VARCHAR(20) DEFAULT 'text', media_url VARCHAR(550), duration INTEGER, reply_to_id INTEGER, reply_to_sender VARCHAR(100), reply_to_text VARCHAR(255), reactions TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+            "CREATE TABLE IF NOT EXISTS group_messages (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, sender_id VARCHAR(36) NOT NULL, content TEXT NOT NULL, message_type VARCHAR(20) DEFAULT 'text', media_url VARCHAR(550), duration INTEGER, reply_to_id INTEGER, reply_to_sender VARCHAR(100), reply_to_text VARCHAR(255), reactions TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
+            "ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS mentions TEXT;"
         ]:
             try:
                 with database.engine.begin() as _conn:
@@ -1734,6 +1735,8 @@ def create_notification(
             target_url = "/student-dashboard?tab=notices"
         elif notification_type == "message":
             target_url = f"/vendor-dashboard?tab=messages&chat={reference_id}" if is_vendor else f"/student-dashboard?tab=messages&chat={reference_id}"
+        elif notification_type in ("group_mention", "group_message"):
+            target_url = f"/student-dashboard?tab=messages&chat=group_{reference_id}"
 
         # Dispatch real-time lockscreen phone push notification in background thread
         threading.Thread(
@@ -5132,6 +5135,13 @@ def get_group_messages(
         if u:
             is_vendor = db.query(models.Vendor).filter(models.Vendor.user_id == u.user_id).first() is not None
 
+        raw_mentions = []
+        if getattr(m, "mentions", None):
+            try:
+                raw_mentions = json.loads(m.mentions) if isinstance(m.mentions, str) else []
+            except Exception:
+                raw_mentions = []
+
         results.append({
             "id": m.id,
             "group_id": m.group_id,
@@ -5147,6 +5157,7 @@ def get_group_messages(
             "reply_to_sender": m.reply_to_sender,
             "reply_to_text": m.reply_to_text,
             "reactions": m.reactions,
+            "mentions": raw_mentions,
             "created_at": m.created_at
         })
     return results
@@ -5184,6 +5195,47 @@ async def send_group_message(
     elif not clean_content:
         clean_content = "Message"
 
+    # Fetch group members
+    members = db.query(models.GroupMember).options(joinedload(models.GroupMember.user)).filter(models.GroupMember.group_id == grp.id).all()
+
+    # Identify mentioned group members from payload, @everyone, @admins, or @Full Name
+    mentioned_ids = set()
+    content_lower = clean_content.lower()
+
+    is_everyone = (
+        "@everyone" in content_lower or
+        "@all" in content_lower or
+        (getattr(msg_data, "mentions", None) and any(str(m).lower() in ("everyone", "all", "__everyone__") for m in msg_data.mentions))
+    )
+    is_admins = (
+        "@admin" in content_lower or
+        "@admins" in content_lower or
+        (getattr(msg_data, "mentions", None) and any(str(m).lower() in ("admin", "admins", "__admins__") for m in msg_data.mentions))
+    )
+
+    if is_everyone:
+        for m in members:
+            mentioned_ids.add(str(m.user_id))
+    elif is_admins:
+        for m in members:
+            if m.role == "admin" or str(m.user_id) == str(grp.creator_id):
+                mentioned_ids.add(str(m.user_id))
+    else:
+        if getattr(msg_data, "mentions", None):
+            for mid in msg_data.mentions:
+                if mid and str(mid).strip() not in ("everyone", "all", "admin", "admins", "__everyone__", "__admins__"):
+                    mentioned_ids.add(str(mid).strip())
+
+        for m in members:
+            if m.user and m.user.full_name:
+                tag_str = f"@{m.user.full_name.strip()}".lower()
+                if tag_str in content_lower:
+                    mentioned_ids.add(str(m.user_id))
+
+    # Exclude sender from receiving mention notification
+    mentioned_ids.discard(str(current_user.user_id))
+    valid_mentioned_ids = list(mentioned_ids)
+
     new_msg = models.GroupMessage(
         group_id=grp.id,
         sender_id=current_user.user_id,
@@ -5193,7 +5245,8 @@ async def send_group_message(
         duration=msg_data.duration,
         reply_to_id=msg_data.reply_to_id,
         reply_to_sender=sanitize_input_text(msg_data.reply_to_sender) if msg_data.reply_to_sender else None,
-        reply_to_text=sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else None
+        reply_to_text=sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else None,
+        mentions=json.dumps(valid_mentioned_ids) if valid_mentioned_ids else None
     )
     db.add(new_msg)
     db.commit()
@@ -5217,11 +5270,46 @@ async def send_group_message(
         "reply_to_sender": new_msg.reply_to_sender,
         "reply_to_text": new_msg.reply_to_text,
         "reactions": new_msg.reactions,
+        "mentions": valid_mentioned_ids,
         "created_at": new_msg.created_at
     }
 
+    # Send Notification & WebSocket alert to each mentioned member
+    snippet = clean_content[:80] + ("..." if len(clean_content) > 80 else "")
+    notif_title = f"Mentioned in {grp.name}"
+    notif_message = f"{current_user.full_name} mentioned you: \"{snippet}\""
+    if is_everyone:
+        notif_message = f"{current_user.full_name} mentioned @everyone: \"{snippet}\""
+    elif is_admins:
+        notif_title = f"Admin Mention in {grp.name}"
+        notif_message = f"{current_user.full_name} mentioned @admins: \"{snippet}\""
+
+    for target_uid in valid_mentioned_ids:
+        try:
+            create_notification(
+                db=db,
+                user_id=target_uid,
+                actor_id=current_user.user_id,
+                notification_type="group_mention",
+                title=notif_title,
+                message=notif_message,
+                reference_id=str(grp.id)
+            )
+            # Send real-time notification alert via WebSocket
+            await ws_manager.broadcast_to_user(str(target_uid), {
+                "type": "new_notification",
+                "notification": {
+                    "type": "group_mention",
+                    "title": notif_title,
+                    "message": notif_message,
+                    "reference_id": str(grp.id),
+                    "created_at": datetime.utcnow().isoformat()
+                }
+            })
+        except Exception as _mention_err:
+            print(f"[Group Mention Notification Notice] {_mention_err}")
+
     # Broadcast real-time message to all group members
-    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
     ws_payload = {
         "type": "new_group_message",
         "group_id": grp.id,

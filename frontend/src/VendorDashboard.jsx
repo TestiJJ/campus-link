@@ -13,7 +13,7 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2, GraduationCap
+  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -26,6 +26,7 @@ import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import InstallAppButton from './components/InstallAppButton';
 import CampusSelectModal from './components/CampusSelectModal';
+import ArchivedChatsModal from './components/ArchivedChatsModal';
 import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
 import {
   isPushSupported,
@@ -380,8 +381,20 @@ export default function VendorDashboard() {
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
   const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
-  const [showMediaEditor, setShowMediaEditor] = useState(false);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
+
+  // Chat Archiving State (Persisted per vendor in localStorage)
+  const [archivedChatIds, setArchivedChatIds] = useState(() => {
+    try {
+      const userRaw = localStorage.getItem('user');
+      const uId = userRaw ? JSON.parse(userRaw).user_id : 'guest';
+      const saved = localStorage.getItem(`campuslink_archived_chats_${uId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showArchivedModal, setShowArchivedModal] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [communityUsers, setCommunityUsers] = useState(() => {
@@ -576,16 +589,46 @@ export default function VendorDashboard() {
   // Product Form & Editing States
   const [editingProduct, setEditingProduct] = useState(null);
 
-  // Universal Chat & Directory Filtering for Vendor
+  // Chat Archiving Actions & Filtered Collections for Vendor
+  const toggleArchiveChat = (chatId) => {
+    if (!chatId) return;
+    const idStr = String(chatId);
+    setArchivedChatIds(prev => {
+      const exists = prev.includes(idStr);
+      const next = exists ? prev.filter(id => id !== idStr) : [...prev, idStr];
+      try {
+        const uId = user?.user_id || user?.id || 'guest';
+        localStorage.setItem(`campuslink_archived_chats_${uId}`, JSON.stringify(next));
+      } catch {}
+      setToast({
+        text: exists ? 'Chat unarchived.' : 'Chat archived. It will remain archived until you unarchive it.',
+        type: 'success'
+      });
+      return next;
+    });
+  };
+
+  const archivedConversations = useMemo(() => {
+    return (conversations || []).filter(c => {
+      const pid = String(c.partner_id || c.user_id || c.id || '');
+      return archivedChatIds.includes(pid);
+    });
+  }, [conversations, archivedChatIds]);
+
+  // Universal Chat & Directory Filtering for Vendor (Excluding Archived Chats)
   const filteredConversations = useMemo(() => {
+    const activeOnly = (conversations || []).filter(c => {
+      const pid = String(c.partner_id || c.user_id || c.id || '');
+      return !archivedChatIds.includes(pid);
+    });
     const q = chatSearchQuery.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter(c =>
+    if (!q) return activeOnly;
+    return activeOnly.filter(c =>
       (c.partner_name || '').toLowerCase().includes(q) ||
       (c.last_message || '').toLowerCase().includes(q) ||
       (c.role || '').toLowerCase().includes(q)
     );
-  }, [conversations, chatSearchQuery]);
+  }, [conversations, chatSearchQuery, archivedChatIds]);
 
   const availableCommunityToChat = useMemo(() => {
     const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
@@ -5024,6 +5067,25 @@ export default function VendorDashboard() {
                       </button>
                     </div>
 
+                    {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
+                    {archivedChatIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowArchivedModal(true)}
+                        className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
+                            <Archive className="w-4 h-4" />
+                          </div>
+                          <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
+                        </div>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                          {archivedChatIds.length}
+                        </span>
+                      </button>
+                    )}
+
                     {/* Section: Active Conversations */}
                     {filteredConversations.length > 0 && (
                       <div>
@@ -5439,6 +5501,32 @@ export default function VendorDashboard() {
                             >
                               WhatsApp
                             </button>
+                            {/* Archive / Unarchive Chat Action */}
+                            {selectedPartner && !selectedPartner.is_ai && selectedPartner.partner_id !== 'campus_ai' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
+                                  toggleArchiveChat(pId);
+                                }}
+                                className={`p-1 sm:p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+                                  archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                    ? 'bg-amber-100/80 text-amber-700 hover:bg-amber-200'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                                title={
+                                  archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                    ? "Unarchive chat"
+                                    : "Archive chat (keep archived until unarchived)"
+                                }
+                              >
+                                {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) ? (
+                                  <ArchiveRestore className="w-3.5 h-3.5 text-amber-700" />
+                                ) : (
+                                  <Archive className="w-3.5 h-3.5 text-slate-600" />
+                                )}
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -10523,6 +10611,19 @@ export default function VendorDashboard() {
         })()}
       </AnimatePresence>
 
+      {/* --- ARCHIVED CHATS MODAL (WHATSAPP-STYLE PERSISTENT ARCHIVE) --- */}
+      <ArchivedChatsModal
+        isOpen={showArchivedModal}
+        onClose={() => setShowArchivedModal(false)}
+        archivedConversations={archivedConversations}
+        onSelectChat={(conv) => {
+          setShowArchivedModal(false);
+          handleSelectPartner(conv);
+        }}
+        onUnarchiveChat={(chatId) => {
+          toggleArchiveChat(chatId);
+        }}
+      />
 
       {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>

@@ -12,7 +12,8 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe,
+  Archive, ArchiveRestore, AtSign
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -29,6 +30,8 @@ import CreateGroupModal from './components/CreateGroupModal';
 import GroupInfoModal from './components/GroupInfoModal';
 import AddGroupMembersModal from './components/AddGroupMembersModal';
 import GroupSettingsModal from './components/GroupSettingsModal';
+import MentionAutocompletePopup from './components/MentionAutocompletePopup';
+import ArchivedChatsModal from './components/ArchivedChatsModal';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -122,6 +125,55 @@ export function getDisplayContent(content) {
     return data.reply_text || data.text || data.caption || data.message || "";
   }
   return content;
+}
+
+// Render message content with bold/pill highlighted @mentions in groups
+export function renderMessageTextWithMentions(rawContent, isMine, isGroup, onMentionClick) {
+  const text = getDisplayContent(rawContent);
+  if (!text || typeof text !== 'string') return text;
+  if (!isGroup || !text.includes('@')) return text;
+
+  // Non-greedy mention tokenizer: matches @everyone, @all, @admins, @admin or @Username / @First Last (up to 2 words without trailing punctuation)
+  const mentionRegex = /(@(?:everyone|all|admins?|[A-Za-z0-9_]+(?:\s[A-Za-z0-9_]+)?))(?=\s|[.,!?:;]|$)/gi;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push({ isMention: true, text: match[1] });
+    lastIndex = match.index + match[1].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.map((part, i) => {
+    if (typeof part === 'object' && part.isMention) {
+      const lower = part.text.toLowerCase();
+      const isSpecial = lower === '@everyone' || lower === '@all' || lower.startsWith('@admin');
+      return (
+        <span
+          key={i}
+          onClick={onMentionClick ? (e) => { e.stopPropagation(); onMentionClick(part.text); } : undefined}
+          className={`font-semibold px-1.5 py-0.5 rounded-md inline-block my-0.5 text-[11px] sm:text-xs transition-colors select-text ${
+            onMentionClick ? 'cursor-pointer hover:underline' : ''
+          } ${
+            isMine
+              ? 'bg-blue-500/40 text-white border border-blue-400/40'
+              : isSpecial
+                ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold'
+                : 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200 border border-sky-200 dark:border-sky-700'
+          }`}
+        >
+          {part.text}
+        </span>
+      );
+    }
+    return part;
+  });
 }
 
 
@@ -443,12 +495,19 @@ export default function StudentDashboard() {
           };
         }
         const cachedConvs = getCachedData('conversations', []);
-        const found = cachedConvs.find(c => String(c.partner_id || c.user_id || c.id) === String(chatId));
+        const found = cachedConvs.find(c =>
+          String(c.partner_id || c.user_id || c.id) === String(chatId) ||
+          (c.is_group && (String(c.group_id) === String(chatId) || String(c.group_id) === String(chatId).replace('group_', '')))
+        );
         if (found) {
           return {
             ...found,
             partner_id: String(chatId)
           };
+        }
+        if (String(chatId).startsWith('group_')) {
+          const gId = String(chatId).replace('group_', '');
+          return { partner_id: String(chatId), group_id: Number(gId), partner_name: 'Study Group', is_group: true };
         }
         return { partner_id: String(chatId), partner_name: 'Campus Peer' };
       }
@@ -485,6 +544,25 @@ export default function StudentDashboard() {
   const [addGroupMembersModalOpen, setAddGroupMembersModalOpen] = useState(false);
   const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
   const [activeGroupIdForModal, setActiveGroupIdForModal] = useState(null);
+
+  // Chat Archiving State (Persisted per user in localStorage)
+  const [archivedChatIds, setArchivedChatIds] = useState(() => {
+    try {
+      const userRaw = localStorage.getItem('user');
+      const uId = userRaw ? JSON.parse(userRaw).user_id : 'guest';
+      const saved = localStorage.getItem(`campuslink_archived_chats_${uId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showArchivedModal, setShowArchivedModal] = useState(false);
+
+  // Group @Mentions Autocomplete State
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionPopupOpen, setMentionPopupOpen] = useState(false);
+  const [activeGroupMembers, setActiveGroupMembers] = useState([]);
+  const [pendingMentionIds, setPendingMentionIds] = useState([]);
 
   // Chat Swipe-to-Reply & Action Popover State
   const [replyingToMessage, setReplyingToMessage] = useState(null);
@@ -1233,30 +1311,39 @@ export default function StudentDashboard() {
               } else {
                 const currentUid = String(currentUser?.user_id || currentUser?.id || '');
                 if (String(newM.sender_id) !== currentUid) {
+                  const myFullName = (currentUser?.full_name || '').toLowerCase().trim();
+                  const cText = typeof newM.content === 'string' ? newM.content.toLowerCase() : '';
+                  const isEveryoneMention = cText.includes('@everyone') || cText.includes('@all');
+                  const isDirectMention = (Array.isArray(newM.mentions) && newM.mentions.map(String).includes(currentUid)) ||
+                    (Boolean(myFullName) && cText.includes(`@${myFullName}`));
+                  const isMentioned = isDirectMention || isEveryoneMention;
+
                   setInAppBanner({
                     id: newM.id || Date.now(),
                     senderId: gKey,
-                    senderName: newM.sender_name || 'Group Member',
+                    senderName: isMentioned ? `${newM.sender_name || 'Member'} (@Tagged you)` : (newM.sender_name || 'Group Member'),
                     senderAvatar: newM.sender_avatar,
-                    senderRole: 'Student',
-                    text: `${newM.sender_name || 'Member'}: ${newM.content || 'New message'}`,
+                    senderRole: isMentioned ? 'Group Mention' : 'Student',
+                    text: isMentioned ? `Mentioned you: ${newM.content}` : `${newM.sender_name || 'Member'}: ${newM.content || 'New message'}`,
                     timestamp: Date.now()
+                  });
+
+                  setConversations(prev => {
+                    const existing = prev.find(c => String(c.partner_id) === gKey);
+                    if (existing) {
+                      return prev.map(c => String(c.partner_id) === gKey ? {
+                        ...c,
+                        last_message: `${newM.sender_name || 'Member'}: ${newM.content}`,
+                        last_message_type: newM.message_type,
+                        last_timestamp: newM.created_at,
+                        unread_count: (c.unread_count || 0) + 1,
+                        has_unread_mention: isMentioned || Boolean(c.has_unread_mention)
+                      } : c);
+                    }
+                    return prev;
                   });
                 }
               }
-
-              setConversations(prev => {
-                const existing = prev.find(c => String(c.partner_id) === gKey);
-                if (existing) {
-                  return prev.map(c => String(c.partner_id) === gKey ? {
-                    ...c,
-                    last_message: `${newM.sender_name || 'Member'}: ${newM.content}`,
-                    last_message_type: newM.message_type,
-                    last_timestamp: newM.created_at
-                  } : c);
-                }
-                return prev;
-              });
             }
 
             if (data.type === 'group_message_reaction' && data.message_id) {
@@ -1316,6 +1403,36 @@ export default function StudentDashboard() {
               if (selectedPartnerRef.current && (String(selectedPartnerRef.current.partner_id) === gKey || Number(selectedPartnerRef.current.group_id) === Number(data.group_id))) {
                 setSelectedPartner(null);
                 setToast({ text: data.message || 'This group was deleted by the creator.', type: 'info' });
+              }
+            }
+
+            if (data.type === 'new_notification' && data.notification) {
+              const notif = data.notification;
+              setNotifications(prev => {
+                if (prev.some(n => String(n.id) === String(notif.id))) return prev;
+                return [notif, ...prev];
+              });
+              setUnreadCount(prev => prev + 1);
+
+              if (notif.notification_type === 'group_mention') {
+                setInAppBanner({
+                  id: notif.id || Date.now(),
+                  senderId: `group_${notif.reference_id}`,
+                  senderName: notif.title || 'Mentioned in Group',
+                  senderAvatar: null,
+                  senderRole: 'Mention',
+                  text: notif.message || 'You were mentioned in a group chat',
+                  timestamp: Date.now()
+                });
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  try {
+                    new Notification(notif.title || 'CampusLink Mention', {
+                      body: notif.message || 'You were mentioned in a group chat',
+                      icon: '/pwa-192x192.png',
+                      tag: `campuslink-mention-${notif.reference_id}`
+                    });
+                  } catch (_) {}
+                }
               }
             }
 
@@ -1411,16 +1528,46 @@ export default function StudentDashboard() {
 
 
 
-  // Universal Chat & Friends Directory Filtering
+  // Chat Archiving Actions & Filtered Collections (WhatsApp-Style Persistent Archive)
+  const toggleArchiveChat = (chatId) => {
+    if (!chatId) return;
+    const idStr = String(chatId);
+    setArchivedChatIds(prev => {
+      const exists = prev.includes(idStr);
+      const next = exists ? prev.filter(id => id !== idStr) : [...prev, idStr];
+      try {
+        const uId = currentUser?.user_id || 'guest';
+        localStorage.setItem(`campuslink_archived_chats_${uId}`, JSON.stringify(next));
+      } catch {}
+      setToast({
+        text: exists ? 'Chat unarchived.' : 'Chat archived. It will remain archived until you unarchive it.',
+        type: 'success'
+      });
+      return next;
+    });
+  };
+
+  const archivedConversations = useMemo(() => {
+    return (conversations || []).filter(c => {
+      const pid = String(c.partner_id || c.user_id || c.id || '');
+      return archivedChatIds.includes(pid);
+    });
+  }, [conversations, archivedChatIds]);
+
+  // Universal Chat & Friends Directory Filtering (Excluding Archived Chats)
   const filteredConversations = useMemo(() => {
+    const activeOnly = (conversations || []).filter(c => {
+      const pid = String(c.partner_id || c.user_id || c.id || '');
+      return !archivedChatIds.includes(pid);
+    });
     const q = chatSearchQuery.trim().toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter(c =>
+    if (!q) return activeOnly;
+    return activeOnly.filter(c =>
       (c.partner_name || '').toLowerCase().includes(q) ||
       (c.last_message || '').toLowerCase().includes(q) ||
       (c.partner_role || '').toLowerCase().includes(q)
     );
-  }, [conversations, chatSearchQuery]);
+  }, [conversations, chatSearchQuery, archivedChatIds]);
 
   const availablePeersToChat = useMemo(() => {
     const activePartnerIds = new Set(conversations.map(c => String(c.partner_id || c.user_id || c.id)));
@@ -1708,19 +1855,36 @@ export default function StudentDashboard() {
       if (partnerId) {
         handleViewProfile(partnerId);
       }
-    } else if (t.includes('message') || t.includes('reaction') || t.includes('chat')) {
+    } else if (t.includes('message') || t.includes('reaction') || t.includes('chat') || t.includes('mention') || t === 'group_mention') {
       setActiveTab('messages');
-      const partnerId = notif.reference_id || notif.actor_id || notif.sender_id || notif.user_id;
-      if (partnerId) {
-        const existing = (conversations || []).find(c => String(c.partner_id) === String(partnerId));
+      setMessageSubtab('chats');
+      if (t.includes('group_mention') || t.includes('mention')) {
+        const groupId = notif.reference_id;
+        const gKey = `group_${groupId}`;
+        const existing = (conversations || []).find(c => String(c.partner_id) === gKey || (c.is_group && String(c.group_id) === String(groupId)));
         if (existing) {
           handleSelectPartner(existing);
         } else {
           handleSelectPartner({
-            partner_id: String(partnerId),
-            partner_name: notif.actor_name || notif.sender_name || 'Campus Peer',
-            profile_picture_url: notif.actor_avatar || notif.sender_avatar
+            partner_id: gKey,
+            group_id: Number(groupId),
+            partner_name: notif.title ? notif.title.replace('Mentioned in ', '') : 'Study Group',
+            is_group: true
           });
+        }
+      } else {
+        const partnerId = notif.reference_id || notif.actor_id || notif.sender_id || notif.user_id;
+        if (partnerId) {
+          const existing = (conversations || []).find(c => String(c.partner_id) === String(partnerId));
+          if (existing) {
+            handleSelectPartner(existing);
+          } else {
+            handleSelectPartner({
+              partner_id: String(partnerId),
+              partner_name: notif.actor_name || notif.sender_name || 'Campus Peer',
+              profile_picture_url: notif.actor_avatar || notif.sender_avatar
+            });
+          }
         }
       }
     } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
@@ -2172,6 +2336,113 @@ export default function StudentDashboard() {
     }
   };
 
+  // Load group members whenever active group changes for @mention autocomplete
+  useEffect(() => {
+    if (!selectedPartner?.is_group) {
+      setActiveGroupMembers([]);
+      setPendingMentionIds([]);
+      setMentionPopupOpen(false);
+      return;
+    }
+    const groupId = selectedPartner.group_id || String(selectedPartner.partner_id || '').replace('group_', '');
+    if (!groupId) return;
+
+    let isMounted = true;
+    API.get(`/groups/${groupId}`).then(res => {
+      if (isMounted && res.data?.members) {
+        setActiveGroupMembers(res.data.members);
+      }
+    }).catch(err => {
+      console.error('Failed to load group members for mentions:', err);
+    });
+
+    return () => { isMounted = false; };
+  }, [selectedPartner?.partner_id, selectedPartner?.group_id, selectedPartner?.is_group]);
+
+  // Input change handler supporting dynamic @ mention detection
+  const handleChatInputChange = (e) => {
+    const val = e.target.value;
+    setNewMsgText(val);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+
+    if (selectedPartner?.is_group) {
+      const cursorPos = e.target.selectionStart ?? val.length;
+      const textBeforeCursor = val.slice(0, cursorPos);
+      const atOnlyMatch = textBeforeCursor.match(/(?:^|\s)@$/);
+      const mentionMatch = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_]{1,25}(?:\s[a-zA-Z0-9_]{0,25})?)$/);
+      if (atOnlyMatch) {
+        setMentionQuery('');
+        setMentionPopupOpen(true);
+      } else if (mentionMatch) {
+        setMentionQuery(mentionMatch[1]);
+        setMentionPopupOpen(true);
+      } else {
+        setMentionPopupOpen(false);
+      }
+    } else {
+      if (mentionPopupOpen) setMentionPopupOpen(false);
+    }
+  };
+
+  // Autocomplete mention selection
+  const handleSelectMention = (member) => {
+    if (!member) return;
+    const textarea = chatInputRef.current;
+    const cursorPos = textarea?.selectionStart ?? newMsgText.length;
+    const textBeforeCursor = newMsgText.slice(0, cursorPos);
+    const textAfterCursor = newMsgText.slice(cursorPos);
+
+    const match = textBeforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_\s]*)$/);
+    if (match) {
+      const matchIndex = match.index + (match[0].startsWith(' ') ? 1 : 0);
+      const beforeMention = newMsgText.slice(0, matchIndex);
+      const mentionText = member.isSpecial ? `${member.display} ` : `@${member.full_name} `;
+      const updatedText = `${beforeMention}${mentionText}${textAfterCursor}`;
+      setNewMsgText(updatedText);
+
+      if (member.isSpecial) {
+        setPendingMentionIds(prev => prev.includes(member.name) ? prev : [...prev, member.name]);
+      } else {
+        const uid = String(member.user_id || member.id);
+        setPendingMentionIds(prev => prev.includes(uid) ? prev : [...prev, uid]);
+      }
+      setMentionPopupOpen(false);
+
+      setTimeout(() => {
+        if (textarea) {
+          textarea.focus();
+          const nextPos = beforeMention.length + mentionText.length;
+          textarea.setSelectionRange(nextPos, nextPos);
+        }
+      }, 10);
+    }
+  };
+
+  // Click handler on @mention pills in chat messages
+  const handleMentionClick = (tagText) => {
+    if (!tagText) return;
+    const cleanTag = tagText.replace(/^@/, '').trim();
+    const lower = cleanTag.toLowerCase();
+    if (lower === 'everyone' || lower === 'all') {
+      setToast({ text: 'Tagged all group members', type: 'info' });
+      return;
+    }
+    if (lower === 'admin' || lower === 'admins') {
+      setToast({ text: 'Tagged all group administrators', type: 'info' });
+      return;
+    }
+    const matched = (activeGroupMembers || []).find(m =>
+      (m.full_name || m.name || '').toLowerCase() === lower ||
+      (m.full_name || m.name || '').toLowerCase().startsWith(lower)
+    );
+    if (matched && (matched.user_id || matched.id)) {
+      handleViewProfile(matched.user_id || matched.id);
+    } else {
+      setToast({ text: `Mentioned @${cleanTag}`, type: 'info' });
+    }
+  };
+
   // Send Message (Instant Zero-Latency Optimistic Delivery & Batch Media)
   const handleSendMessage = async (e, overrideText = null, overrideReply = null, overridePartner = null) => {
     if (e) e.preventDefault();
@@ -2231,6 +2502,9 @@ export default function StudentDashboard() {
     if (!overrideText) setNewMsgText('');
     setReplyingToMessage(null);
     setPendingMediaFiles([]);
+    const currentMentions = [...pendingMentionIds];
+    setPendingMentionIds([]);
+    setMentionPopupOpen(false);
 
     // If sending media files batch (multi-image / video)
     if (filesToUpload.length > 0) {
@@ -2255,6 +2529,7 @@ export default function StudentDashboard() {
           reply_to_id: currentReply?.id || null,
           reply_to_sender: currentReply?.sender_name || null,
           reply_to_text: currentReply?.preview || null,
+          mentions: currentMentions.length > 0 ? currentMentions : undefined,
           created_at: new Date().toISOString(),
           is_optimistic: true
         };
@@ -2272,7 +2547,8 @@ export default function StudentDashboard() {
             media_url: finalMediaUrl,
             reply_to_id: currentReply?.id || null,
             reply_to_sender: currentReply?.sender_name || null,
-            reply_to_text: currentReply?.preview || null
+            reply_to_text: currentReply?.preview || null,
+            mentions: currentMentions.length > 0 ? currentMentions : undefined
           });
 
           const confirmed = { ...res.data, is_optimistic: false };
@@ -2350,6 +2626,7 @@ export default function StudentDashboard() {
         reply_to_id: currentReply?.id || null,
         reply_to_sender: currentReply?.sender_name || null,
         reply_to_text: currentReply?.preview || null,
+        mentions: currentMentions.length > 0 ? currentMentions : undefined,
         created_at: new Date().toISOString(),
         is_optimistic: true
       };
@@ -2384,7 +2661,8 @@ export default function StudentDashboard() {
           message_type: currentReply ? 'reply' : 'text',
           reply_to_id: currentReply?.id || null,
           reply_to_sender: currentReply?.sender_name || null,
-          reply_to_text: currentReply?.preview || null
+          reply_to_text: currentReply?.preview || null,
+          mentions: currentMentions.length > 0 ? currentMentions : undefined
         };
 
         const res = await API.post(`/groups/${groupId}/messages`, payload);
@@ -6703,6 +6981,25 @@ export default function StudentDashboard() {
                         </button>
                       </div>
 
+                      {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
+                      {archivedChatIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowArchivedModal(true)}
+                          className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
+                              <Archive className="w-4 h-4" />
+                            </div>
+                            <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
+                          </div>
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                            {archivedChatIds.length}
+                          </span>
+                        </button>
+                      )}
+
                       {/* Section: Active Conversations */}
                       {filteredConversations.length > 0 && (
                         <div>
@@ -6783,7 +7080,15 @@ export default function StudentDashboard() {
                                       {c.is_group ? 'Group' : c.partner_role}
                                     </span>
                                   </div>
-                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                  <div className="flex items-center space-x-1.5 mt-0.5 min-w-0">
+                                    {c.is_group && c.has_unread_mention && (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-sky-500 text-white text-[9px] font-extrabold shadow-2xs shrink-0">
+                                        <AtSign className="w-2.5 h-2.5 stroke-[2.5]" />
+                                        <span>Mention</span>
+                                      </span>
+                                    )}
+                                    <p className="text-[11px] text-slate-500 truncate">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                  </div>
                                 </div>
                               </button>
                             );
@@ -7164,6 +7469,37 @@ export default function StudentDashboard() {
                                   )}
                                 </>
                               )}
+                              {/* Archive / Unarchive Chat Action */}
+                              {selectedPartner && !selectedPartner.is_ai && selectedPartner.partner_id !== 'campus_ai' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
+                                    toggleArchiveChat(pId);
+                                  }}
+                                  className={`p-1.5 sm:p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center ${
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? 'bg-amber-100/80 text-amber-700 hover:bg-amber-200'
+                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                  }`}
+                                  title={
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? "Unarchive chat"
+                                      : "Archive chat (keep archived until unarchived)"
+                                  }
+                                  aria-label={
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? "Unarchive chat"
+                                      : "Archive chat"
+                                  }
+                                >
+                                  {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) ? (
+                                    <ArchiveRestore className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-700" />
+                                  ) : (
+                                    <Archive className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-600" />
+                                  )}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={handleCloseChat}
@@ -7292,23 +7628,52 @@ export default function StudentDashboard() {
                                       </button>
 
                                       {/* Main Message Bubble */}
-                                      <div
-                                        className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
-                                          msg.reactions ? 'mb-2.5' : ''
-                                        } ${
-                                          isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
-                                        } ${
-                                          isMine
-                                            ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
-                                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
-                                        }`}
-                                      >
-                                        {/* Group Sender Name */}
-                                        {selectedPartner?.is_group && !isMine && (
-                                          <p className="text-[11px] font-bold text-sky-600 dark:text-sky-400 mb-1 truncate max-w-[220px]">
-                                            {msg.sender_name || 'Group Member'}
-                                          </p>
-                                        )}
+                                      {(() => {
+                                        const myUid = String(currentUser?.user_id || currentUser?.id || '');
+                                        const myFullName = (currentUser?.full_name || '').toLowerCase().trim();
+                                        const cText = typeof msg.content === 'string' ? msg.content.toLowerCase() : '';
+                                        const isEveryoneMention = cText.includes('@everyone') || cText.includes('@all');
+                                        const isAdminMention = (cText.includes('@admin') || cText.includes('@admins')) &&
+                                          (selectedPartner?.is_admin || activeGroupMembers.some(m => String(m.user_id) === myUid && m.group_role === 'admin'));
+                                        const isDirectMention = (Array.isArray(msg.mentions) && msg.mentions.map(String).includes(myUid)) ||
+                                          (Boolean(myFullName) && cText.includes(`@${myFullName}`));
+
+                                        const isMentioned = selectedPartner?.is_group && !isMine && (isDirectMention || isEveryoneMention || isAdminMention);
+                                        const mentionBadgeText = isEveryoneMention
+                                          ? 'Mentioned @everyone'
+                                          : isAdminMention
+                                            ? 'Mentioned @admins'
+                                            : 'Mentioned you';
+                                        return (
+                                          <div
+                                            className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
+                                              msg.reactions ? 'mb-2.5' : ''
+                                            } ${
+                                              isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                            } ${
+                                              isMentioned ? 'ring-2 ring-sky-400/90 shadow-md shadow-sky-400/20' : ''
+                                            } ${
+                                              isMine
+                                                ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
+                                                : isMentioned
+                                                  ? 'bg-sky-50/90 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-sky-300 dark:border-sky-600 rounded-2xl rounded-tl-sm'
+                                                  : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
+                                            }`}
+                                          >
+                                            {/* Group @Mention Indicator */}
+                                            {isMentioned && (
+                                              <div className="flex items-center space-x-1 text-[10px] font-extrabold text-sky-600 dark:text-sky-400 mb-1">
+                                                <AtSign className="w-3 h-3 stroke-[2.5]" />
+                                                <span>{mentionBadgeText}</span>
+                                              </div>
+                                            )}
+
+                                            {/* Group Sender Name */}
+                                            {selectedPartner?.is_group && !isMine && (
+                                              <p className="text-[11px] font-bold text-sky-600 dark:text-sky-400 mb-1 truncate max-w-[220px]">
+                                                {msg.sender_name || 'Group Member'}
+                                              </p>
+                                            )}
 
                                         {/* Quoted Reply Header Box */}
                                         {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
@@ -7395,7 +7760,7 @@ export default function StudentDashboard() {
                                           <div className="space-y-1.5">
                                             <ChatMediaGallery mediaUrl={msg.media_url} />
                                             {msg.content && !['Photo', 'Video', 'Voice note'].includes(msg.content) && !msg.content.startsWith('Shared ') && (
-                                              <p className="break-words mt-1">{getDisplayContent(msg.content)}</p>
+                                              <p className="break-words mt-1">{renderMessageTextWithMentions(msg.content, isMine, selectedPartner?.is_group, handleMentionClick)}</p>
                                             )}
                                           </div>
                                         ) : msg.message_type === 'video' ? (
@@ -7405,10 +7770,10 @@ export default function StudentDashboard() {
                                               controls
                                               className="rounded-xl max-h-64 w-full bg-black"
                                             />
-                                            {msg.content && msg.content !== 'Video' && <p>{getDisplayContent(msg.content)}</p>}
+                                            {msg.content && msg.content !== 'Video' && <p>{renderMessageTextWithMentions(msg.content, isMine, selectedPartner?.is_group, handleMentionClick)}</p>}
                                           </div>
                                         ) : (
-                                          <p className="leading-relaxed whitespace-pre-wrap">{getDisplayContent(msg.content || msg.text)}</p>
+                                          <p className="leading-relaxed whitespace-pre-wrap">{renderMessageTextWithMentions(msg.content || msg.text, isMine, selectedPartner?.is_group, handleMentionClick)}</p>
                                         )}
 
                                         {/* Inline Timestamp & Read Receipt Checkmarks (WhatsApp Double Blue Ticks) */}
@@ -7465,11 +7830,13 @@ export default function StudentDashboard() {
                                           );
                                         })()}
                                       </div>
-                                    </div>
-                                  </SwipeableMessageBubble>
+                                    );
+                                  })()}
                                 </div>
-                              );
-                            })
+                              </SwipeableMessageBubble>
+                            </div>
+                          );
+                        })
                           ) : (
                             <div className="py-20 text-center text-xs text-slate-400">
                               <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -7650,7 +8017,19 @@ export default function StudentDashboard() {
                                   </div>
                                 </div>
                               ) : (
-                                <form onSubmit={handleSendMessage} className="flex items-end space-x-1.5 sm:space-x-2">
+                                <>
+                                  {/* Group @Mention Autocomplete Popup */}
+                                  {selectedPartner?.is_group && (
+                                    <MentionAutocompletePopup
+                                      isOpen={mentionPopupOpen}
+                                      query={mentionQuery}
+                                      members={activeGroupMembers}
+                                      currentUserId={currentUser?.user_id || currentUser?.id}
+                                      onSelectMember={handleSelectMention}
+                                      onClose={() => setMentionPopupOpen(false)}
+                                    />
+                                  )}
+                                  <form onSubmit={handleSendMessage} className="flex items-end space-x-1.5 sm:space-x-2">
                                   {/* Hidden Attachment Input for Photos & Videos (Multiple Selection) */}
                                   <input
                                     ref={chatMediaInputRef}
@@ -7674,12 +8053,18 @@ export default function StudentDashboard() {
                                     rows={1}
                                     placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                     value={newMsgText}
-                                    onChange={(e) => {
-                                      setNewMsgText(e.target.value);
-                                      e.target.style.height = 'auto';
-                                      e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-                                    }}
+                                    onChange={handleChatInputChange}
                                     onKeyDown={(e) => {
+                                      if (mentionPopupOpen) {
+                                        if (e.key === 'Escape') {
+                                          e.preventDefault();
+                                          setMentionPopupOpen(false);
+                                          return;
+                                        }
+                                        if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(e.key)) {
+                                          return; // Managed by MentionAutocompletePopup
+                                        }
+                                      }
                                       if (e.key === 'Enter') {
                                         // Only suppress Enter on small mobile touchscreens where on-screen keyboards provide return
                                         const isMobileTouch = ('ontouchstart' in window) && (window.innerWidth < 640);
@@ -7741,6 +8126,7 @@ export default function StudentDashboard() {
                                     {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                                   </button>
                                 </form>
+                                </>
                               )}
                             </div>
 
@@ -11133,6 +11519,20 @@ export default function StudentDashboard() {
           setGroupInfoModalOpen(false);
           setActiveGroupIdForModal(null);
           setToast({ text: 'Group deleted.', type: 'info' });
+        }}
+      />
+
+      {/* --- ARCHIVED CHATS MODAL (WHATSAPP-STYLE PERSISTENT ARCHIVE) --- */}
+      <ArchivedChatsModal
+        isOpen={showArchivedModal}
+        onClose={() => setShowArchivedModal(false)}
+        archivedConversations={archivedConversations}
+        onSelectChat={(conv) => {
+          setShowArchivedModal(false);
+          handleSelectPartner(conv);
+        }}
+        onUnarchiveChat={(chatId) => {
+          toggleArchiveChat(chatId);
         }}
       />
 

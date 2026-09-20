@@ -640,6 +640,7 @@ class GroupMessageCreate(BaseModel):
     reply_to_id: Optional[int] = None
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
+    mentions: Optional[List[str]] = None
 
 class GroupMessageOut(BaseModel):
     id: int
@@ -656,6 +657,7 @@ class GroupMessageOut(BaseModel):
     reply_to_sender: Optional[str] = None
     reply_to_text: Optional[str] = None
     reactions: Optional[str] = None
+    mentions: Optional[List[str]] = None
     created_at: Optional[datetime] = None
 
     class Config:

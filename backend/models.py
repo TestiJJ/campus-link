@@ -520,6 +520,7 @@ class GroupMessage(Base):
     reply_to_sender = Column(String(100), nullable=True)
     reply_to_text = Column(String(255), nullable=True)
     reactions = Column(Text, nullable=True)
+    mentions = Column(Text, nullable=True)  # JSON array of mentioned user IDs
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     group = relationship("Group", back_populates="messages")
