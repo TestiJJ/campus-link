@@ -13,13 +13,14 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2, GraduationCap
+  Image as ImageIcon, Loader2, GraduationCap, Sticker
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner from './components/InAppChatBanner';
 import MediaPreviewEditorModal from './components/MediaPreviewEditorModal';
+import StickerPickerDrawer from './components/StickerPickerDrawer';
 import FeedVideoPlayer from './components/FeedVideoPlayer';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import SwipeableMessageBubble from './components/SwipeableMessageBubble';
@@ -381,6 +382,7 @@ export default function VendorDashboard() {
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
   const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
   const [showMediaEditor, setShowMediaEditor] = useState(false);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
@@ -2530,6 +2532,8 @@ export default function VendorDashboard() {
       previewText = '📷 Photo';
     } else if (msg.message_type === 'video') {
       previewText = '🎥 Video';
+    } else if (msg.message_type === 'sticker') {
+      previewText = '👾 Sticker';
     } else if (msg.message_type === 'status_reply' || isStatusReplyContent(msg.content)) {
       const statusData = parseStatusReply(msg);
       if (statusData) {
@@ -2930,6 +2934,78 @@ export default function VendorDashboard() {
       console.error('Failed to deliver message:', err);
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
       showToast(err.response?.data?.detail || 'Failed to send message.', 'error');
+    }
+  };
+
+  const handleSendSticker = async (sticker) => {
+    if (!sticker?.url || !selectedPartner) return;
+    const partnerId = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
+    if (!partnerId) return;
+
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: user?.user_id || user?.id,
+      recipient_id: partnerId,
+      content: '[Sticker]',
+      message_type: 'sticker',
+      media_url: sticker.url,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true
+    };
+
+    appendThreadMessage(partnerId, optimisticMsg);
+    setChatMessages(prev => [...prev, optimisticMsg]);
+
+    setConversations(prev => {
+      const idx = prev.findIndex(c => String(c.partner_id || c.user_id || c.id) === String(partnerId));
+      if (idx !== -1) {
+        const updated = { ...prev[idx], last_message: '👾 Sticker', last_timestamp: new Date().toISOString() };
+        return [updated, ...prev.filter((_, i) => i !== idx)];
+      }
+      return prev;
+    });
+
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    try {
+      const res = await API.post('/messages', {
+        recipient_id: partnerId,
+        content: '[Sticker]',
+        message_type: 'sticker',
+        media_url: sticker.url
+      });
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+    } catch (err) {
+      console.error('Failed to send sticker:', err);
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
+      showToast('Failed to send sticker.', 'error');
+    }
+  };
+
+  const handleSaveReceivedSticker = (mediaUrl) => {
+    if (!mediaUrl) return;
+    try {
+      const existing = JSON.parse(localStorage.getItem('campuslink_my_stickers') || '[]');
+      if (existing.some(s => s.url === mediaUrl)) {
+        showToast('Sticker is already in your vault!', 'info');
+        return;
+      }
+      const newSticker = {
+        id: `saved_${Date.now()}`,
+        url: mediaUrl,
+        type: (mediaUrl.endsWith('.mp4') || mediaUrl.endsWith('.webm')) ? 'video' : 'photo',
+        title: 'Saved Sticker',
+        createdAt: new Date().toISOString()
+      };
+      localStorage.setItem('campuslink_my_stickers', JSON.stringify([newSticker, ...existing]));
+      showToast('Sticker saved to your vault! ⭐', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Could not save sticker.', 'error');
     }
   };
 
@@ -5536,11 +5612,13 @@ export default function VendorDashboard() {
 
                                       {/* Main Message Bubble */}
                                       <div
-                                        className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${msg.reactions ? 'mb-2.5' : ''
+                                        className={`w-fit max-w-full leading-relaxed break-words relative chat-bubble-tactile ${msg.reactions ? 'mb-2.5' : ''
                                           } ${isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
-                                          } ${isMine
-                                            ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
-                                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
+                                          } ${msg.message_type === 'sticker'
+                                            ? 'bg-transparent shadow-none border-0 p-0 text-slate-900 dark:text-slate-100'
+                                            : isMine
+                                              ? 'px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] bg-blue-600 text-white rounded-2xl rounded-tr-sm'
+                                              : 'px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
                                           }`}
                                       >
                                         {/* Quoted Message Preview Box (if replying) */}
@@ -5576,6 +5654,39 @@ export default function VendorDashboard() {
                                               <span>📷 Replying to status</span>
                                             </div>
                                             <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                          </div>
+                                        ) : msg.message_type === 'sticker' ? (
+                                          <div className="relative group/sticker my-1">
+                                            {msg.media_url?.endsWith('.mp4') || msg.media_url?.endsWith('.webm') ? (
+                                              <video
+                                                src={getMediaUrl(msg.media_url)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                className="w-36 h-36 sm:w-44 sm:h-44 object-contain rounded-2xl drop-shadow-md select-none"
+                                              />
+                                            ) : (
+                                              <SafeImage
+                                                src={getMediaUrl(msg.media_url)}
+                                                alt="Sticker"
+                                                className="w-36 h-36 sm:w-44 sm:h-44 object-contain drop-shadow-md select-none"
+                                              />
+                                            )}
+
+                                            {/* Floating Save to Stickers button on hover/tap */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSaveReceivedSticker(msg.media_url);
+                                              }}
+                                              className="hidden group-hover/sticker:flex absolute top-1 right-1 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-[9px] font-bold backdrop-blur-xs items-center space-x-1 cursor-pointer transition-all shadow-xs z-10"
+                                              title="Save sticker to your collection"
+                                            >
+                                              <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                              <span>Save</span>
+                                            </button>
                                           </div>
                                         ) : (msg.message_type === 'image' || msg.message_type === 'images' || msg.message_type === 'video' || (msg.media_url && !msg.message_type)) ? (
                                           <div className="space-y-1.5">
@@ -5626,8 +5737,11 @@ export default function VendorDashboard() {
                                         )}
 
                                         {/* Inline Timestamp & Delivery Tick (WhatsApp Double Blue Ticks) */}
-                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-85 ${isMine ? 'text-blue-100' : 'text-slate-400'
-                                          }`}>
+                                        <div className={`text-[10px] select-none ${
+                                          msg.message_type === 'sticker'
+                                            ? 'absolute bottom-1 right-1 px-1.5 py-0.5 rounded-lg bg-black/55 text-white backdrop-blur-xs shadow-xs inline-flex items-center gap-1 z-10'
+                                            : `mt-1 float-right ml-2 inline-flex items-center gap-1 opacity-85 ${isMine ? 'text-blue-100' : 'text-slate-400'}`
+                                        }`}>
                                           <span>{safeTime(msg.created_at, 'Now')}</span>
                                           {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
                                           {isMine && (
@@ -5887,6 +6001,16 @@ export default function VendorDashboard() {
                                   title="Attach photos or video"
                                 >
                                   <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setStickerPickerOpen(true)}
+                                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5 ${
+                                    stickerPickerOpen ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 active:scale-95'
+                                  }`}
+                                  title="Send Sticker"
+                                >
+                                  <Sticker className="w-4 h-4 sm:w-5 sm:h-5" />
                                 </button>
                                 <textarea
                                   ref={chatInputRef}
@@ -9926,6 +10050,16 @@ export default function VendorDashboard() {
           setPendingMediaFile(null);
         }}
         onConfirm={handleConfirmSendChatMedia}
+      />
+
+      {/* --- STICKER PICKER DRAWER --- */}
+      <StickerPickerDrawer
+        isOpen={stickerPickerOpen}
+        onClose={() => setStickerPickerOpen(false)}
+        onSelectSticker={(stk) => {
+          setStickerPickerOpen(false);
+          handleSendSticker(stk);
+        }}
       />
 
       {/* ========================================================================= */}

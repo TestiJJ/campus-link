@@ -12,7 +12,7 @@ import {
   Trash2, KeyRound, Lock, Edit3, GraduationCap, Compass, ExternalLink, AlertTriangle,
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
-  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe
+  MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe, Sticker
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -29,6 +29,7 @@ import CreateGroupModal from './components/CreateGroupModal';
 import GroupInfoModal from './components/GroupInfoModal';
 import AddGroupMembersModal from './components/AddGroupMembersModal';
 import GroupSettingsModal from './components/GroupSettingsModal';
+import StickerPickerDrawer from './components/StickerPickerDrawer';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -485,6 +486,7 @@ export default function StudentDashboard() {
   const [addGroupMembersModalOpen, setAddGroupMembersModalOpen] = useState(false);
   const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
   const [activeGroupIdForModal, setActiveGroupIdForModal] = useState(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
 
   // Chat Swipe-to-Reply & Action Popover State
   const [replyingToMessage, setReplyingToMessage] = useState(null);
@@ -2027,6 +2029,7 @@ export default function StudentDashboard() {
     const senderName = isMine ? 'You' : (selectedPartner?.partner_name || 'Peer');
     let preview = '';
     if (msg.message_type === 'audio') preview = '🎤 Voice Note';
+    else if (msg.message_type === 'sticker') preview = '👾 Sticker';
     else if (msg.message_type === 'image') preview = '📷 Photo';
     else if (msg.message_type === 'video') preview = '🎥 Video';
     else if (msg.message_type === 'status_reply' || isStatusReplyContent(msg.content)) {
@@ -2469,6 +2472,102 @@ export default function StudentDashboard() {
       console.error('Failed to deliver message:', err);
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send message.');
+    }
+  };
+
+  // --- CHAT STICKER STUDIO (SEND & SAVE) ---
+  const handleSendSticker = async (sticker) => {
+    if (!selectedPartner || !sticker?.url) return;
+    const targetPartner = selectedPartner;
+    const partnerId = String(targetPartner?.partner_id || targetPartner?.user_id || targetPartner?.id || '');
+    if (!partnerId) return;
+
+    if (targetPartner?.is_group && targetPartner?.only_admins_can_message && !targetPartner?.is_admin) {
+      setToast({ text: 'Only admins can send messages in this group.', type: 'error' });
+      return;
+    }
+
+    const tempId = `temp_sticker_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const isGroup = Boolean(targetPartner?.is_group);
+    const groupId = targetPartner?.group_id || String(partnerId).replace('group_', '');
+
+    const optimisticMsg = {
+      id: tempId,
+      sender_id: currentUser?.user_id,
+      sender_name: currentUser?.full_name || 'You',
+      sender_role: 'student',
+      sender_avatar: currentUser?.profile_picture_url || currentUser?.avatar_url || null,
+      content: '[Sticker]',
+      message_type: 'sticker',
+      media_url: sticker.url,
+      reply_to_id: replyingToMessage?.id || null,
+      reply_to_sender: replyingToMessage?.sender_name || null,
+      reply_to_text: replyingToMessage ? getDisplayContent(replyingToMessage.content) : null,
+      created_at: new Date().toISOString(),
+      is_read: false,
+      is_optimistic: true,
+      ...(isGroup ? { group_id: Number(groupId) } : { recipient_id: partnerId })
+    };
+
+    setReplyingToMessage(null);
+    appendThreadMessage(partnerId, optimisticMsg);
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    smartScrollToBottom(chatContainerRef.current, false);
+
+    try {
+      let res;
+      if (isGroup) {
+        res = await API.post(`/groups/${groupId}/messages`, {
+          content: '[Sticker]',
+          message_type: 'sticker',
+          media_url: sticker.url,
+          reply_to_id: optimisticMsg.reply_to_id,
+          reply_to_sender: optimisticMsg.reply_to_sender,
+          reply_to_text: optimisticMsg.reply_to_text
+        });
+      } else {
+        res = await API.post('/messages', {
+          recipient_id: partnerId,
+          content: '[Sticker]',
+          message_type: 'sticker',
+          media_url: sticker.url,
+          reply_to_id: optimisticMsg.reply_to_id,
+          reply_to_sender: optimisticMsg.reply_to_sender,
+          reply_to_text: optimisticMsg.reply_to_text
+        });
+      }
+
+      const confirmed = { ...res.data, is_optimistic: false };
+      updateThreadMessage(partnerId, tempId, confirmed);
+      setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+    } catch (err) {
+      console.error('Failed to send sticker:', err);
+      setChatMessages(prev => prev.filter(m => m.id !== tempId));
+      setToast({ text: err?.response?.data?.detail || 'Failed to send sticker.', type: 'error' });
+    }
+  };
+
+  const handleSaveReceivedSticker = (mediaUrl) => {
+    if (!mediaUrl) return;
+    try {
+      const raw = localStorage.getItem('campuslink_my_stickers');
+      const existing = raw ? JSON.parse(raw) : [];
+      if (existing.some((s) => s.url === mediaUrl)) {
+        setToast({ text: 'Sticker is already in your vault!', type: 'info' });
+        return;
+      }
+      const isVideo = mediaUrl.endsWith('.mp4') || mediaUrl.endsWith('.webm');
+      const item = {
+        id: `saved_${Date.now()}`,
+        url: mediaUrl,
+        type: isVideo ? 'video' : 'image',
+        name: 'Saved Sticker',
+        created_at: new Date().toISOString()
+      };
+      localStorage.setItem('campuslink_my_stickers', JSON.stringify([item, ...existing]));
+      setToast({ text: 'Sticker saved to My Stickers! ⭐', type: 'success' });
+    } catch (_) {
+      setToast({ text: 'Could not save sticker.', type: 'error' });
     }
   };
 
@@ -7298,14 +7397,16 @@ export default function StudentDashboard() {
                                         } ${
                                           isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
                                         } ${
-                                          isMine
-                                            ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
-                                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
+                                          msg.message_type === 'sticker'
+                                            ? 'bg-transparent shadow-none border-0 p-0 sm:p-0'
+                                            : isMine
+                                              ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
+                                              : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
                                         }`}
                                       >
                                         {/* Group Sender Name */}
                                         {selectedPartner?.is_group && !isMine && (
-                                          <p className="text-[11px] font-bold text-sky-600 dark:text-sky-400 mb-1 truncate max-w-[220px]">
+                                          <p className={`text-[11px] font-bold ${msg.message_type === 'sticker' ? 'text-sky-600 bg-white/80 dark:bg-slate-900/80 px-2 py-0.5 rounded-md shadow-2xs w-fit' : 'text-sky-600 dark:text-sky-400'} mb-1 truncate max-w-[220px]`}>
                                             {msg.sender_name || 'Group Member'}
                                           </p>
                                         )}
@@ -7391,6 +7492,39 @@ export default function StudentDashboard() {
                                               </span>
                                             </div>
                                           </div>
+                                        ) : msg.message_type === 'sticker' ? (
+                                          <div className="relative group/sticker my-1">
+                                            {msg.media_url?.endsWith('.mp4') || msg.media_url?.endsWith('.webm') ? (
+                                              <video
+                                                src={getMediaUrl(msg.media_url)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                className="w-36 h-36 sm:w-44 sm:h-44 object-contain rounded-2xl drop-shadow-md select-none"
+                                              />
+                                            ) : (
+                                              <SafeImage
+                                                src={getMediaUrl(msg.media_url)}
+                                                alt="Sticker"
+                                                className="w-36 h-36 sm:w-44 sm:h-44 object-contain drop-shadow-md select-none"
+                                              />
+                                            )}
+
+                                            {/* Floating Save to Stickers button on hover/tap */}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSaveReceivedSticker(msg.media_url);
+                                              }}
+                                              className="hidden group-hover/sticker:flex absolute top-1 right-1 px-1.5 py-0.5 bg-black/60 hover:bg-black/80 text-white rounded-lg text-[9px] font-bold backdrop-blur-xs items-center space-x-1 cursor-pointer transition-all shadow-xs z-10"
+                                              title="Save sticker to your collection"
+                                            >
+                                              <Star className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                                              <span>Save</span>
+                                            </button>
+                                          </div>
                                         ) : (msg.message_type === 'image' || msg.message_type === 'images' || (msg.media_url && !['video', 'audio'].includes(msg.message_type))) ? (
                                           <div className="space-y-1.5">
                                             <ChatMediaGallery mediaUrl={msg.media_url} />
@@ -7412,8 +7546,10 @@ export default function StudentDashboard() {
                                         )}
 
                                         {/* Inline Timestamp & Read Receipt Checkmarks (WhatsApp Double Blue Ticks) */}
-                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-85 ${
-                                          isMine ? 'text-blue-100' : 'text-slate-400'
+                                        <div className={`text-[10px] select-none ${
+                                          msg.message_type === 'sticker'
+                                            ? 'absolute bottom-1 right-1 px-1.5 py-0.5 rounded-lg bg-black/55 text-white backdrop-blur-xs shadow-xs inline-flex items-center gap-1 z-10'
+                                            : `mt-1 float-right ml-2 inline-flex items-center gap-1 opacity-85 ${isMine ? 'text-blue-100' : 'text-slate-400'}`
                                         }`}>
                                           <span>{safeTime(msg.created_at, 'Just now')}</span>
                                           {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
@@ -7667,6 +7803,20 @@ export default function StudentDashboard() {
                                     className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
                                   >
                                     <Paperclip className="w-4 h-4" />
+                                  </button>
+
+                                  {/* Sticker Studio & WhatsApp Import Toggle */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setStickerPickerOpen(prev => !prev)}
+                                    title="Stickers Studio"
+                                    className={`p-2.5 min-tap-target-sm rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5 ${
+                                      stickerPickerOpen
+                                        ? 'bg-sky-500 text-white shadow-xs'
+                                        : 'bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600'
+                                    }`}
+                                  >
+                                    <Sticker className="w-4 h-4" />
                                   </button>
 
                                   <textarea
@@ -11199,6 +11349,13 @@ export default function StudentDashboard() {
           setActiveGroupIdForModal(null);
           setToast({ text: 'Group deleted.', type: 'info' });
         }}
+      />
+
+      {/* --- STICKER PICKER DRAWER --- */}
+      <StickerPickerDrawer
+        isOpen={stickerPickerOpen}
+        onClose={() => setStickerPickerOpen(false)}
+        onSelectSticker={handleSendSticker}
       />
 
       {/* --- FACEBOOK LITE MODE: MOBILE NAVIGATION IS ANCHORED AT TOP TAB BAR --- */}
