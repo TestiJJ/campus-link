@@ -574,3 +574,89 @@ class PushTestRequest(BaseModel):
     title: Optional[str] = "CampusLink Alert"
     body: Optional[str] = "This is a test notification from CampusLink!"
     url: Optional[str] = "/"
+
+
+# --- Groups & WhatsApp-Style Community Settings ---
+
+class GroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    avatar_url: Optional[str] = None
+    member_ids: List[str] = []
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar_url: Optional[str] = None
+    only_admins_can_message: Optional[bool] = None
+    only_admins_can_edit_info: Optional[bool] = None
+
+class GroupMemberAdd(BaseModel):
+    member_ids: List[str]
+
+class GroupMemberRoleUpdate(BaseModel):
+    role: str  # "admin" | "member"
+
+class GroupMemberOut(BaseModel):
+    id: Optional[int] = None
+    group_id: int
+    user_id: str
+    full_name: str
+    avatar_url: Optional[str] = None
+    user_role: str = "student"  # "student" | "vendor"
+    group_role: str = "member"  # "admin" | "member"
+    is_creator: bool = False
+    joined_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class GroupOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    avatar_url: Optional[str] = None
+    creator_id: str
+    creator_name: Optional[str] = None
+    only_admins_can_message: bool = False
+    only_admins_can_edit_info: bool = False
+    member_count: int = 0
+    current_user_role: str = "member"
+    is_creator: bool = False
+    created_at: Optional[datetime] = None
+    last_message: Optional[Any] = None
+
+    class Config:
+        from_attributes = True
+
+class GroupDetailsOut(GroupOut):
+    members: List[GroupMemberOut] = []
+
+class GroupMessageCreate(BaseModel):
+    content: str
+    message_type: Optional[str] = "text"
+    media_url: Optional[str] = None
+    duration: Optional[int] = None
+    reply_to_id: Optional[int] = None
+    reply_to_sender: Optional[str] = None
+    reply_to_text: Optional[str] = None
+
+class GroupMessageOut(BaseModel):
+    id: int
+    group_id: int
+    sender_id: str
+    sender_name: str
+    sender_avatar: Optional[str] = None
+    sender_role: str = "student"
+    content: str
+    message_type: str = "text"
+    media_url: Optional[str] = None
+    duration: Optional[int] = None
+    reply_to_id: Optional[int] = None
+    reply_to_sender: Optional[str] = None
+    reply_to_text: Optional[str] = None
+    reactions: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

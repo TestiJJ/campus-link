@@ -199,7 +199,9 @@ export const revalidateThreadMessages = async (partnerId, API, onMessagesUpdated
 
   const fetchPromise = (async () => {
     try {
-      const res = await API.get(`/messages/${key}`);
+      const isGroup = key.startsWith('group_');
+      const groupRawId = isGroup ? key.replace('group_', '') : null;
+      const res = await API.get(isGroup ? `/groups/${groupRawId}/messages` : `/messages/${key}`);
       const serverMsgs = Array.isArray(res.data) ? res.data : (res.data?.messages || []);
       const current = getCachedThreadMessages(key);
 

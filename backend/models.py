@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Boolean, Float, Text, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -469,3 +469,59 @@ class PushSubscription(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, nullable=True)
+    avatar_url = Column(String(500), nullable=True)
+    creator_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    only_admins_can_message = Column(Boolean, default=False)
+    only_admins_can_edit_info = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    creator = relationship("User", foreign_keys=[creator_id])
+    members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
+    messages = relationship("GroupMessage", back_populates="group", cascade="all, delete-orphan")
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    role = Column(String(20), default="member")  # "admin" | "member"
+    joined_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", name="uq_group_member"),
+    )
+
+    group = relationship("Group", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class GroupMessage(Base):
+    __tablename__ = "group_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    sender_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    message_type = Column(String(20), default="text")  # text, audio, image, video, system
+    media_url = Column(String(550), nullable=True)
+    duration = Column(Integer, nullable=True)  # seconds for audio
+    reply_to_id = Column(Integer, ForeignKey("group_messages.id"), nullable=True)
+    reply_to_sender = Column(String(100), nullable=True)
+    reply_to_text = Column(String(255), nullable=True)
+    reactions = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    group = relationship("Group", back_populates="messages")
+    sender = relationship("User", foreign_keys=[sender_id])
+    reply_to = relationship("GroupMessage", remote_side=[id], foreign_keys=[reply_to_id])

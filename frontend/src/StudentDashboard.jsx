@@ -25,6 +25,8 @@ import SwipeableMessageBubble from './components/SwipeableMessageBubble';
 import ChatMediaGallery from './components/ChatMediaGallery';
 import InstallAppButton from './components/InstallAppButton';
 import CampusSelectModal from './components/CampusSelectModal';
+import CreateGroupModal from './components/CreateGroupModal';
+import GroupInfoModal from './components/GroupInfoModal';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -476,6 +478,9 @@ export default function StudentDashboard() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
+  const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
+  const [groupInfoModalOpen, setGroupInfoModalOpen] = useState(false);
+  const [activeGroupIdForModal, setActiveGroupIdForModal] = useState(null);
 
   // Chat Swipe-to-Reply & Action Popover State
   const [replyingToMessage, setReplyingToMessage] = useState(null);
@@ -1191,6 +1196,121 @@ export default function StudentDashboard() {
                   });
                 }
               }
+
+            // WhatsApp Group Chat Real-Time Events
+            if (data.type === 'new_group_message' && data.message) {
+              const newM = data.message;
+              const gKey = `group_${data.group_id}`;
+              appendThreadMessage(gKey, newM);
+
+              const isCurrentGroupOpen = selectedPartnerRef.current && 
+                (String(selectedPartnerRef.current.partner_id) === gKey || Number(selectedPartnerRef.current.group_id) === Number(data.group_id)) &&
+                activeTabRef.current === 'messages';
+
+              if (isCurrentGroupOpen) {
+                setChatMessages(prev => {
+                  if (prev.some(m => m.id === newM.id)) return prev;
+                  return [...prev, newM];
+                });
+                if (isUserNearBottom(chatContainerRef.current)) {
+                  smartScrollToBottom(chatContainerRef.current, true);
+                }
+              } else {
+                const currentUid = String(currentUser?.user_id || currentUser?.id || '');
+                if (String(newM.sender_id) !== currentUid) {
+                  setInAppBanner({
+                    id: newM.id || Date.now(),
+                    senderId: gKey,
+                    senderName: newM.sender_name || 'Group Member',
+                    senderAvatar: newM.sender_avatar,
+                    senderRole: 'Student',
+                    text: `${newM.sender_name || 'Member'}: ${newM.content || 'New message'}`,
+                    timestamp: Date.now()
+                  });
+                }
+              }
+
+              setConversations(prev => {
+                const existing = prev.find(c => String(c.partner_id) === gKey);
+                if (existing) {
+                  return prev.map(c => String(c.partner_id) === gKey ? {
+                    ...c,
+                    last_message: `${newM.sender_name || 'Member'}: ${newM.content}`,
+                    last_message_type: newM.message_type,
+                    last_timestamp: newM.created_at
+                  } : c);
+                }
+                return prev;
+              });
+            }
+
+            if (data.type === 'group_message_reaction' && data.message_id) {
+              const gKey = `group_${data.group_id}`;
+              const rId = data.message_id;
+              setChatMessages(prev => prev.map(m => String(m.id) === String(rId) ? { ...m, reactions: data.reactions } : m));
+              updateThreadMessage(gKey, rId, { reactions: data.reactions });
+            }
+
+            if (data.type === 'group_updated' && data.group) {
+              const gKey = `group_${data.group_id}`;
+              const grp = data.group;
+              setSelectedPartner(prev => {
+                if (!prev || (String(prev.partner_id) !== gKey && Number(prev.group_id) !== Number(data.group_id))) return prev;
+                return {
+                  ...prev,
+                  partner_name: grp.name || prev.partner_name,
+                  partner_avatar: grp.avatar_url !== undefined ? grp.avatar_url : prev.partner_avatar,
+                  only_admins_can_message: grp.only_admins_can_message !== undefined ? grp.only_admins_can_message : prev.only_admins_can_message,
+                  only_admins_can_edit_info: grp.only_admins_can_edit_info !== undefined ? grp.only_admins_can_edit_info : prev.only_admins_can_edit_info,
+                };
+              });
+              setConversations(prev => prev.map(c => {
+                if (String(c.partner_id) === gKey) {
+                  return {
+                    ...c,
+                    partner_name: grp.name || c.partner_name,
+                    partner_avatar: grp.avatar_url !== undefined ? grp.avatar_url : c.partner_avatar,
+                    only_admins_can_message: grp.only_admins_can_message !== undefined ? grp.only_admins_can_message : c.only_admins_can_message,
+                    only_admins_can_edit_info: grp.only_admins_can_edit_info !== undefined ? grp.only_admins_can_edit_info : c.only_admins_can_edit_info,
+                  };
+                }
+                return c;
+              }));
+            }
+
+            if (data.type === 'group_member_removed') {
+              const gKey = `group_${data.group_id}`;
+              const myUid = String(currentUser?.user_id || currentUser?.id || '');
+              if (String(data.removed_user_id) === myUid) {
+                setConversations(prev => prev.filter(c => String(c.partner_id) !== gKey));
+                if (selectedPartnerRef.current && (String(selectedPartnerRef.current.partner_id) === gKey || Number(selectedPartnerRef.current.group_id) === Number(data.group_id))) {
+                  setSelectedPartner(null);
+                  setToast({ text: 'You were removed from the group.', type: 'info' });
+                }
+              } else {
+                setSelectedPartner(prev => {
+                  if (!prev || (String(prev.partner_id) !== gKey && Number(prev.group_id) !== Number(data.group_id))) return prev;
+                  return { ...prev, member_count: Math.max(1, (prev.member_count || 2) - 1) };
+                });
+              }
+            }
+
+            if (data.type === 'group_deleted') {
+              const gKey = `group_${data.group_id}`;
+              setConversations(prev => prev.filter(c => String(c.partner_id) !== gKey));
+              if (selectedPartnerRef.current && (String(selectedPartnerRef.current.partner_id) === gKey || Number(selectedPartnerRef.current.group_id) === Number(data.group_id))) {
+                setSelectedPartner(null);
+                setToast({ text: data.message || 'This group was deleted by the creator.', type: 'info' });
+              }
+            }
+
+            if (data.type === 'group_created' || data.type === 'group_members_updated' || data.type === 'group_role_updated') {
+              API.get('/conversations').then(r => {
+                const c = r.data || [];
+                setConversations(c);
+                setCachedData('conversations', c);
+              }).catch(() => {});
+            }
           } catch (err) {}
         };
 
@@ -1990,7 +2110,12 @@ export default function StudentDashboard() {
 
     if (String(msgId).startsWith('temp_')) return;
     try {
-      await API.post(`/messages/${msgId}/react`, { emoji });
+      if (selectedPartner?.is_group) {
+        const groupId = selectedPartner.group_id || String(selectedPartner.partner_id || '').replace('group_', '');
+        await API.post(`/groups/${groupId}/messages/${msgId}/react`, { emoji });
+      } else {
+        await API.post(`/messages/${msgId}/react`, { emoji });
+      }
     } catch (err) {
       console.error('Failed to react to message:', err);
     }
@@ -2051,6 +2176,12 @@ export default function StudentDashboard() {
       return;
     }
 
+    // Check if group is locked to admins only
+    if (targetPartner?.is_group && targetPartner?.only_admins_can_message && !targetPartner?.is_admin) {
+      setToast({ text: 'Only admins can send messages in this group.', type: 'error' });
+      return;
+    }
+
     // Handle Edit Mode
     if (editingMessage) {
       const updatedText = textToSend.trim();
@@ -2093,6 +2224,52 @@ export default function StudentDashboard() {
       const localPreviews = filesToUpload.map(f => f.previewUrl);
       const tempId = `temp_media_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const fallbackCaption = messageText || (firstIsVid ? 'Video' : isMulti ? `Shared ${filesToUpload.length} photos` : 'Photo');
+
+      if (targetPartner?.is_group) {
+        const groupId = targetPartner.group_id || String(partnerId).replace('group_', '');
+        const optimisticMsg = {
+          id: tempId,
+          group_id: Number(groupId),
+          sender_id: currentUser?.user_id,
+          sender_name: currentUser?.full_name || 'You',
+          sender_role: 'student',
+          sender_avatar: currentUser?.profile_picture_url || currentUser?.avatar_url || null,
+          content: fallbackCaption,
+          message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+          media_url: isMulti ? JSON.stringify(localPreviews) : localPreviews[0],
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null,
+          created_at: new Date().toISOString(),
+          is_optimistic: true
+        };
+
+        appendThreadMessage(partnerId, optimisticMsg);
+        setChatMessages(prev => [...prev, optimisticMsg]);
+        smartScrollToBottom(chatContainerRef.current, false);
+
+        try {
+          const uploadedUrls = await Promise.all(filesToUpload.map(item => uploadFile(item.file)));
+          const finalMediaUrl = isMulti ? JSON.stringify(uploadedUrls) : uploadedUrls[0];
+          const res = await API.post(`/groups/${groupId}/messages`, {
+            content: fallbackCaption,
+            message_type: firstIsVid ? 'video' : isMulti ? 'images' : 'image',
+            media_url: finalMediaUrl,
+            reply_to_id: currentReply?.id || null,
+            reply_to_sender: currentReply?.sender_name || null,
+            reply_to_text: currentReply?.preview || null
+          });
+
+          const confirmed = { ...res.data, is_optimistic: false };
+          updateThreadMessage(partnerId, tempId, confirmed);
+          setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+        } catch (err) {
+          console.error('Failed to upload group media batch:', err);
+          setChatMessages(prev => prev.filter(m => m.id !== tempId));
+          alert(err.response?.data?.detail || 'Failed to send media files.');
+        }
+        return;
+      }
 
       const optimisticMsg = {
         id: tempId,
@@ -2138,6 +2315,70 @@ export default function StudentDashboard() {
     }
 
     // Standard text message
+    if (targetPartner?.is_group) {
+      const groupId = targetPartner.group_id || String(partnerId).replace('group_', '');
+      const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+      const optimisticMsg = {
+        id: tempId,
+        group_id: Number(groupId),
+        sender_id: currentUser?.user_id,
+        sender_name: currentUser?.full_name || 'You',
+        sender_role: 'student',
+        sender_avatar: currentUser?.profile_picture_url || currentUser?.avatar_url || null,
+        content: messageText,
+        message_type: currentReply ? 'reply' : 'text',
+        reply_to_id: currentReply?.id || null,
+        reply_to_sender: currentReply?.sender_name || null,
+        reply_to_text: currentReply?.preview || null,
+        created_at: new Date().toISOString(),
+        is_optimistic: true
+      };
+
+      appendThreadMessage(partnerId, optimisticMsg);
+      setChatMessages(prev => [...prev, optimisticMsg]);
+
+      setConversations(prev => {
+        const idx = prev.findIndex(c => String(c.partner_id || c.user_id || c.id) === String(partnerId));
+        let next;
+        if (idx !== -1) {
+          const updated = { ...prev[idx], last_message: messageText, last_timestamp: new Date().toISOString() };
+          next = [updated, ...prev.filter((_, i) => i !== idx)];
+        } else {
+          next = [{
+            ...targetPartner,
+            partner_id: partnerId,
+            unread_count: 0,
+            last_message: messageText,
+            last_timestamp: new Date().toISOString()
+          }, ...prev];
+        }
+        setCachedData('conversations', next);
+        return next;
+      });
+
+      smartScrollToBottom(chatContainerRef.current, false);
+
+      try {
+        const payload = {
+          content: messageText,
+          message_type: currentReply ? 'reply' : 'text',
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null
+        };
+
+        const res = await API.post(`/groups/${groupId}/messages`, payload);
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+      } catch (err) {
+        console.error('Failed to deliver group message:', err);
+        setChatMessages(prev => prev.filter(m => m.id !== tempId));
+        alert(err.response?.data?.detail || 'Failed to send message.');
+      }
+      return;
+    }
+
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const optimisticMsg = {
       id: tempId,
@@ -2278,16 +2519,29 @@ export default function StudentDashboard() {
         const uploadRes = await API.post('/upload', formData);
         const audioUrl = uploadRes.data.url;
 
-        const res = await API.post('/messages', {
-          recipient_id: partnerId,
-          content: 'Voice note',
-          message_type: 'audio',
-          media_url: audioUrl,
-          duration: duration
-        });
-        const confirmed = { ...res.data, is_optimistic: false };
-        updateThreadMessage(partnerId, tempId, confirmed);
-        setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+        if (selectedPartner?.is_group) {
+          const groupId = selectedPartner.group_id || String(partnerId).replace('group_', '');
+          const res = await API.post(`/groups/${groupId}/messages`, {
+            content: 'Voice note',
+            message_type: 'audio',
+            media_url: audioUrl,
+            duration: duration
+          });
+          const confirmed = { ...res.data, is_optimistic: false };
+          updateThreadMessage(partnerId, tempId, confirmed);
+          setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+        } else {
+          const res = await API.post('/messages', {
+            recipient_id: partnerId,
+            content: 'Voice note',
+            message_type: 'audio',
+            media_url: audioUrl,
+            duration: duration
+          });
+          const confirmed = { ...res.data, is_optimistic: false };
+          updateThreadMessage(partnerId, tempId, confirmed);
+          setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+        }
       } catch (err) {
         setChatMessages(prev => prev.filter(m => m.id !== tempId));
         alert(err.response?.data?.detail || 'Failed to send voice note.');
@@ -2390,20 +2644,35 @@ export default function StudentDashboard() {
       const uploadRes = await API.post('/upload', formData);
       const mediaUrl = uploadRes.data.url;
 
-      const payload = {
-        recipient_id: partnerId,
-        content: displayCaption,
-        message_type: isVid ? 'video' : 'image',
-        media_url: mediaUrl,
-        reply_to_id: currentReply?.id || null,
-        reply_to_sender: currentReply?.sender_name || null,
-        reply_to_text: currentReply?.preview || null
-      };
+      if (selectedPartner?.is_group) {
+        const groupId = selectedPartner.group_id || String(partnerId).replace('group_', '');
+        const res = await API.post(`/groups/${groupId}/messages`, {
+          content: displayCaption,
+          message_type: isVid ? 'video' : 'image',
+          media_url: mediaUrl,
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null
+        });
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+      } else {
+        const payload = {
+          recipient_id: partnerId,
+          content: displayCaption,
+          message_type: isVid ? 'video' : 'image',
+          media_url: mediaUrl,
+          reply_to_id: currentReply?.id || null,
+          reply_to_sender: currentReply?.sender_name || null,
+          reply_to_text: currentReply?.preview || null
+        };
 
-      const res = await API.post('/messages', payload);
-      const confirmed = { ...res.data, is_optimistic: false };
-      updateThreadMessage(partnerId, tempId, confirmed);
-      setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+        const res = await API.post('/messages', payload);
+        const confirmed = { ...res.data, is_optimistic: false };
+        updateThreadMessage(partnerId, tempId, confirmed);
+        setChatMessages(prev => prev.map(m => m.id === tempId ? confirmed : m));
+      }
     } catch (err) {
       setChatMessages(prev => prev.filter(m => m.id !== tempId));
       alert(err.response?.data?.detail || 'Failed to send media.');
@@ -6272,6 +6541,18 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
+                {!selectedPartner && (
+                  <button
+                    type="button"
+                    onClick={() => setCreateGroupModalOpen(true)}
+                    className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer shrink-0"
+                    title="Create student group chat"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>+ New Group</span>
+                  </button>
+                )}
+
                 {selectedPartner && (
                   <div className="flex items-center space-x-2 text-xs">
                     {selectedPartner.is_ai ? (
@@ -6324,8 +6605,8 @@ export default function StudentDashboard() {
                   {/* Left Column: Conversations List */}
                   <div className={`w-full md:w-84 h-full flex-1 md:flex-none border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
                     {/* Universal Chat & Directory Search */}
-                    <div className="p-2.5 border-b border-slate-100 bg-white shrink-0">
-                      <div className="relative">
+                    <div className="p-2.5 border-b border-slate-100 bg-white shrink-0 flex items-center space-x-2">
+                      <div className="relative flex-1">
                         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
@@ -6344,6 +6625,15 @@ export default function StudentDashboard() {
                           </button>
                         )}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setCreateGroupModalOpen(true)}
+                        className="px-2.5 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs active:scale-95 transition-all cursor-pointer shrink-0"
+                        title="Create new group chat"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">New Group</span>
+                      </button>
                     </div>
 
                     <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 overscroll-contain touch-pan-y pb-28 md:pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -6448,14 +6738,20 @@ export default function StudentDashboard() {
                                   <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
                                     {c.partner_avatar ? (
                                       <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                    ) : c.is_group ? (
+                                      <div className="w-full h-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shrink-0">
+                                        <Users className="w-5 h-5" />
+                                      </div>
                                     ) : (
                                       <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
                                         {c.partner_name?.charAt(0) || 'U'}
                                       </div>
                                     )}
                                   </div>
-                                  {/* Online presence dot */}
-                                  <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                  {/* Online presence dot (peers only) */}
+                                  {!c.is_group && (
+                                    <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                  )}
                                   {c.unread_count > 0 && (
                                     <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
                                       {c.unread_count}
@@ -6464,9 +6760,12 @@ export default function StudentDashboard() {
                                 </div>
                                 <div className="flex-1 overflow-hidden">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                    <span className="text-xs font-bold text-slate-900 truncate flex items-center space-x-1">
+                                      {c.is_group && <Users className="w-3 h-3 text-sky-600 shrink-0 inline" />}
+                                      <span className="truncate">{c.partner_name}</span>
+                                    </span>
                                     <span className="text-[10px] font-medium text-slate-400">
-                                      {c.partner_role}
+                                      {c.is_group ? 'Group' : c.partner_role}
                                     </span>
                                   </div>
                                   <p className="text-[11px] text-slate-500 truncate mt-0.5">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
@@ -6682,7 +6981,29 @@ export default function StudentDashboard() {
                                   </span>
                                 )}
                               </button>
-                              {(() => {
+                              {selectedPartner.is_group ? (
+                                <div
+                                  onClick={() => {
+                                    setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                    setGroupInfoModalOpen(true);
+                                  }}
+                                  title="Click to view group info and settings"
+                                  className="relative shrink-0 rounded-2xl transition-all p-0.5 cursor-pointer hover:opacity-90"
+                                >
+                                  <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white shadow-xs">
+                                    {selectedPartner.partner_avatar ? (
+                                      <SafeImage
+                                        src={selectedPartner.partner_avatar}
+                                        alt={selectedPartner.partner_name}
+                                        fallbackType="avatar"
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      <Users className="w-5 h-5" />
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (() => {
                                 const partnerPid = selectedPartner.partner_id || selectedPartner.id || selectedPartner.user_id;
                                 const headerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(partnerPid));
                                 const headerHasStory = headerStoryIdx !== -1;
@@ -6716,26 +7037,37 @@ export default function StudentDashboard() {
                                 );
                               })()}
                               <div
-                                onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                onClick={() => {
+                                  if (selectedPartner.is_group) {
+                                    setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                    setGroupInfoModalOpen(true);
+                                  } else {
+                                    handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id);
+                                  }
+                                }}
                                 className="min-w-0 cursor-pointer group"
-                                title="View profile"
+                                title={selectedPartner.is_group ? "Group info & settings" : "View profile"}
                               >
                                 <div className="flex items-center space-x-1.5">
                                   <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-[120px] sm:max-w-[200px]">
                                     {selectedPartner.partner_name || selectedPartner.name || selectedPartner.full_name || 'Chat Partner'}
                                   </h4>
                                   <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
-                                    (selectedPartner.partner_role || selectedPartner.role) === 'Vendor' || (selectedPartner.partner_role || selectedPartner.role) === 'Seller'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : (selectedPartner.partner_role || selectedPartner.role) === 'Agent'
-                                        ? 'bg-purple-100 text-purple-800'
-                                        : 'bg-sky-100 text-sky-800'
+                                    selectedPartner.is_group
+                                      ? 'bg-purple-100 text-purple-800'
+                                      : (selectedPartner.partner_role || selectedPartner.role) === 'Vendor' || (selectedPartner.partner_role || selectedPartner.role) === 'Seller'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : (selectedPartner.partner_role || selectedPartner.role) === 'Agent'
+                                          ? 'bg-purple-100 text-purple-800'
+                                          : 'bg-sky-100 text-sky-800'
                                   }`}>
-                                    {selectedPartner.partner_role || selectedPartner.role || 'Student'}
+                                    {selectedPartner.is_group ? 'Group' : (selectedPartner.partner_role || selectedPartner.role || 'Student')}
                                   </span>
                                 </div>
                                 <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
-                                  {(() => {
+                                  {selectedPartner.is_group ? (
+                                    <span className="text-slate-500 font-medium">Tap for group info & settings</span>
+                                  ) : (() => {
                                     const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
                                     return (
                                       <>
@@ -6749,26 +7081,43 @@ export default function StudentDashboard() {
                             </div>
 
                             <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                                className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                title="View profile"
-                              >
-                                <span>Profile</span>
-                              </button>
-                              {/* Strictly for Vendors: Students never expose WhatsApp contact */}
-                              {((selectedPartner.role === 'vendor' || selectedPartner.partner_role === 'vendor' || selectedPartner.partner_role === 'Vendor' || selectedPartner.partner_role === 'Seller') && (selectedPartner.phone || selectedPartner.whatsapp_phone)) && (
-                                <a
-                                  href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                  title="Chat on WhatsApp"
+                              {selectedPartner.is_group ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                    setGroupInfoModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 sm:py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                  title="Group info & settings"
                                 >
-                                  <Phone className="w-3.5 h-3.5" />
-                                  <span className="hidden sm:inline">WhatsApp</span>
-                                </a>
+                                  <Users className="w-3.5 h-3.5" />
+                                  <span>Group Info</span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                    className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                    title="View profile"
+                                  >
+                                    <span>Profile</span>
+                                  </button>
+                                  {/* Strictly for Vendors: Students never expose WhatsApp contact */}
+                                  {((selectedPartner.role === 'vendor' || selectedPartner.partner_role === 'vendor' || selectedPartner.partner_role === 'Vendor' || selectedPartner.partner_role === 'Seller') && (selectedPartner.phone || selectedPartner.whatsapp_phone)) && (
+                                    <a
+                                      href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                      title="Chat on WhatsApp"
+                                    >
+                                      <Phone className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline">WhatsApp</span>
+                                    </a>
+                                  )}
+                                </>
                               )}
                               <button
                                 type="button"
@@ -6825,6 +7174,17 @@ export default function StudentDashboard() {
                             </div>
                           ) : chatMessages.length > 0 ? (
                             chatMessages.map((msg, idx) => {
+                              // WhatsApp-Style System Message Capsule (for Group notifications & updates)
+                              if (msg.message_type === 'system') {
+                                return (
+                                  <div key={msg.id || idx} className="w-full flex justify-center my-2">
+                                    <div className="bg-slate-200/80 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 text-[11px] font-medium px-3.5 py-1 rounded-full shadow-2xs text-center max-w-[85%] sm:max-w-md">
+                                      {msg.content}
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               const currentUserIdStr = String(currentUser?.user_id || currentUser?.id || '');
                               const isMine = Boolean(currentUserIdStr && msg.sender_id && String(msg.sender_id) === currentUserIdStr);
                               const chatReply = parseChatReply(msg);
@@ -6898,6 +7258,13 @@ export default function StudentDashboard() {
                                             : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
                                         }`}
                                       >
+                                        {/* Group Sender Name */}
+                                        {selectedPartner?.is_group && !isMine && (
+                                          <p className="text-[11px] font-bold text-sky-600 dark:text-sky-400 mb-1 truncate max-w-[220px]">
+                                            {msg.sender_name || 'Group Member'}
+                                          </p>
+                                        )}
+
                                         {/* Quoted Reply Header Box */}
                                         {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
                                           <div
@@ -7205,7 +7572,12 @@ export default function StudentDashboard() {
                                 </div>
                               )}
 
-                              {isRecordingAudio ? (
+                              {selectedPartner?.is_group && selectedPartner?.only_admins_can_message && !selectedPartner?.is_admin ? (
+                                <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-center justify-center space-x-2 text-xs font-semibold text-slate-500 dark:text-slate-400 select-none shadow-2xs text-center">
+                                  <Lock className="w-4 h-4 text-slate-400 shrink-0" />
+                                  <span>Only admins can send messages to this group</span>
+                                </div>
+                              ) : isRecordingAudio ? (
                                 <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-2xl p-2 px-4">
                                   <div className="flex items-center space-x-3">
                                     <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
@@ -10614,6 +10986,88 @@ export default function StudentDashboard() {
           setPendingMediaFile(null);
         }}
         onConfirm={handleConfirmSendChatMedia}
+      />
+
+      {/* --- CREATE GROUP MODAL --- */}
+      <CreateGroupModal
+        isOpen={createGroupModalOpen}
+        onClose={() => setCreateGroupModalOpen(false)}
+        currentUser={currentUser}
+        onGroupCreated={(newGroup) => {
+          const groupPartner = {
+            id: `group_${newGroup.id}`,
+            partner_id: `group_${newGroup.id}`,
+            group_id: newGroup.id,
+            partner_name: newGroup.name,
+            partner_role: 'Group',
+            partner_avatar: newGroup.avatar_url,
+            is_group: true,
+            is_admin: true,
+            is_creator: true,
+            only_admins_can_message: Boolean(newGroup.only_admins_can_message),
+            only_admins_can_edit_info: Boolean(newGroup.only_admins_can_edit_info),
+            unread_count: 0,
+            last_message: 'Group created',
+            last_timestamp: new Date().toISOString()
+          };
+          setConversations(prev => [groupPartner, ...prev.filter(c => String(c.partner_id) !== String(groupPartner.partner_id))]);
+          handleSelectPartner(groupPartner);
+          setToast({ text: `Group "${newGroup.name}" created successfully!`, type: 'success' });
+        }}
+      />
+
+      {/* --- GROUP INFO & SETTINGS MODAL --- */}
+      <GroupInfoModal
+        isOpen={groupInfoModalOpen}
+        onClose={() => {
+          setGroupInfoModalOpen(false);
+          setActiveGroupIdForModal(null);
+        }}
+        groupId={activeGroupIdForModal}
+        currentUser={currentUser}
+        onGroupUpdated={(updatedGroup) => {
+          setConversations(prev => prev.map(c => {
+            if (c.is_group && Number(c.group_id) === Number(updatedGroup.id)) {
+              return {
+                ...c,
+                partner_name: updatedGroup.name,
+                partner_avatar: updatedGroup.avatar_url,
+                only_admins_can_message: updatedGroup.only_admins_can_message,
+                only_admins_can_edit_info: updatedGroup.only_admins_can_edit_info,
+                description: updatedGroup.description
+              };
+            }
+            return c;
+          }));
+          if (selectedPartner?.is_group && Number(selectedPartner.group_id) === Number(updatedGroup.id)) {
+            setSelectedPartner(prev => ({
+              ...prev,
+              partner_name: updatedGroup.name,
+              partner_avatar: updatedGroup.avatar_url,
+              only_admins_can_message: updatedGroup.only_admins_can_message,
+              only_admins_can_edit_info: updatedGroup.only_admins_can_edit_info,
+              description: updatedGroup.description
+            }));
+          }
+        }}
+        onGroupLeft={(groupId) => {
+          setConversations(prev => prev.filter(c => !(c.is_group && Number(c.group_id) === Number(groupId))));
+          if (selectedPartner?.is_group && Number(selectedPartner.group_id) === Number(groupId)) {
+            setSelectedPartner(null);
+          }
+          setGroupInfoModalOpen(false);
+          setActiveGroupIdForModal(null);
+          setToast({ text: 'You left the group.', type: 'info' });
+        }}
+        onGroupDeleted={(groupId) => {
+          setConversations(prev => prev.filter(c => !(c.is_group && Number(c.group_id) === Number(groupId))));
+          if (selectedPartner?.is_group && Number(selectedPartner.group_id) === Number(groupId)) {
+            setSelectedPartner(null);
+          }
+          setGroupInfoModalOpen(false);
+          setActiveGroupIdForModal(null);
+          setToast({ text: 'Group deleted.', type: 'info' });
+        }}
       />
 
       {/* --- FACEBOOK LITE MODE: MOBILE NAVIGATION IS ANCHORED AT TOP TAB BAR --- */}

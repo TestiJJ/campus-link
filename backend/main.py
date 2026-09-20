@@ -4371,7 +4371,851 @@ def get_conversations_list(
         partner_msgs.reverse()
         item["recent_messages"] = partner_msgs
 
-    return list(conv_map.values())
+    # Fetch groups current user belongs to and merge into conversations list (only for students)
+    if current_user.role == "student":
+        try:
+            user_memberships = db.query(models.GroupMember).filter(models.GroupMember.user_id == user_id).all()
+            for mem in user_memberships:
+                grp = db.query(models.Group).filter(models.Group.id == mem.group_id).first()
+                if not grp:
+                    continue
+                last_g_msg = db.query(models.GroupMessage).filter(models.GroupMessage.group_id == grp.id).order_by(models.GroupMessage.created_at.desc()).first()
+                preview = "Group created"
+                if last_g_msg:
+                    if last_g_msg.message_type == "audio":
+                        preview = "🎤 Voice note"
+                    elif last_g_msg.message_type == "image":
+                        preview = "📷 Photo"
+                    elif last_g_msg.message_type == "video":
+                        preview = "🎥 Video"
+                    elif last_g_msg.message_type == "system":
+                        preview = f"ℹ️ {last_g_msg.content}"
+                    else:
+                        s_name = "You" if str(last_g_msg.sender_id) == str(user_id) else (last_g_msg.sender.full_name.split()[0] if last_g_msg.sender else "Member")
+                        preview = f"{s_name}: {last_g_msg.content}"
+
+                m_count = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).count()
+                conv_map[f"group_{grp.id}"] = {
+                    "is_group": True,
+                    "group_id": grp.id,
+                    "partner_id": f"group_{grp.id}",
+                    "partner_name": grp.name,
+                    "partner_avatar": grp.avatar_url,
+                    "partner_role": "Group",
+                    "is_admin": mem.role == "admin",
+                    "is_creator": str(grp.creator_id) == str(user_id),
+                    "only_admins_can_message": bool(grp.only_admins_can_message),
+                    "only_admins_can_edit_info": bool(grp.only_admins_can_edit_info),
+                    "member_count": m_count,
+                    "last_message": preview,
+                    "last_message_type": last_g_msg.message_type if last_g_msg else "text",
+                    "last_timestamp": last_g_msg.created_at if last_g_msg else grp.created_at,
+                    "unread_count": 0,
+                    "is_online": True,
+                    "last_seen": None,
+                    "recent_messages": []
+                }
+        except Exception as _grp_err:
+            print(f"[CampusLink Group Convs] Notice: {_grp_err}")
+
+    # Sort all conversations (1-on-1 + groups) by last_timestamp descending
+    all_convs = list(conv_map.values())
+    all_convs.sort(key=lambda c: c.get("last_timestamp") or datetime.min, reverse=True)
+    return all_convs
+
+
+# --- WHATSAPP-STYLE GROUP CHATS & GROUP SETTINGS ---
+
+@app.post("/api/groups", response_model=schemas.GroupOut, status_code=status.HTTP_201_CREATED)
+async def create_group(
+    group_data: schemas.GroupCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Group chats are exclusively available for students."
+        )
+
+    clean_name = sanitize_input_text(group_data.name).strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Group name cannot be empty.")
+
+    new_group = models.Group(
+        name=clean_name,
+        description=sanitize_input_text(group_data.description) if group_data.description else None,
+        avatar_url=group_data.avatar_url,
+        creator_id=current_user.user_id,
+        only_admins_can_message=False,
+        only_admins_can_edit_info=False
+    )
+    db.add(new_group)
+    db.commit()
+    db.refresh(new_group)
+
+    # 1. Add Creator as Admin
+    creator_member = models.GroupMember(
+        group_id=new_group.id,
+        user_id=current_user.user_id,
+        role="admin"
+    )
+    db.add(creator_member)
+
+    # 2. Add Selected Members (students only)
+    added_user_ids = {str(current_user.user_id)}
+    added_members_list = [creator_member]
+    member_names = []
+
+    for m_id in group_data.member_ids:
+        clean_m_id = str(m_id).strip()
+        if clean_m_id and clean_m_id not in added_user_ids:
+            target_u = db.query(models.User).filter(models.User.user_id == clean_m_id, models.User.role == "student").first()
+            if target_u:
+                added_user_ids.add(clean_m_id)
+                member_entry = models.GroupMember(
+                    group_id=new_group.id,
+                    user_id=clean_m_id,
+                    role="member"
+                )
+                db.add(member_entry)
+                added_members_list.append(member_entry)
+                member_names.append(target_u.full_name)
+
+                # Send in-app notification to member
+                try:
+                    create_notification(
+                        db=db,
+                        user_id=clean_m_id,
+                        actor_id=current_user.user_id,
+                        notification_type="group_invite",
+                        title=f"Added to {new_group.name}",
+                        message=f"{current_user.full_name} added you to the group '{new_group.name}'",
+                        reference_id=str(new_group.id)
+                    )
+                except Exception:
+                    pass
+
+    # 3. Add initial System Message
+    init_content = f"{current_user.full_name} created group \"{new_group.name}\""
+    if member_names:
+        init_content += f" and added {', '.join(member_names[:3])}{' and others' if len(member_names) > 3 else ''}"
+
+    system_msg = models.GroupMessage(
+        group_id=new_group.id,
+        sender_id=current_user.user_id,
+        content=init_content,
+        message_type="system"
+    )
+    db.add(system_msg)
+    db.commit()
+
+    # 4. Broadcast group creation to all members via WebSocket
+    broadcast_payload = {
+        "type": "group_created",
+        "group": {
+            "id": new_group.id,
+            "name": new_group.name,
+            "description": new_group.description,
+            "avatar_url": new_group.avatar_url,
+            "creator_id": new_group.creator_id,
+            "only_admins_can_message": new_group.only_admins_can_message,
+            "only_admins_can_edit_info": new_group.only_admins_can_edit_info,
+            "member_count": len(added_members_list),
+            "created_at": new_group.created_at.isoformat() if new_group.created_at else None
+        }
+    }
+    for uid in added_user_ids:
+        try:
+            await ws_manager.broadcast_to_user(uid, broadcast_payload)
+        except Exception:
+            pass
+
+    return {
+        "id": new_group.id,
+        "name": new_group.name,
+        "description": new_group.description,
+        "avatar_url": new_group.avatar_url,
+        "creator_id": new_group.creator_id,
+        "creator_name": current_user.full_name,
+        "only_admins_can_message": new_group.only_admins_can_message,
+        "only_admins_can_edit_info": new_group.only_admins_can_edit_info,
+        "member_count": len(added_members_list),
+        "current_user_role": "admin",
+        "is_creator": True,
+        "created_at": new_group.created_at,
+        "last_message": init_content
+    }
+
+
+@app.get("/api/groups", response_model=List[schemas.GroupOut])
+def get_user_groups(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    if current_user.role != "student":
+        return []
+
+    memberships = db.query(models.GroupMember).filter(models.GroupMember.user_id == current_user.user_id).all()
+    results = []
+    for mem in memberships:
+        grp = db.query(models.Group).filter(models.Group.id == mem.group_id).first()
+        if not grp:
+            continue
+        last_msg = db.query(models.GroupMessage).filter(models.GroupMessage.group_id == grp.id).order_by(models.GroupMessage.created_at.desc()).first()
+        m_count = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).count()
+        results.append({
+            "id": grp.id,
+            "name": grp.name,
+            "description": grp.description,
+            "avatar_url": grp.avatar_url,
+            "creator_id": grp.creator_id,
+            "creator_name": grp.creator.full_name if grp.creator else None,
+            "only_admins_can_message": bool(grp.only_admins_can_message),
+            "only_admins_can_edit_info": bool(grp.only_admins_can_edit_info),
+            "member_count": m_count,
+            "current_user_role": mem.role,
+            "is_creator": str(grp.creator_id) == str(current_user.user_id),
+            "created_at": grp.created_at,
+            "last_message": last_msg.content if last_msg else "Group created"
+        })
+    results.sort(key=lambda g: g.get("created_at") or datetime.min, reverse=True)
+    return results
+
+
+@app.get("/api/groups/{group_id}", response_model=schemas.GroupDetailsOut)
+def get_group_details(
+    group_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    # Verify current user is a member
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    # Fetch all members with their user info
+    raw_members = (
+        db.query(models.GroupMember)
+        .options(joinedload(models.GroupMember.user))
+        .filter(models.GroupMember.group_id == group_id)
+        .all()
+    )
+
+    members_out = []
+    for m in raw_members:
+        u = m.user
+        if not u:
+            continue
+        members_out.append({
+            "id": m.id,
+            "group_id": m.group_id,
+            "user_id": u.user_id,
+            "full_name": u.full_name or "Student",
+            "avatar_url": u.profile_picture_url,
+            "user_role": u.role or "student",
+            "group_role": m.role,  # "admin" | "member"
+            "is_creator": str(u.user_id) == str(grp.creator_id),
+            "joined_at": m.joined_at
+        })
+
+    # Sort members: creator first, then other admins, then regular members
+    members_out.sort(key=lambda m: (0 if m["is_creator"] else (1 if m["group_role"] == "admin" else 2), m["full_name"].lower()))
+
+    last_msg = db.query(models.GroupMessage).filter(models.GroupMessage.group_id == grp.id).order_by(models.GroupMessage.created_at.desc()).first()
+
+    return {
+        "id": grp.id,
+        "name": grp.name,
+        "description": grp.description,
+        "avatar_url": grp.avatar_url,
+        "creator_id": grp.creator_id,
+        "creator_name": grp.creator.full_name if grp.creator else None,
+        "only_admins_can_message": bool(grp.only_admins_can_message),
+        "only_admins_can_edit_info": bool(grp.only_admins_can_edit_info),
+        "member_count": len(members_out),
+        "current_user_role": my_mem.role,
+        "is_creator": str(grp.creator_id) == str(current_user.user_id),
+        "created_at": grp.created_at,
+        "last_message": last_msg.content if last_msg else None,
+        "members": members_out
+    }
+
+
+@app.put("/api/groups/{group_id}", response_model=schemas.GroupOut)
+async def update_group_settings(
+    group_id: int,
+    group_data: schemas.GroupUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    is_admin = (my_mem.role == "admin")
+
+    # 1. WhatsApp Security Check for Permissions (only_admins_can_message / only_admins_can_edit_info)
+    if (group_data.only_admins_can_message is not None or group_data.only_admins_can_edit_info is not None) and not is_admin:
+        raise HTTPException(status_code=403, detail="Only group admins can change group permissions.")
+
+    # 2. WhatsApp Security Check for Info Editing
+    if (group_data.name is not None or group_data.description is not None or group_data.avatar_url is not None):
+        if grp.only_admins_can_edit_info and not is_admin:
+            raise HTTPException(status_code=403, detail="Only group admins can edit this group's info.")
+
+    # Apply updates and generate system messages for WhatsApp timeline
+    system_notes = []
+
+    if group_data.name is not None and group_data.name.strip():
+        clean_name = sanitize_input_text(group_data.name).strip()
+        if clean_name != grp.name:
+            system_notes.append(f"{current_user.full_name} changed the group subject to \"{clean_name}\"")
+            grp.name = clean_name
+
+    if group_data.description is not None:
+        clean_desc = sanitize_input_text(group_data.description).strip()
+        if clean_desc != (grp.description or ""):
+            system_notes.append(f"{current_user.full_name} changed the group description")
+            grp.description = clean_desc
+
+    if group_data.avatar_url is not None:
+        if group_data.avatar_url != grp.avatar_url:
+            system_notes.append(f"{current_user.full_name} changed this group's icon")
+            grp.avatar_url = group_data.avatar_url
+
+    if group_data.only_admins_can_message is not None:
+        if bool(group_data.only_admins_can_message) != bool(grp.only_admins_can_message):
+            grp.only_admins_can_message = bool(group_data.only_admins_can_message)
+            setting_label = "Only group admins can send messages" if grp.only_admins_can_message else "All participants can send messages"
+            system_notes.append(f"{current_user.full_name} changed group settings: {setting_label}")
+
+    if group_data.only_admins_can_edit_info is not None:
+        if bool(group_data.only_admins_can_edit_info) != bool(grp.only_admins_can_edit_info):
+            grp.only_admins_can_edit_info = bool(group_data.only_admins_can_edit_info)
+            setting_label = "Only group admins can edit group info" if grp.only_admins_can_edit_info else "All participants can edit group info"
+            system_notes.append(f"{current_user.full_name} changed group settings: {setting_label}")
+
+    grp.updated_at = datetime.utcnow()
+    db.commit()
+
+    # Record system message in chat
+    if system_notes:
+        for note in system_notes:
+            sys_msg = models.GroupMessage(
+                group_id=grp.id,
+                sender_id=current_user.user_id,
+                content=note,
+                message_type="system"
+            )
+            db.add(sys_msg)
+        db.commit()
+
+    # Broadcast update to all members
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
+    update_payload = {
+        "type": "group_updated",
+        "group_id": grp.id,
+        "group": {
+            "id": grp.id,
+            "name": grp.name,
+            "description": grp.description,
+            "avatar_url": grp.avatar_url,
+            "only_admins_can_message": grp.only_admins_can_message,
+            "only_admins_can_edit_info": grp.only_admins_can_edit_info
+        },
+        "system_notes": system_notes
+    }
+    for m in members:
+        try:
+            await ws_manager.broadcast_to_user(str(m.user_id), update_payload)
+        except Exception:
+            pass
+
+    return {
+        "id": grp.id,
+        "name": grp.name,
+        "description": grp.description,
+        "avatar_url": grp.avatar_url,
+        "creator_id": grp.creator_id,
+        "creator_name": grp.creator.full_name if grp.creator else None,
+        "only_admins_can_message": grp.only_admins_can_message,
+        "only_admins_can_edit_info": grp.only_admins_can_edit_info,
+        "member_count": len(members),
+        "current_user_role": my_mem.role,
+        "is_creator": str(grp.creator_id) == str(current_user.user_id),
+        "created_at": grp.created_at,
+        "last_message": system_notes[-1] if system_notes else None
+    }
+
+
+@app.post("/api/groups/{group_id}/members", status_code=status.HTTP_200_OK)
+async def add_group_members(
+    group_id: int,
+    data: schemas.GroupMemberAdd,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem or my_mem.role != "admin":
+        raise HTTPException(status_code=403, detail="Only group admins can add participants.")
+
+    existing_members = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
+    existing_uids = {str(m.user_id) for m in existing_members}
+
+    added_names = []
+    new_uids = []
+    for uid in data.member_ids:
+        clean_uid = str(uid).strip()
+        if clean_uid and clean_uid not in existing_uids:
+            u = db.query(models.User).filter(models.User.user_id == clean_uid, models.User.role == "student").first()
+            if u:
+                mem = models.GroupMember(
+                    group_id=group_id,
+                    user_id=clean_uid,
+                    role="member"
+                )
+                db.add(mem)
+                existing_uids.add(clean_uid)
+                new_uids.append(clean_uid)
+                added_names.append(u.full_name)
+
+                try:
+                    create_notification(
+                        db=db,
+                        user_id=clean_uid,
+                        actor_id=current_user.user_id,
+                        notification_type="group_invite",
+                        title=f"Added to {grp.name}",
+                        message=f"{current_user.full_name} added you to the group '{grp.name}'",
+                        reference_id=str(grp.id)
+                    )
+                except Exception:
+                    pass
+
+    if added_names:
+        sys_note = f"{current_user.full_name} added {', '.join(added_names)}"
+        sys_msg = models.GroupMessage(
+            group_id=grp.id,
+            sender_id=current_user.user_id,
+            content=sys_note,
+            message_type="system"
+        )
+        db.add(sys_msg)
+        db.commit()
+
+        # Broadcast update to all current & new members
+        broadcast_payload = {
+            "type": "group_members_updated",
+            "group_id": grp.id,
+            "added_users": added_names,
+            "system_note": sys_note
+        }
+        for uid in existing_uids:
+            try:
+                await ws_manager.broadcast_to_user(uid, broadcast_payload)
+            except Exception:
+                pass
+
+    return {"status": "success", "added_count": len(added_names), "added_names": added_names}
+
+
+@app.delete("/api/groups/{group_id}/members/{target_user_id}", status_code=status.HTTP_200_OK)
+async def remove_or_exit_group(
+    group_id: int,
+    target_user_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    target_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == target_user_id
+    ).first()
+    if not target_mem:
+        raise HTTPException(status_code=404, detail="Target participant not found in this group.")
+
+    target_user = db.query(models.User).filter(models.User.user_id == target_user_id).first()
+    target_name = target_user.full_name if target_user else "A participant"
+
+    is_self = (str(target_user_id) == str(current_user.user_id))
+
+    if is_self:
+        # User is voluntarily leaving
+        sys_note = f"{current_user.full_name} left"
+        db.delete(target_mem)
+
+        # If creator leaves and others remain, promote another admin or member to creator
+        if str(grp.creator_id) == str(current_user.user_id):
+            remaining = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
+            if remaining:
+                next_leader = next((m for m in remaining if m.role == "admin"), remaining[0])
+                next_leader.role = "admin"
+                grp.creator_id = next_leader.user_id
+                db.commit()
+    else:
+        # Admin is removing someone
+        if my_mem.role != "admin":
+            raise HTTPException(status_code=403, detail="Only group admins can remove participants.")
+        if str(target_user_id) == str(grp.creator_id):
+            raise HTTPException(status_code=400, detail="The group creator cannot be removed.")
+
+        sys_note = f"{current_user.full_name} removed {target_name}"
+        db.delete(target_mem)
+
+    sys_msg = models.GroupMessage(
+        group_id=grp.id,
+        sender_id=current_user.user_id,
+        content=sys_note,
+        message_type="system"
+    )
+    db.add(sys_msg)
+    db.commit()
+
+    # Broadcast removal to remaining members and removed user
+    all_affected = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
+    broadcast_uids = [str(m.user_id) for m in all_affected] + [str(target_user_id)]
+    broadcast_payload = {
+        "type": "group_member_removed",
+        "group_id": grp.id,
+        "removed_user_id": target_user_id,
+        "removed_user_name": target_name,
+        "system_note": sys_note
+    }
+    for uid in set(broadcast_uids):
+        try:
+            await ws_manager.broadcast_to_user(uid, broadcast_payload)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": sys_note}
+
+
+@app.post("/api/groups/{group_id}/members/{target_user_id}/role", status_code=status.HTTP_200_OK)
+async def update_member_role(
+    group_id: int,
+    target_user_id: str,
+    role_data: schemas.GroupMemberRoleUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem or my_mem.role != "admin":
+        raise HTTPException(status_code=403, detail="Only group admins can manage roles.")
+
+    target_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == target_user_id
+    ).first()
+    if not target_mem:
+        raise HTTPException(status_code=404, detail="Target participant not found in this group.")
+
+    target_user = db.query(models.User).filter(models.User.user_id == target_user_id).first()
+    target_name = target_user.full_name if target_user else "Participant"
+
+    new_role = role_data.role.lower()
+    if new_role not in ["admin", "member"]:
+        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'member'.")
+
+    if new_role == "member" and str(target_user_id) == str(grp.creator_id):
+        raise HTTPException(status_code=400, detail="The group creator cannot be dismissed as admin.")
+
+    target_mem.role = new_role
+    sys_note = (
+        f"{current_user.full_name} made {target_name} a group admin"
+        if new_role == "admin"
+        else f"{current_user.full_name} dismissed {target_name} as admin"
+    )
+
+    sys_msg = models.GroupMessage(
+        group_id=grp.id,
+        sender_id=current_user.user_id,
+        content=sys_note,
+        message_type="system"
+    )
+    db.add(sys_msg)
+    db.commit()
+
+    # Broadcast role update
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
+    payload = {
+        "type": "group_role_updated",
+        "group_id": grp.id,
+        "target_user_id": target_user_id,
+        "new_role": new_role,
+        "system_note": sys_note
+    }
+    for m in members:
+        try:
+            await ws_manager.broadcast_to_user(str(m.user_id), payload)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": sys_note, "role": new_role}
+
+
+@app.delete("/api/groups/{group_id}", status_code=status.HTTP_200_OK)
+async def delete_group(
+    group_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    if str(grp.creator_id) != str(current_user.user_id):
+        raise HTTPException(status_code=403, detail="Only the group creator can delete this group.")
+
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
+    member_uids = [str(m.user_id) for m in members]
+
+    db.delete(grp)
+    db.commit()
+
+    # Notify all members that the group was deleted
+    broadcast_payload = {
+        "type": "group_deleted",
+        "group_id": group_id,
+        "message": f"{current_user.full_name} deleted the group."
+    }
+    for uid in member_uids:
+        try:
+            await ws_manager.broadcast_to_user(uid, broadcast_payload)
+        except Exception:
+            pass
+
+    return {"status": "success", "message": "Group deleted successfully."}
+
+
+@app.get("/api/groups/{group_id}/messages", response_model=List[schemas.GroupMessageOut])
+def get_group_messages(
+    group_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    msgs = (
+        db.query(models.GroupMessage)
+        .options(joinedload(models.GroupMessage.sender))
+        .filter(models.GroupMessage.group_id == group_id)
+        .order_by(models.GroupMessage.created_at.asc())
+        .limit(100)
+        .all()
+    )
+
+    results = []
+    for m in msgs:
+        u = m.sender
+        is_vendor = False
+        if u:
+            is_vendor = db.query(models.Vendor).filter(models.Vendor.user_id == u.user_id).first() is not None
+
+        results.append({
+            "id": m.id,
+            "group_id": m.group_id,
+            "sender_id": m.sender_id,
+            "sender_name": u.full_name if u else "Participant",
+            "sender_avatar": u.profile_picture_url if u else None,
+            "sender_role": "Vendor" if is_vendor else "Student",
+            "content": m.content,
+            "message_type": m.message_type or "text",
+            "media_url": m.media_url,
+            "duration": m.duration,
+            "reply_to_id": m.reply_to_id,
+            "reply_to_sender": m.reply_to_sender,
+            "reply_to_text": m.reply_to_text,
+            "reactions": m.reactions,
+            "created_at": m.created_at
+        })
+    return results
+
+
+@app.post("/api/groups/{group_id}/messages", response_model=schemas.GroupMessageOut)
+async def send_group_message(
+    group_id: int,
+    msg_data: schemas.GroupMessageCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    # WhatsApp Group Lock Security Check: Only admins can send messages
+    if grp.only_admins_can_message and my_mem.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only group admins can send messages in this group."
+        )
+
+    clean_content = sanitize_input_text(msg_data.content) if msg_data.content else ""
+    if not clean_content and msg_data.media_url:
+        clean_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else "Photo")
+    elif not clean_content:
+        clean_content = "Message"
+
+    new_msg = models.GroupMessage(
+        group_id=grp.id,
+        sender_id=current_user.user_id,
+        content=clean_content,
+        message_type=msg_data.message_type or "text",
+        media_url=msg_data.media_url,
+        duration=msg_data.duration,
+        reply_to_id=msg_data.reply_to_id,
+        reply_to_sender=sanitize_input_text(msg_data.reply_to_sender) if msg_data.reply_to_sender else None,
+        reply_to_text=sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else None
+    )
+    db.add(new_msg)
+    db.commit()
+    db.refresh(new_msg)
+
+    is_vendor = db.query(models.Vendor).filter(models.Vendor.user_id == current_user.user_id).first() is not None
+    sender_role = "Vendor" if is_vendor else "Student"
+
+    out_msg = {
+        "id": new_msg.id,
+        "group_id": new_msg.group_id,
+        "sender_id": current_user.user_id,
+        "sender_name": current_user.full_name,
+        "sender_avatar": current_user.profile_picture_url,
+        "sender_role": sender_role,
+        "content": new_msg.content,
+        "message_type": new_msg.message_type,
+        "media_url": new_msg.media_url,
+        "duration": new_msg.duration,
+        "reply_to_id": new_msg.reply_to_id,
+        "reply_to_sender": new_msg.reply_to_sender,
+        "reply_to_text": new_msg.reply_to_text,
+        "reactions": new_msg.reactions,
+        "created_at": new_msg.created_at
+    }
+
+    # Broadcast real-time message to all group members
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
+    ws_payload = {
+        "type": "new_group_message",
+        "group_id": grp.id,
+        "message": {
+            **out_msg,
+            "created_at": new_msg.created_at.isoformat() if new_msg.created_at else None
+        }
+    }
+    for m in members:
+        try:
+            await ws_manager.broadcast_to_user(str(m.user_id), ws_payload)
+        except Exception:
+            pass
+
+    return out_msg
+
+
+@app.post("/api/groups/{group_id}/messages/{message_id}/react", status_code=status.HTTP_200_OK)
+async def react_to_group_message(
+    group_id: int,
+    message_id: int,
+    req: schemas.MessageReact,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    msg = db.query(models.GroupMessage).filter(
+        models.GroupMessage.id == message_id,
+        models.GroupMessage.group_id == group_id
+    ).first()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found.")
+
+    reactions_dict = {}
+    if msg.reactions:
+        try:
+            reactions_dict = json.loads(msg.reactions)
+        except Exception:
+            reactions_dict = {}
+
+    uid = str(current_user.user_id)
+    if reactions_dict.get(uid) == req.emoji:
+        reactions_dict.pop(uid, None)
+    else:
+        reactions_dict[uid] = req.emoji
+
+    msg.reactions = json.dumps(reactions_dict) if reactions_dict else None
+    db.commit()
+
+    # Broadcast reaction to all group members
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).all()
+    ws_payload = {
+        "type": "group_message_reaction",
+        "group_id": group_id,
+        "message_id": message_id,
+        "reactions": msg.reactions,
+        "user_id": uid,
+        "emoji": req.emoji
+    }
+    for m in members:
+        try:
+            await ws_manager.broadcast_to_user(str(m.user_id), ws_payload)
+        except Exception:
+            pass
+
+    return {"status": "success", "message_id": msg.id, "reactions": msg.reactions}
 
 
 # --- CAMPUS SOCIAL & FRIEND REQUEST SYSTEM ---
