@@ -3990,7 +3990,7 @@ async def send_message(
 
     raw_content = sanitize_input_text(msg_data.content) if msg_data.content else ""
     if not raw_content and msg_data.media_url:
-        raw_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else ("Sticker" if msg_data.message_type == "sticker" else "Photo"))
+        raw_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else "Photo")
     elif not raw_content:
         raw_content = sanitize_input_text(msg_data.reply_to_text) if msg_data.reply_to_text else "Message"
 
@@ -4014,8 +4014,6 @@ async def send_message(
     # In-app Notification creation (safely wrapped)
     notif_title = f"Message from {current_user.full_name}"
     notif_body = f"{current_user.full_name}: {new_msg.content[:60] if new_msg.content else 'Sent an attachment'}"
-    if new_msg.message_type == "sticker":
-        notif_body = f"{current_user.full_name} sent a sticker 👾"
     try:
         if new_msg.message_type == "status_reply":
             notif_title = f"Story reply from {current_user.full_name}"
@@ -4367,8 +4365,6 @@ def get_conversations_list(
                 preview = "📷 Photo"
             elif m.message_type == "video":
                 preview = "🎥 Video"
-            elif m.message_type == "sticker":
-                preview = "👾 Sticker"
             elif m.message_type == "status_reply":
                 try:
                     p_data = json.loads(m.content)
@@ -4421,9 +4417,6 @@ def get_conversations_list(
                         preview = "📷 Photo"
                     elif last_g_msg.message_type == "video":
                         preview = "🎥 Video"
-                    elif last_g_msg.message_type == "sticker":
-                        s_name = "You" if str(last_g_msg.sender_id) == str(user_id) else (last_g_msg.sender.full_name.split()[0] if last_g_msg.sender else "Member")
-                        preview = f"{s_name}: 👾 Sticker"
                     elif last_g_msg.message_type == "system":
                         preview = f"ℹ️ {last_g_msg.content}"
                     else:
@@ -5187,7 +5180,7 @@ async def send_group_message(
 
     clean_content = sanitize_input_text(msg_data.content) if msg_data.content else ""
     if not clean_content and msg_data.media_url:
-        clean_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else ("Sticker" if msg_data.message_type == "sticker" else "Photo"))
+        clean_content = "Voice note" if msg_data.message_type == "audio" else ("Video" if msg_data.message_type == "video" else "Photo")
     elif not clean_content:
         clean_content = "Message"
 
