@@ -11070,10 +11070,15 @@ export default function StudentDashboard() {
         }}
         groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
         currentUser={currentUser}
+        onOpenDirectChat={(member) => {
+          handleSelectPartner(member);
+        }}
         onOpenAddMembers={() => {
+          setGroupInfoModalOpen(false);
           setAddGroupMembersModalOpen(true);
         }}
         onOpenSettings={() => {
+          setGroupInfoModalOpen(false);
           setGroupSettingsModalOpen(true);
         }}
         onGroupUpdated={(updatedGroup) => {
@@ -11127,8 +11132,11 @@ export default function StudentDashboard() {
         onClose={() => setAddGroupMembersModalOpen(false)}
         groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
         currentUser={currentUser}
-        onMembersAdded={() => {
-          setToast({ text: 'Participant(s) added successfully!', type: 'success' });
+        onMembersAdded={(addedIds) => {
+          setToast({ text: `Added ${addedIds.length} participant(s) successfully!`, type: 'success' });
+          API.get('/conversations').then(res => {
+            if (Array.isArray(res.data)) setConversations(res.data);
+          }).catch(() => {});
         }}
       />
 

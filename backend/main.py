@@ -5452,7 +5452,9 @@ def get_my_friends(
     return friends_list
 
 @app.get("/api/community/users")
+@app.get("/community/users")
 @app.get("/api/students")
+@app.get("/students")
 def discover_community_users(
     search: Optional[str] = None,
     role: Optional[str] = "all",

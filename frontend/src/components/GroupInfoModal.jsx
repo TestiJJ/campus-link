@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, X, Search, Camera, Check, AlertCircle,
   Shield, ShieldCheck, ShieldAlert, UserPlus, UserMinus,
   MessageSquare, Edit3, LogOut, Settings,
-  MoreVertical, GraduationCap, Loader2, Crown
+  MoreVertical, GraduationCap, Loader2, Crown, User
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl } from '../api';
 import SafeImage from './SafeImage';
@@ -37,8 +37,9 @@ export default function GroupInfoModal({
   // Participant search
   const [participantSearch, setParticipantSearch] = useState('');
 
-  // Active Menu Dropdown for Member Actions
-  const [activeMenuMemberId, setActiveMenuMemberId] = useState(null);
+  // Dedicated Member Action Sheet Modal (solves clipped dropdowns & poor touch responsiveness)
+  const [activeActionMember, setActiveActionMember] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -63,7 +64,7 @@ export default function GroupInfoModal({
       setSuccessMessage('');
       setIsEditingName(false);
       setIsEditingDesc(false);
-      setActiveMenuMemberId(null);
+      setActiveActionMember(null);
       fetchGroupDetails();
     }
   }, [isOpen, groupId]);
@@ -133,31 +134,37 @@ export default function GroupInfoModal({
 
   // 4. Promote or Demote Admin
   const handleUpdateRole = async (targetUserId, targetRole) => {
-    setActiveMenuMemberId(null);
+    setActionLoading(true);
     setErrorMessage('');
     try {
       await API.post(`/groups/${groupId}/members/${targetUserId}/role`, { role: targetRole });
       setSuccessMessage(`Updated participant role to ${targetRole}.`);
+      setActiveActionMember(null);
       await fetchGroupDetails();
       if (onGroupUpdated) onGroupUpdated({ id: groupId });
     } catch (err) {
       setErrorMessage(err?.response?.data?.detail || 'Failed to update role.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   // 5. Remove Member
   const handleRemoveMember = async (targetUserId, targetName) => {
-    setActiveMenuMemberId(null);
     if (!window.confirm(`Are you sure you want to remove ${targetName} from the group?`)) return;
 
+    setActionLoading(true);
     setErrorMessage('');
     try {
       await API.delete(`/groups/${groupId}/members/${targetUserId}`);
       setSuccessMessage(`Removed ${targetName} from the group.`);
+      setActiveActionMember(null);
       await fetchGroupDetails();
       if (onGroupUpdated) onGroupUpdated({ id: groupId });
     } catch (err) {
       setErrorMessage(err?.response?.data?.detail || 'Failed to remove member.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -381,7 +388,7 @@ export default function GroupInfoModal({
                         onOpenAddMembers();
                       }
                     }}
-                    className="py-2.5 px-3 bg-sky-50 hover:bg-sky-100 border border-sky-200/80 rounded-2xl text-sky-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                    className="py-2.5 px-3 bg-sky-50 hover:bg-sky-100 active:scale-98 border border-sky-200/80 rounded-2xl text-sky-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs"
                   >
                     <UserPlus className="w-4 h-4 text-sky-600" />
                     <span>Add Members</span>
@@ -396,7 +403,7 @@ export default function GroupInfoModal({
                         onOpenSettings();
                       }
                     }}
-                    className="py-2.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl text-slate-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                    className="py-2.5 px-3 bg-slate-50 hover:bg-slate-100 active:scale-98 border border-slate-200 rounded-2xl text-slate-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs"
                   >
                     <Settings className="w-4 h-4 text-slate-600" />
                     <span>Group Settings</span>
@@ -443,6 +450,15 @@ export default function GroupInfoModal({
                     onChange={(e) => setParticipantSearch(e.target.value)}
                     className="w-full pl-8.5 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500 font-medium"
                   />
+                  {participantSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setParticipantSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Participants List */}
@@ -451,15 +467,15 @@ export default function GroupInfoModal({
                     const isSelf = String(m.user_id) === currentUserId;
                     const isMemAdmin = m.group_role === 'admin';
                     const isMemCreator = m.is_creator;
-                    const isMenuOpen = activeMenuMemberId === m.user_id;
 
                     return (
                       <div
                         key={m.user_id}
-                        className="p-2.5 flex items-center justify-between hover:bg-slate-50 transition-colors relative"
+                        onClick={() => setActiveActionMember(m)}
+                        className="p-3 flex items-center justify-between hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer"
                       >
-                        <div className="flex items-center space-x-2.5 min-w-0">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold overflow-hidden shrink-0 text-xs">
+                        <div className="flex items-center space-x-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold overflow-hidden shrink-0 text-xs">
                             {m.avatar_url ? (
                               <SafeImage
                                 src={getMediaUrl(m.avatar_url)}
@@ -497,72 +513,20 @@ export default function GroupInfoModal({
                           </div>
                         </div>
 
-                        {/* Action Triggers */}
-                        <div className="relative shrink-0 ml-2">
+                        {/* Action Trigger Button (Explicit 44px Touch Target) */}
+                        <div className="shrink-0 ml-2">
                           <button
                             type="button"
-                            onClick={() => setActiveMenuMemberId(isMenuOpen ? null : m.user_id)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 cursor-pointer transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveActionMember(m);
+                            }}
+                            className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+                            title="Member options"
+                            aria-label="Member options"
                           >
-                            <MoreVertical className="w-3.5 h-3.5" />
+                            <MoreVertical className="w-4 h-4" />
                           </button>
-
-                          {/* Member Dropdown Menu */}
-                          {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-2xl shadow-xl z-20 py-1 divide-y divide-slate-100 text-xs">
-                              {!isSelf && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveMenuMemberId(null);
-                                    if (onOpenDirectChat) onOpenDirectChat(m);
-                                    onClose();
-                                  }}
-                                  className="w-full px-3 py-2 text-left text-slate-700 hover:bg-sky-50 hover:text-sky-700 flex items-center space-x-2 cursor-pointer"
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
-                                  <span>Message {m.full_name.split(' ')[0]}</span>
-                                </button>
-                              )}
-
-                              {isCurrentUserAdmin && !isSelf && (
-                                <>
-                                  {!isMemAdmin ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUpdateRole(m.user_id, 'admin')}
-                                      className="w-full px-3 py-2 text-left text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 cursor-pointer font-semibold"
-                                    >
-                                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>Make Group Admin</span>
-                                    </button>
-                                  ) : (
-                                    !isMemCreator && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateRole(m.user_id, 'member')}
-                                        className="w-full px-3 py-2 text-left text-amber-700 hover:bg-amber-50 flex items-center space-x-2 cursor-pointer font-semibold"
-                                      >
-                                        <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-                                        <span>Dismiss as Admin</span>
-                                      </button>
-                                    )
-                                  )}
-
-                                  {!isMemCreator && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveMember(m.user_id, m.full_name)}
-                                      className="w-full px-3 py-2 text-left text-rose-600 hover:bg-rose-50 flex items-center space-x-2 cursor-pointer font-semibold"
-                                    >
-                                      <UserMinus className="w-3.5 h-3.5 text-rose-500" />
-                                      <span>Remove from Group</span>
-                                    </button>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -584,6 +548,167 @@ export default function GroupInfoModal({
             </>
           )}
         </div>
+
+        {/* --- TACTILE MEMBER ACTION SHEET / MODAL --- */}
+        <AnimatePresence>
+          {activeActionMember && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setActiveActionMember(null)}
+              className="absolute inset-0 z-30 bg-slate-900/40 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+            >
+              <motion.div
+                initial={{ y: '100%', opacity: 0.5 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: '100%', opacity: 0 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-4 sm:p-5 shadow-2xl border border-slate-200/80 space-y-4"
+              >
+                {/* Member Profile Header */}
+                <div className="flex items-center space-x-3 pb-3 border-b border-slate-100">
+                  <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold overflow-hidden shrink-0 text-base">
+                    {activeActionMember.avatar_url ? (
+                      <SafeImage
+                        src={getMediaUrl(activeActionMember.avatar_url)}
+                        alt={activeActionMember.full_name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      (activeActionMember.full_name || 'U')[0].toUpperCase()
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-bold text-slate-900 truncate">
+                      {activeActionMember.full_name}
+                    </h3>
+                    <div className="flex items-center space-x-1.5 mt-0.5">
+                      {activeActionMember.is_creator ? (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 flex items-center space-x-1">
+                          <Crown className="w-3 h-3" />
+                          <span>Group Creator</span>
+                        </span>
+                      ) : activeActionMember.group_role === 'admin' ? (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 flex items-center space-x-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>Group Admin</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center space-x-1">
+                          <GraduationCap className="w-3 h-3" />
+                          <span>Campus Student</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveActionMember(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Actions List */}
+                <div className="space-y-2">
+                  {/* Message Member Privately */}
+                  {String(activeActionMember.user_id) !== currentUserId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = activeActionMember;
+                        setActiveActionMember(null);
+                        onClose();
+                        if (onOpenDirectChat) {
+                          onOpenDirectChat(target);
+                        }
+                      }}
+                      className="w-full p-3 rounded-xl bg-slate-50 hover:bg-sky-50 active:bg-sky-100 text-slate-800 hover:text-sky-800 text-xs font-bold flex items-center space-x-3 transition-colors cursor-pointer"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="block font-bold">Message {activeActionMember.full_name.split(' ')[0]}</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Start a private 1-on-1 direct conversation</span>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Admin Controls */}
+                  {isCurrentUserAdmin && String(activeActionMember.user_id) !== currentUserId && (
+                    <>
+                      {/* Promote / Dismiss Admin */}
+                      {activeActionMember.group_role !== 'admin' ? (
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={() => handleUpdateRole(activeActionMember.user_id, 'admin')}
+                          className="w-full p-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-900 text-xs font-bold flex items-center space-x-3 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-emerald-200 text-emerald-800 flex items-center justify-center shrink-0">
+                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                          </div>
+                          <div className="text-left">
+                            <span className="block font-bold">Make Group Admin</span>
+                            <span className="text-[10px] text-emerald-700 font-normal">Allow this student to manage settings and participants</span>
+                          </div>
+                        </button>
+                      ) : (
+                        !activeActionMember.is_creator && (
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={() => handleUpdateRole(activeActionMember.user_id, 'member')}
+                            className="w-full p-3 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-xs font-bold flex items-center space-x-3 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-amber-200 text-amber-800 flex items-center justify-center shrink-0">
+                              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
+                            </div>
+                            <div className="text-left">
+                              <span className="block font-bold">Dismiss as Admin</span>
+                              <span className="text-[10px] text-amber-700 font-normal">Demote this participant back to regular member</span>
+                            </div>
+                          </button>
+                        )
+                      )}
+
+                      {/* Remove Member */}
+                      {!activeActionMember.is_creator && (
+                        <button
+                          type="button"
+                          disabled={actionLoading}
+                          onClick={() => handleRemoveMember(activeActionMember.user_id, activeActionMember.full_name)}
+                          className="w-full p-3 rounded-xl bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-800 text-xs font-bold flex items-center space-x-3 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserMinus className="w-4 h-4" />}
+                          </div>
+                          <div className="text-left">
+                            <span className="block font-bold">Remove from Group</span>
+                            <span className="text-[10px] text-rose-600 font-normal">Remove {activeActionMember.full_name} from this group</span>
+                          </div>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Cancel Button */}
+                <button
+                  type="button"
+                  onClick={() => setActiveActionMember(null)}
+                  className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );

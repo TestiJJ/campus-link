@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Search, X, Check, Loader2, UserPlus, GraduationCap, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, X, Check, Loader2, UserPlus, GraduationCap, AlertCircle, Users } from 'lucide-react';
 import API, { getMediaUrl } from '../api';
 import SafeImage from './SafeImage';
 
@@ -20,32 +20,92 @@ export default function AddGroupMembersModal({
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    if (!isOpen || !groupId) return;
+    if (!isOpen) return;
     setSearchQuery('');
     setSelectedUserIds([]);
     setErrorMessage('');
+    setLoading(true);
 
-    async function fetchStudents() {
-      setLoading(true);
+    let isMounted = true;
+
+    async function loadData() {
       try {
-        const res = await API.get('/community/users?role=student');
-        const list = Array.isArray(res.data) ? res.data : [];
-        const existingSet = new Set(existingMemberIds.map((id) => String(id)));
+        // Try cached students first so UI is immediately responsive
+        let initialCached = [];
+        try {
+          const raw = localStorage.getItem('campusStudents') || localStorage.getItem('communityUsers');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              initialCached = parsed;
+            }
+          }
+        } catch (_) {}
+
+        // Fetch group details to know all existing member IDs dynamically
+        let existingSet = new Set((existingMemberIds || []).map(String));
+        if (groupId) {
+          try {
+            const groupRes = await API.get(`/groups/${groupId}`);
+            if (groupRes?.data?.members && Array.isArray(groupRes.data.members)) {
+              groupRes.data.members.forEach((m) => existingSet.add(String(m.user_id)));
+            }
+          } catch (e) {
+            console.warn('[AddGroupMembersModal] Could not fetch group details for existing members:', e);
+          }
+        }
+
         const myUid = String(currentUser?.user_id || currentUser?.id || '');
 
-        // Only show students who are not already in the group and not current user
-        setStudents(
-          list.filter((u) => u.role === 'student' && !existingSet.has(String(u.user_id)) && String(u.user_id) !== myUid)
-        );
+        // Fetch fresh students from backend
+        let fetchedStudents = [];
+        try {
+          const res = await API.get('/community/users?role=student');
+          if (Array.isArray(res.data)) {
+            fetchedStudents = res.data;
+          }
+        } catch (err1) {
+          try {
+            const fallbackRes = await API.get('/students');
+            if (Array.isArray(fallbackRes.data)) {
+              fetchedStudents = fallbackRes.data;
+            }
+          } catch (err2) {
+            console.warn('[AddGroupMembersModal] Network fetch failed, falling back to cache');
+          }
+        }
+
+        if (!isMounted) return;
+
+        const candidateList = fetchedStudents.length > 0 ? fetchedStudents : initialCached;
+
+        // Filter: student only, not current user, and not already in group
+        const available = candidateList.filter((u) => {
+          const uid = String(u.user_id || u.id || '');
+          if (!uid || uid === myUid) return false;
+          if (existingSet.has(uid)) return false;
+          const isStudent = u.role === 'student' || !u.role;
+          return isStudent;
+        });
+
+        setStudents(available);
       } catch (err) {
-        console.warn('[AddGroupMembersModal] Error loading students:', err);
-        setErrorMessage('Failed to load campus students.');
+        console.error('[AddGroupMembersModal] Error loading students:', err);
+        if (isMounted) {
+          setErrorMessage(err?.response?.data?.detail || 'Failed to load students list. Please check your connection.');
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
-    fetchStudents();
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen, groupId, existingMemberIds, currentUser]);
 
   if (!isOpen) return null;
@@ -66,21 +126,23 @@ export default function AddGroupMembersModal({
     return nameMatch || deptMatch || uniMatch;
   });
 
-  const selectedStudents = students.filter((u) => selectedUserIds.includes(String(u.user_id)));
+  const selectedStudents = students.filter((u) => selectedUserIds.includes(String(u.user_id || u.id)));
 
   const handleAddMembers = async () => {
-    if (!selectedUserIds.length) return;
+    if (!selectedUserIds.length || !groupId) return;
     setSubmitting(true);
     setErrorMessage('');
 
     try {
-      await API.post(`/groups/${groupId}/members`, { member_ids: selectedUserIds });
+      const res = await API.post(`/groups/${groupId}/members`, { member_ids: selectedUserIds });
       if (onMembersAdded) {
-        onMembersAdded(selectedUserIds);
+        onMembersAdded(selectedUserIds, res.data);
       }
       onClose();
     } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to add participants to group.');
+      console.error('[AddGroupMembersModal] Submit error:', err);
+      const detail = err?.response?.data?.detail || err?.message || 'Failed to add participants to group.';
+      setErrorMessage(detail);
     } finally {
       setSubmitting(false);
     }
@@ -141,6 +203,15 @@ export default function AddGroupMembersModal({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white transition-all font-medium"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Selected Chips */}
@@ -159,39 +230,48 @@ export default function AddGroupMembersModal({
                 </button>
               </div>
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-                {selectedStudents.map((u) => (
-                  <div
-                    key={u.user_id}
-                    className="flex items-center space-x-1.5 bg-sky-50 border border-sky-200 text-sky-900 px-2.5 py-1 rounded-xl text-xs font-semibold shrink-0"
-                  >
-                    <span>{u.full_name.split(' ')[0]}</span>
-                    <button
-                      type="button"
-                      onClick={() => toggleSelectUser(String(u.user_id))}
-                      className="hover:text-rose-600 cursor-pointer"
+                {selectedStudents.map((u) => {
+                  const uid = String(u.user_id || u.id);
+                  return (
+                    <div
+                      key={uid}
+                      className="flex items-center space-x-1.5 bg-sky-50 border border-sky-200 text-sky-900 px-2.5 py-1 rounded-xl text-xs font-semibold shrink-0"
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+                      <span>{(u.full_name || 'Student').split(' ')[0]}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectUser(uid)}
+                        className="hover:text-rose-600 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {/* Students List */}
-          <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl divide-y divide-slate-100">
+          <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl divide-y divide-slate-100 min-h-[160px]">
             {loading ? (
-              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
-                <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
-                <span>Loading campus students...</span>
+              <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
+                <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
+                <span className="font-medium text-slate-500">Loading campus students...</span>
               </div>
             ) : filteredStudents.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400">
-                {searchQuery ? `No students found matching "${searchQuery}".` : 'No additional students available to add.'}
+              <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
+                <Users className="w-8 h-8 text-slate-300" />
+                <span className="font-bold text-slate-600">
+                  {searchQuery ? `No students matching "${searchQuery}"` : 'No more campus students to add'}
+                </span>
+                <span className="text-[11px] text-slate-400 max-w-xs">
+                  {searchQuery ? 'Try searching by a different name or department.' : 'All campus students are already in this group.'}
+                </span>
               </div>
             ) : (
               filteredStudents.map((u) => {
-                const uid = String(u.user_id);
+                const uid = String(u.user_id || u.id);
                 const isSelected = selectedUserIds.includes(uid);
 
                 return (
@@ -199,7 +279,7 @@ export default function AddGroupMembersModal({
                     key={uid}
                     onClick={() => toggleSelectUser(uid)}
                     className={`p-3 flex items-center justify-between cursor-pointer transition-colors ${
-                      isSelected ? 'bg-sky-50/70' : 'hover:bg-slate-50'
+                      isSelected ? 'bg-sky-50/80' : 'hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex items-center space-x-3 min-w-0">
