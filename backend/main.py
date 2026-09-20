@@ -45,7 +45,10 @@ def init_db_schema():
             "CREATE INDEX IF NOT EXISTS ix_messages_recipient_sender ON messages (recipient_id, sender_id);",
             "ALTER TABLE universities ADD COLUMN IF NOT EXISTS abbreviation VARCHAR(20);",
             "CREATE INDEX IF NOT EXISTS ix_campus_statuses_active ON campus_statuses (university_id, expires_at);",
-            "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);"
+            "CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, is_read);",
+            "CREATE TABLE IF NOT EXISTS groups (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, description TEXT, avatar_url VARCHAR(500), creator_id VARCHAR(36) NOT NULL, only_admins_can_message BOOLEAN DEFAULT FALSE, only_admins_can_edit_info BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
+            "CREATE TABLE IF NOT EXISTS group_members (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, user_id VARCHAR(36) NOT NULL, role VARCHAR(20) DEFAULT 'member', joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_group_member UNIQUE (group_id, user_id));",
+            "CREATE TABLE IF NOT EXISTS group_messages (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, sender_id VARCHAR(36) NOT NULL, content TEXT NOT NULL, message_type VARCHAR(20) DEFAULT 'text', media_url VARCHAR(550), duration INTEGER, reply_to_id INTEGER, reply_to_sender VARCHAR(100), reply_to_text VARCHAR(255), reactions TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
         ]:
             try:
                 with database.engine.begin() as _conn:
@@ -4427,6 +4430,7 @@ def get_conversations_list(
 # --- WHATSAPP-STYLE GROUP CHATS & GROUP SETTINGS ---
 
 @app.post("/api/groups", response_model=schemas.GroupOut, status_code=status.HTTP_201_CREATED)
+@app.post("/groups", response_model=schemas.GroupOut, status_code=status.HTTP_201_CREATED)
 async def create_group(
     group_data: schemas.GroupCreate,
     current_user: models.User = Depends(get_current_user),
@@ -4549,6 +4553,7 @@ async def create_group(
 
 
 @app.get("/api/groups", response_model=List[schemas.GroupOut])
+@app.get("/groups", response_model=List[schemas.GroupOut])
 def get_user_groups(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(database.get_db)
@@ -4584,6 +4589,7 @@ def get_user_groups(
 
 
 @app.get("/api/groups/{group_id}", response_model=schemas.GroupDetailsOut)
+@app.get("/groups/{group_id}", response_model=schemas.GroupDetailsOut)
 def get_group_details(
     group_id: int,
     current_user: models.User = Depends(get_current_user),
@@ -4650,6 +4656,7 @@ def get_group_details(
 
 
 @app.put("/api/groups/{group_id}", response_model=schemas.GroupOut)
+@app.put("/groups/{group_id}", response_model=schemas.GroupOut)
 async def update_group_settings(
     group_id: int,
     group_data: schemas.GroupUpdate,
@@ -4764,6 +4771,7 @@ async def update_group_settings(
 
 
 @app.post("/api/groups/{group_id}/members", status_code=status.HTTP_200_OK)
+@app.post("/groups/{group_id}/members", status_code=status.HTTP_200_OK)
 async def add_group_members(
     group_id: int,
     data: schemas.GroupMemberAdd,
@@ -4842,6 +4850,7 @@ async def add_group_members(
 
 
 @app.delete("/api/groups/{group_id}/members/{target_user_id}", status_code=status.HTTP_200_OK)
+@app.delete("/groups/{group_id}/members/{target_user_id}", status_code=status.HTTP_200_OK)
 async def remove_or_exit_group(
     group_id: int,
     target_user_id: str,
@@ -4923,6 +4932,7 @@ async def remove_or_exit_group(
 
 
 @app.post("/api/groups/{group_id}/members/{target_user_id}/role", status_code=status.HTTP_200_OK)
+@app.post("/groups/{group_id}/members/{target_user_id}/role", status_code=status.HTTP_200_OK)
 async def update_member_role(
     group_id: int,
     target_user_id: str,
@@ -4993,6 +5003,7 @@ async def update_member_role(
 
 
 @app.delete("/api/groups/{group_id}", status_code=status.HTTP_200_OK)
+@app.delete("/groups/{group_id}", status_code=status.HTTP_200_OK)
 async def delete_group(
     group_id: int,
     current_user: models.User = Depends(get_current_user),
@@ -5027,6 +5038,7 @@ async def delete_group(
 
 
 @app.get("/api/groups/{group_id}/messages", response_model=List[schemas.GroupMessageOut])
+@app.get("/groups/{group_id}/messages", response_model=List[schemas.GroupMessageOut])
 def get_group_messages(
     group_id: int,
     current_user: models.User = Depends(get_current_user),
@@ -5076,6 +5088,7 @@ def get_group_messages(
 
 
 @app.post("/api/groups/{group_id}/messages", response_model=schemas.GroupMessageOut)
+@app.post("/groups/{group_id}/messages", response_model=schemas.GroupMessageOut)
 async def send_group_message(
     group_id: int,
     msg_data: schemas.GroupMessageCreate,
@@ -5162,6 +5175,7 @@ async def send_group_message(
 
 
 @app.post("/api/groups/{group_id}/messages/{message_id}/react", status_code=status.HTTP_200_OK)
+@app.post("/groups/{group_id}/messages/{message_id}/react", status_code=status.HTTP_200_OK)
 async def react_to_group_message(
     group_id: int,
     message_id: int,
