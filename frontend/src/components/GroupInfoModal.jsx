@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Users, X, Search, Camera, Check, AlertCircle,
   Shield, ShieldCheck, ShieldAlert, UserPlus, UserMinus,
-  MessageSquare, Edit3, Lock, Unlock, LogOut, Trash2,
-  MoreVertical, Store, GraduationCap, Loader2, Crown
+  MessageSquare, Edit3, LogOut, Settings,
+  MoreVertical, GraduationCap, Loader2, Crown
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl } from '../api';
 import SafeImage from './SafeImage';
@@ -15,8 +15,11 @@ export default function GroupInfoModal({
   groupId,
   currentUser,
   onGroupUpdated,
+  onGroupLeft,
   onGroupDeleted,
-  onOpenDirectChat
+  onOpenDirectChat,
+  onOpenAddMembers,
+  onOpenSettings
 }) {
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -33,13 +36,6 @@ export default function GroupInfoModal({
 
   // Participant search
   const [participantSearch, setParticipantSearch] = useState('');
-
-  // Add Participant Drawer
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [availableContacts, setAvailableContacts] = useState([]);
-  const [loadingContacts, setLoadingContacts] = useState(false);
-  const [selectedToAdd, setSelectedToAdd] = useState([]);
-  const [addingMembers, setAddingMembers] = useState(false);
 
   // Active Menu Dropdown for Member Actions
   const [activeMenuMemberId, setActiveMenuMemberId] = useState(null);
@@ -65,7 +61,6 @@ export default function GroupInfoModal({
     if (isOpen && groupId) {
       setErrorMessage('');
       setSuccessMessage('');
-      setShowAddMember(false);
       setIsEditingName(false);
       setIsEditingDesc(false);
       setActiveMenuMemberId(null);
@@ -73,32 +68,11 @@ export default function GroupInfoModal({
     }
   }, [isOpen, groupId]);
 
-  // Load contacts when "Add Participants" opens
-  useEffect(() => {
-    if (showAddMember) {
-      async function loadContacts() {
-        setLoadingContacts(true);
-        try {
-          const res = await API.get('/community/users?role=student');
-          const list = Array.isArray(res.data) ? res.data : [];
-          // Filter out users already in the group and keep only students
-          const currentMemberUids = new Set((group?.members || []).map((m) => String(m.user_id)));
-          setAvailableContacts(list.filter((u) => u.role === 'student' && !currentMemberUids.has(String(u.user_id))));
-        } catch (err) {
-          console.warn('[GroupInfoModal] Error loading contacts:', err);
-        } finally {
-          setLoadingContacts(false);
-        }
-      }
-      loadContacts();
-    }
-  }, [showAddMember, group]);
-
   if (!isOpen) return null;
 
   const currentUserId = String(currentUser?.user_id || currentUser?.id || '');
-  const isCurrentUserAdmin = group?.current_user_role === 'admin';
   const isCurrentUserCreator = String(group?.creator_id) === currentUserId;
+  const isCurrentUserAdmin = group?.current_user_role === 'admin' || isCurrentUserCreator;
 
   const canEditInfo = isCurrentUserAdmin || !group?.only_admins_can_edit_info;
 
@@ -157,40 +131,7 @@ export default function GroupInfoModal({
     }
   };
 
-  // 4. WhatsApp Permission Toggles (Admins only)
-  const handleToggleOnlyAdminsCanMessage = async (val) => {
-    if (!isCurrentUserAdmin) return;
-    setSavingSettings(true);
-    setErrorMessage('');
-    try {
-      const res = await API.put(`/groups/${groupId}`, { only_admins_can_message: val });
-      setGroup((prev) => ({ ...prev, only_admins_can_message: res.data.only_admins_can_message }));
-      setSuccessMessage(val ? 'Group locked: Only admins can send messages.' : 'Group opened: All members can send messages.');
-      if (onGroupUpdated) onGroupUpdated(res.data);
-    } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to change message settings.');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleToggleOnlyAdminsCanEditInfo = async (val) => {
-    if (!isCurrentUserAdmin) return;
-    setSavingSettings(true);
-    setErrorMessage('');
-    try {
-      const res = await API.put(`/groups/${groupId}`, { only_admins_can_edit_info: val });
-      setGroup((prev) => ({ ...prev, only_admins_can_edit_info: res.data.only_admins_can_edit_info }));
-      setSuccessMessage(val ? 'Info locked: Only admins can edit group info.' : 'Info opened: All participants can edit group info.');
-      if (onGroupUpdated) onGroupUpdated(res.data);
-    } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to change info settings.');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  // 5. Promote or Demote Admin
+  // 4. Promote or Demote Admin
   const handleUpdateRole = async (targetUserId, targetRole) => {
     setActiveMenuMemberId(null);
     setErrorMessage('');
@@ -204,7 +145,7 @@ export default function GroupInfoModal({
     }
   };
 
-  // 6. Remove Member
+  // 5. Remove Member
   const handleRemoveMember = async (targetUserId, targetName) => {
     setActiveMenuMemberId(null);
     if (!window.confirm(`Are you sure you want to remove ${targetName} from the group?`)) return;
@@ -220,48 +161,17 @@ export default function GroupInfoModal({
     }
   };
 
-  // 7. Exit Group
+  // 6. Exit Group
   const handleExitGroup = async () => {
     if (!window.confirm('Are you sure you want to leave this group?')) return;
     setErrorMessage('');
     try {
       await API.delete(`/groups/${groupId}/members/${currentUserId}`);
-      if (onGroupDeleted) onGroupDeleted(groupId);
+      if (onGroupLeft) onGroupLeft(groupId);
+      else if (onGroupDeleted) onGroupDeleted(groupId);
       onClose();
     } catch (err) {
       setErrorMessage(err?.response?.data?.detail || 'Failed to leave group.');
-    }
-  };
-
-  // 8. Delete Group (Creator Only)
-  const handleDeleteGroup = async () => {
-    if (!window.confirm('Are you sure you want to permanently delete this group? All messages will be erased.')) return;
-    setErrorMessage('');
-    try {
-      await API.delete(`/groups/${groupId}`);
-      if (onGroupDeleted) onGroupDeleted(groupId);
-      onClose();
-    } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to delete group.');
-    }
-  };
-
-  // 9. Add Participants Submit
-  const handleAddSelectedMembers = async () => {
-    if (!selectedToAdd.length) return;
-    setAddingMembers(true);
-    setErrorMessage('');
-    try {
-      await API.post(`/groups/${groupId}/members`, { member_ids: selectedToAdd });
-      setSuccessMessage(`Added ${selectedToAdd.length} participant(s).`);
-      setSelectedToAdd([]);
-      setShowAddMember(false);
-      await fetchGroupDetails();
-      if (onGroupUpdated) onGroupUpdated({ id: groupId });
-    } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to add participants.');
-    } finally {
-      setAddingMembers(false);
     }
   };
 
@@ -278,21 +188,21 @@ export default function GroupInfoModal({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 30 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-100 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden"
+        className="relative w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-100 flex flex-col h-[92dvh] sm:h-auto sm:max-h-[88vh] overflow-hidden"
       >
-        {/* Mobile Drag Indicator */}
+        {/* Mobile Drag Pill */}
         <div className="w-10 h-1 rounded-full bg-slate-200 mx-auto mt-2.5 sm:hidden shrink-0" />
 
-        {/* Header */}
+        {/* Modal Header */}
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-gradient-to-r from-sky-500/10 via-sky-50 to-white">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md shadow-sky-500/25 shrink-0">
-              <Users className="w-4 h-4" />
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md shadow-sky-500/25 shrink-0">
+              <Users className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-black text-slate-900 leading-tight">Group Info & Settings</h2>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 leading-tight">Group Info</h2>
               <p className="text-[11px] font-medium text-slate-500">
-                {group?.member_count || 0} participants • WhatsApp style
+                {group?.member_count || group?.members?.length || 0} participants
               </p>
             </div>
           </div>
@@ -306,11 +216,11 @@ export default function GroupInfoModal({
         </div>
 
         {/* Modal Scroll Content */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 divide-y divide-slate-100">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {loading ? (
             <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
               <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
-              <span>Loading group settings...</span>
+              <span>Loading group information...</span>
             </div>
           ) : (
             <>
@@ -461,112 +371,59 @@ export default function GroupInfoModal({
                 </p>
               </div>
 
-              {/* 2. WhatsApp Group Permissions Section (Admins Only) */}
-              {isCurrentUserAdmin && (
-                <div className="pt-4 space-y-3.5">
-                  <div className="flex items-center space-x-1.5">
-                    <Shield className="w-4 h-4 text-sky-600" />
-                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                      Group Settings & Permissions
-                    </h4>
-                  </div>
+              {/* 2. Quick Action Buttons Row */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {isCurrentUserAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenAddMembers) {
+                        onOpenAddMembers();
+                      }
+                    }}
+                    className="py-2.5 px-3 bg-sky-50 hover:bg-sky-100 border border-sky-200/80 rounded-2xl text-sky-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                  >
+                    <UserPlus className="w-4 h-4 text-sky-600" />
+                    <span>Add Members</span>
+                  </button>
+                )}
 
-                  {/* Lock/Open Group: Send Messages */}
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        {group?.only_admins_can_message ? (
-                          <Lock className="w-4 h-4 text-rose-500" />
-                        ) : (
-                          <Unlock className="w-4 h-4 text-emerald-600" />
-                        )}
-                        <div>
-                          <span className="text-xs font-bold text-slate-900 block">Send Messages</span>
-                          <span className="text-[10px] text-slate-500">
-                            {group?.only_admins_can_message
-                              ? 'Only admins can send messages'
-                              : 'All participants can send messages'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
+                {isCurrentUserAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onOpenSettings) {
+                        onOpenSettings();
+                      }
+                    }}
+                    className="py-2.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl text-slate-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-98"
+                  >
+                    <Settings className="w-4 h-4 text-slate-600" />
+                    <span>Group Settings</span>
+                  </button>
+                )}
+              </div>
 
-                    <div className="grid grid-cols-2 gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleOnlyAdminsCanMessage(false)}
-                        disabled={savingSettings}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
-                          !group?.only_admins_can_message
-                            ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        All Members
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleOnlyAdminsCanMessage(true)}
-                        disabled={savingSettings}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
-                          group?.only_admins_can_message
-                            ? 'bg-rose-500 text-white border-rose-600 shadow-xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        🔒 Only Admins
-                      </button>
+              {/* Group Policy Badges */}
+              {(group?.only_admins_can_message || group?.only_admins_can_edit_info) && (
+                <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-1">
+                  {group?.only_admins_can_message && (
+                    <div className="flex items-center space-x-2 text-[11px] text-amber-800 font-semibold">
+                      <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Only administrators can send messages in this group.</span>
                     </div>
-                  </div>
-
-                  {/* Lock/Open Info: Edit Group Info */}
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <Edit3 className="w-4 h-4 text-slate-600" />
-                        <div>
-                          <span className="text-xs font-bold text-slate-900 block">Edit Group Info</span>
-                          <span className="text-[10px] text-slate-500">
-                            {group?.only_admins_can_edit_info
-                              ? 'Only admins can change icon and subject'
-                              : 'All participants can edit info'}
-                          </span>
-                        </div>
-                      </div>
+                  )}
+                  {group?.only_admins_can_edit_info && (
+                    <div className="flex items-center space-x-2 text-[11px] text-amber-800 font-semibold">
+                      <Shield className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Only administrators can edit group info and photo.</span>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleOnlyAdminsCanEditInfo(false)}
-                        disabled={savingSettings}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
-                          !group?.only_admins_can_edit_info
-                            ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        All Members
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleOnlyAdminsCanEditInfo(true)}
-                        disabled={savingSettings}
-                        className={`py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer ${
-                          group?.only_admins_can_edit_info
-                            ? 'bg-sky-500 text-white border-sky-600 shadow-xs'
-                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        Only Admins
-                      </button>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
 
               {/* 3. Participants Section */}
-              <div className="pt-4 space-y-3">
+              <div className="pt-2 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-1.5">
                     <Users className="w-4 h-4 text-sky-600" />
@@ -574,119 +431,22 @@ export default function GroupInfoModal({
                       Participants ({group?.members?.length || 0})
                     </h4>
                   </div>
-                  {isCurrentUserAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAddMember(true)}
-                      className="px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-[11px] rounded-xl flex items-center space-x-1 cursor-pointer transition-colors"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>Add Members</span>
-                    </button>
-                  )}
                 </div>
-
-                {/* Add Member Drawer */}
-                {showAddMember && (
-                  <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-2xl space-y-2.5">
-                    <div className="flex items-center justify-between text-xs font-bold text-sky-900">
-                      <span>Select Contacts to Add</span>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddMember(false)}
-                        className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="max-h-40 overflow-y-auto divide-y divide-sky-100 bg-white rounded-xl border border-sky-100">
-                      {loadingContacts ? (
-                        <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center space-x-1.5">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500" />
-                          <span>Loading contacts...</span>
-                        </div>
-                      ) : availableContacts.length === 0 ? (
-                        <div className="p-3 text-center text-xs text-slate-400">
-                          All campus contacts are already in this group.
-                        </div>
-                      ) : (
-                        availableContacts.map((c) => {
-                          const cid = String(c.user_id);
-                          const isSel = selectedToAdd.includes(cid);
-                          return (
-                            <div
-                              key={cid}
-                              onClick={() => {
-                                setSelectedToAdd((prev) =>
-                                  isSel ? prev.filter((id) => id !== cid) : [...prev, cid]
-                                );
-                              }}
-                              className={`p-2 flex items-center justify-between cursor-pointer transition-colors ${
-                                isSel ? 'bg-sky-50' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className="flex items-center space-x-2 min-w-0">
-                                <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">
-                                  {(c.full_name || 'U')[0].toUpperCase()}
-                                </div>
-                                <div className="min-w-0">
-                                  <span className="text-xs font-semibold text-slate-800 truncate block">
-                                    {c.full_name}
-                                  </span>
-                                  <span className="text-[9px] text-slate-400 block">
-                                    {c.role === 'vendor' ? 'Vendor' : 'Student'}
-                                  </span>
-                                </div>
-                              </div>
-                              <div
-                                className={`w-4 h-4 rounded border flex items-center justify-center ${
-                                  isSel ? 'bg-sky-500 border-sky-600 text-white' : 'border-slate-300'
-                                }`}
-                              >
-                                {isSel && <Check className="w-3 h-3 stroke-[3]" />}
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowAddMember(false)}
-                        className="px-2.5 py-1 text-slate-600 text-xs font-semibold hover:bg-slate-100 rounded-lg cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleAddSelectedMembers}
-                        disabled={addingMembers || selectedToAdd.length === 0}
-                        className="px-3.5 py-1 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50 flex items-center space-x-1"
-                      >
-                        {addingMembers && <Loader2 className="w-3 h-3 animate-spin" />}
-                        <span>Add ({selectedToAdd.length})</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 {/* Filter Search */}
                 <div className="relative">
-                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="Search participants..."
                     value={participantSearch}
                     onChange={(e) => setParticipantSearch(e.target.value)}
-                    className="w-full pl-7 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500"
+                    className="w-full pl-8.5 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-sky-500 font-medium"
                   />
                 </div>
 
                 {/* Participants List */}
-                <div className="border border-slate-100 rounded-2xl divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                <div className="border border-slate-100 rounded-2xl divide-y divide-slate-100 max-h-56 overflow-y-auto">
                   {filteredMembers.map((m) => {
                     const isSelf = String(m.user_id) === currentUserId;
                     const isMemAdmin = m.group_role === 'admin';
@@ -716,15 +476,10 @@ export default function GroupInfoModal({
                               <span className="text-xs font-bold text-slate-800 truncate">
                                 {m.full_name} {isSelf && <span className="text-slate-400 font-normal">(You)</span>}
                               </span>
-                              {m.user_role === 'vendor' ? (
-                                <span className="text-[9px] font-black uppercase px-1 py-0.2 rounded bg-amber-100 text-amber-800 shrink-0">
-                                  Vendor
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-bold uppercase px-1 py-0.2 rounded bg-sky-100 text-sky-800 shrink-0">
-                                  Student
-                                </span>
-                              )}
+                              <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-sky-100 text-sky-800 flex items-center shrink-0">
+                                <GraduationCap className="w-2.5 h-2.5 mr-0.5" />
+                                Student
+                              </span>
                             </div>
                             <div className="flex items-center space-x-1.5 mt-0.5">
                               {isMemCreator && (
@@ -735,7 +490,7 @@ export default function GroupInfoModal({
                               )}
                               {isMemAdmin && !isMemCreator && (
                                 <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.2 rounded-md border border-emerald-200">
-                                  Group Admin
+                                  Admin
                                 </span>
                               )}
                             </div>
@@ -815,8 +570,8 @@ export default function GroupInfoModal({
                 </div>
               </div>
 
-              {/* 4. Danger Zone */}
-              <div className="pt-4 space-y-2">
+              {/* 4. Exit Group Button */}
+              <div className="pt-2">
                 <button
                   type="button"
                   onClick={handleExitGroup}
@@ -825,17 +580,6 @@ export default function GroupInfoModal({
                   <LogOut className="w-4 h-4" />
                   <span>Exit Group</span>
                 </button>
-
-                {isCurrentUserCreator && (
-                  <button
-                    type="button"
-                    onClick={handleDeleteGroup}
-                    className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-2 cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Delete Group for Everyone</span>
-                  </button>
-                )}
               </div>
             </>
           )}

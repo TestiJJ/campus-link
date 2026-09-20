@@ -4720,7 +4720,8 @@ async def update_group_settings(
     grp.updated_at = datetime.utcnow()
     db.commit()
 
-    # Record system message in chat
+    # Record system message in chat and send notifications
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
     if system_notes:
         for note in system_notes:
             sys_msg = models.GroupMessage(
@@ -4730,10 +4731,23 @@ async def update_group_settings(
                 message_type="system"
             )
             db.add(sys_msg)
+            for m in members:
+                if str(m.user_id) != str(current_user.user_id):
+                    try:
+                        create_notification(
+                            db=db,
+                            user_id=m.user_id,
+                            actor_id=current_user.user_id,
+                            notification_type="group_setting",
+                            title=grp.name,
+                            message=note,
+                            reference_id=str(grp.id)
+                        )
+                    except Exception:
+                        pass
         db.commit()
 
     # Broadcast update to all members
-    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
     update_payload = {
         "type": "group_updated",
         "group_id": grp.id,
@@ -4902,6 +4916,18 @@ async def remove_or_exit_group(
 
         sys_note = f"{current_user.full_name} removed {target_name}"
         db.delete(target_mem)
+        try:
+            create_notification(
+                db=db,
+                user_id=target_user_id,
+                actor_id=current_user.user_id,
+                notification_type="group_removed",
+                title=grp.name,
+                message=f"You were removed from {grp.name}",
+                reference_id=str(grp.id)
+            )
+        except Exception:
+            pass
 
     sys_msg = models.GroupMessage(
         group_id=grp.id,
@@ -4983,6 +5009,19 @@ async def update_member_role(
     )
     db.add(sys_msg)
     db.commit()
+
+    try:
+        create_notification(
+            db=db,
+            user_id=target_user_id,
+            actor_id=current_user.user_id,
+            notification_type="group_role",
+            title=grp.name,
+            message=f"You are now an admin of {grp.name}" if new_role == "admin" else f"You are no longer an admin of {grp.name}",
+            reference_id=str(grp.id)
+        )
+    except Exception:
+        pass
 
     # Broadcast role update
     members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
@@ -5166,6 +5205,8 @@ async def send_group_message(
         }
     }
     for m in members:
+        if str(m.user_id) == str(current_user.user_id):
+            continue  # Sender already gets message in HTTP response, prevent double message
         try:
             await ws_manager.broadcast_to_user(str(m.user_id), ws_payload)
         except Exception:

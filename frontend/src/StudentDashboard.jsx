@@ -27,6 +27,8 @@ import InstallAppButton from './components/InstallAppButton';
 import CampusSelectModal from './components/CampusSelectModal';
 import CreateGroupModal from './components/CreateGroupModal';
 import GroupInfoModal from './components/GroupInfoModal';
+import AddGroupMembersModal from './components/AddGroupMembersModal';
+import GroupSettingsModal from './components/GroupSettingsModal';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -480,6 +482,8 @@ export default function StudentDashboard() {
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [createGroupModalOpen, setCreateGroupModalOpen] = useState(false);
   const [groupInfoModalOpen, setGroupInfoModalOpen] = useState(false);
+  const [addGroupMembersModalOpen, setAddGroupMembersModalOpen] = useState(false);
+  const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
   const [activeGroupIdForModal, setActiveGroupIdForModal] = useState(null);
 
   // Chat Swipe-to-Reply & Action Popover State
@@ -1197,11 +1201,14 @@ export default function StudentDashboard() {
                 }
               }
 
-            // WhatsApp Group Chat Real-Time Events
+            // Campus Group Chat Real-Time Events
             if (data.type === 'new_group_message' && data.message) {
               const newM = data.message;
               const gKey = `group_${data.group_id}`;
               appendThreadMessage(gKey, newM);
+
+              const currentUid = String(currentUser?.user_id || currentUser?.id || '');
+              const isFromMe = String(newM.sender_id) === currentUid;
 
               const isCurrentGroupOpen = selectedPartnerRef.current && 
                 (String(selectedPartnerRef.current.partner_id) === gKey || Number(selectedPartnerRef.current.group_id) === Number(data.group_id)) &&
@@ -1209,7 +1216,15 @@ export default function StudentDashboard() {
 
               if (isCurrentGroupOpen) {
                 setChatMessages(prev => {
-                  if (prev.some(m => m.id === newM.id)) return prev;
+                  if (prev.some(m => String(m.id) === String(newM.id))) return prev;
+                  if (isFromMe) {
+                    const tempIdx = prev.findIndex(m => m.is_optimistic && (String(m.id).startsWith('temp_') || m.content === newM.content));
+                    if (tempIdx !== -1) {
+                      const next = [...prev];
+                      next[tempIdx] = { ...newM, is_optimistic: false };
+                      return next;
+                    }
+                  }
                   return [...prev, newM];
                 });
                 if (isUserNearBottom(chatContainerRef.current)) {
@@ -2262,7 +2277,12 @@ export default function StudentDashboard() {
 
           const confirmed = { ...res.data, is_optimistic: false };
           updateThreadMessage(partnerId, tempId, confirmed);
-          setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+          setChatMessages(prev => {
+            if (prev.some(m => String(m.id) === String(confirmed.id))) {
+              return prev.filter(m => m.id !== tempId);
+            }
+            return prev.map(m => (m.id === tempId ? confirmed : m));
+          });
         } catch (err) {
           console.error('Failed to upload group media batch:', err);
           setChatMessages(prev => prev.filter(m => m.id !== tempId));
@@ -2370,7 +2390,12 @@ export default function StudentDashboard() {
         const res = await API.post(`/groups/${groupId}/messages`, payload);
         const confirmed = { ...res.data, is_optimistic: false };
         updateThreadMessage(partnerId, tempId, confirmed);
-        setChatMessages(prev => prev.map(m => (m.id === tempId ? confirmed : m)));
+        setChatMessages(prev => {
+          if (prev.some(m => String(m.id) === String(confirmed.id))) {
+            return prev.filter(m => m.id !== tempId);
+          }
+          return prev.map(m => (m.id === tempId ? confirmed : m));
+        });
       } catch (err) {
         console.error('Failed to deliver group message:', err);
         setChatMessages(prev => prev.filter(m => m.id !== tempId));
@@ -6541,17 +6566,7 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                {!selectedPartner && (
-                  <button
-                    type="button"
-                    onClick={() => setCreateGroupModalOpen(true)}
-                    className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center space-x-1.5 shadow-2xs cursor-pointer shrink-0"
-                    title="Create student group chat"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>+ New Group</span>
-                  </button>
-                )}
+
 
                 {selectedPartner && (
                   <div className="flex items-center space-x-2 text-xs">
@@ -6628,11 +6643,11 @@ export default function StudentDashboard() {
                       <button
                         type="button"
                         onClick={() => setCreateGroupModalOpen(true)}
-                        className="px-2.5 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs active:scale-95 transition-all cursor-pointer shrink-0"
-                        title="Create new group chat"
+                        className="w-8 h-8 rounded-xl bg-sky-500 hover:bg-sky-600 text-white flex items-center justify-center shadow-2xs active:scale-95 transition-all cursor-pointer shrink-0"
+                        title="Create new group"
+                        aria-label="Create new group"
                       >
-                        <Users className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">New Group</span>
+                        <UserPlus className="w-4 h-4" />
                       </button>
                     </div>
 
@@ -7066,7 +7081,7 @@ export default function StudentDashboard() {
                                 </div>
                                 <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
                                   {selectedPartner.is_group ? (
-                                    <span className="text-slate-500 font-medium">Tap for group info & settings</span>
+                                    <span className="text-slate-500 font-medium">Tap for group info</span>
                                   ) : (() => {
                                     const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
                                     return (
@@ -7082,18 +7097,48 @@ export default function StudentDashboard() {
 
                             <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
                               {selectedPartner.is_group ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
-                                    setGroupInfoModalOpen(true);
-                                  }}
-                                  className="px-2.5 py-1 sm:py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                  title="Group info & settings"
-                                >
-                                  <Users className="w-3.5 h-3.5" />
-                                  <span>Group Info</span>
-                                </button>
+                                <div className="flex items-center space-x-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                      setGroupInfoModalOpen(true);
+                                    }}
+                                    className="px-2.5 py-1 sm:py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                    title="Group info"
+                                  >
+                                    <Users className="w-3.5 h-3.5" />
+                                    <span>Info</span>
+                                  </button>
+                                  {selectedPartner.is_admin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                        setAddGroupMembersModalOpen(true);
+                                      }}
+                                      className="p-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold rounded-xl text-[11px] flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                                      title="Add participants"
+                                      aria-label="Add participants"
+                                    >
+                                      <UserPlus className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {selectedPartner.is_admin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveGroupIdForModal(selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', ''));
+                                        setGroupSettingsModalOpen(true);
+                                      }}
+                                      className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                                      title="Group settings"
+                                      aria-label="Group settings"
+                                    >
+                                      <Settings className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               ) : (
                                 <>
                                   <button
@@ -11016,15 +11061,21 @@ export default function StudentDashboard() {
         }}
       />
 
-      {/* --- GROUP INFO & SETTINGS MODAL --- */}
+      {/* --- GROUP INFO MODAL --- */}
       <GroupInfoModal
         isOpen={groupInfoModalOpen}
         onClose={() => {
           setGroupInfoModalOpen(false);
           setActiveGroupIdForModal(null);
         }}
-        groupId={activeGroupIdForModal}
+        groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
         currentUser={currentUser}
+        onOpenAddMembers={() => {
+          setAddGroupMembersModalOpen(true);
+        }}
+        onOpenSettings={() => {
+          setGroupSettingsModalOpen(true);
+        }}
         onGroupUpdated={(updatedGroup) => {
           setConversations(prev => prev.map(c => {
             if (c.is_group && Number(c.group_id) === Number(updatedGroup.id)) {
@@ -11065,6 +11116,59 @@ export default function StudentDashboard() {
             setSelectedPartner(null);
           }
           setGroupInfoModalOpen(false);
+          setActiveGroupIdForModal(null);
+          setToast({ text: 'Group deleted.', type: 'info' });
+        }}
+      />
+
+      {/* --- ADD GROUP MEMBERS MODAL --- */}
+      <AddGroupMembersModal
+        isOpen={addGroupMembersModalOpen}
+        onClose={() => setAddGroupMembersModalOpen(false)}
+        groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
+        currentUser={currentUser}
+        onMembersAdded={() => {
+          setToast({ text: 'Participant(s) added successfully!', type: 'success' });
+        }}
+      />
+
+      {/* --- GROUP SETTINGS MODAL --- */}
+      <GroupSettingsModal
+        isOpen={groupSettingsModalOpen}
+        onClose={() => setGroupSettingsModalOpen(false)}
+        groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
+        currentUser={currentUser}
+        onGroupUpdated={(updatedGroup) => {
+          setConversations(prev => prev.map(c => {
+            if (c.is_group && Number(c.group_id) === Number(updatedGroup.id)) {
+              return {
+                ...c,
+                partner_name: updatedGroup.name,
+                partner_avatar: updatedGroup.avatar_url,
+                only_admins_can_message: updatedGroup.only_admins_can_message,
+                only_admins_can_edit_info: updatedGroup.only_admins_can_edit_info,
+                description: updatedGroup.description
+              };
+            }
+            return c;
+          }));
+          if (selectedPartner?.is_group && Number(selectedPartner.group_id) === Number(updatedGroup.id)) {
+            setSelectedPartner(prev => ({
+              ...prev,
+              partner_name: updatedGroup.name,
+              partner_avatar: updatedGroup.avatar_url,
+              only_admins_can_message: updatedGroup.only_admins_can_message,
+              only_admins_can_edit_info: updatedGroup.only_admins_can_edit_info,
+              description: updatedGroup.description
+            }));
+          }
+        }}
+        onGroupDeleted={(groupId) => {
+          setConversations(prev => prev.filter(c => !(c.is_group && Number(c.group_id) === Number(groupId))));
+          if (selectedPartner?.is_group && Number(selectedPartner.group_id) === Number(groupId)) {
+            setSelectedPartner(null);
+          }
+          setGroupSettingsModalOpen(false);
           setActiveGroupIdForModal(null);
           setToast({ text: 'Group deleted.', type: 'info' });
         }}
