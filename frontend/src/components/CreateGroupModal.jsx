@@ -20,6 +20,8 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated, curr
   const [errorMessage, setErrorMessage] = useState('');
 
   const fileInputRef = useRef(null);
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
 
   // Load available students and vendors when modal opens
   useEffect(() => {
@@ -32,14 +34,37 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated, curr
     setSearchQuery('');
     setErrorMessage('');
 
-    async function fetchUsers() {
+    const myUid = String(currentUserRef.current?.user_id || currentUserRef.current?.id || '');
+
+    // 1. Instant Cache Load
+    let initialCached = [];
+    try {
+      const raw = localStorage.getItem('campusStudents') || localStorage.getItem('communityUsers');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          initialCached = parsed;
+        }
+      }
+    } catch (_) {}
+
+    if (initialCached.length > 0) {
+      setUsersList(initialCached.filter((u) => (u.role === 'student' || !u.role) && String(u.user_id || u.id) !== myUid));
+      setLoadingUsers(false);
+    } else {
       setLoadingUsers(true);
+    }
+
+    async function fetchUsers() {
       try {
         const res = await API.get('/community/users?role=student');
         const list = Array.isArray(res.data) ? res.data : [];
-        const myUid = String(currentUser?.user_id || currentUser?.id || '');
-        // Filter strictly to students only and exclude current user
-        setUsersList(list.filter((u) => u.role === 'student' && String(u.user_id) !== myUid));
+        if (list.length > 0) {
+          try {
+            localStorage.setItem('campusStudents', JSON.stringify(list));
+          } catch (_) {}
+          setUsersList(list.filter((u) => (u.role === 'student' || !u.role) && String(u.user_id || u.id) !== myUid));
+        }
       } catch (err) {
         console.warn('[CreateGroupModal] Error loading contacts:', err);
       } finally {
@@ -47,7 +72,7 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated, curr
       }
     }
     fetchUsers();
-  }, [isOpen, currentUser]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

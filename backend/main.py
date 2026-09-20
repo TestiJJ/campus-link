@@ -151,31 +151,49 @@ def sanitize_input_text(val: Optional[str]) -> Optional[str]:
     return cleaned.strip()
 
 class SimpleRateLimiter:
-    """Thread-safe in-memory sliding-window rate limiter per client IP."""
+    """Thread-safe in-memory sliding-window rate limiter with per-user token and IP isolation."""
     def __init__(self):
         self.requests = defaultdict(list)
+        self.last_cleanup = time.time()
 
-    def is_allowed(self, client_ip: str, path: str) -> tuple[bool, int]:
+    def is_allowed(self, identifier: str, path: str, method: str = "GET") -> tuple[bool, int]:
         now = time.time()
         window = 60.0  # 1-minute evaluation window
         clean_path = path.split("?")[0].rstrip("/")
 
-        if any(clean_path.startswith(p) for p in ["/api/login", "/api/forgot-password"]):
-            max_reqs = 10
-        elif clean_path.startswith("/api/register"):
-            max_reqs = 10
-        elif any(clean_path.startswith(p) for p in ["/api/verify-email", "/api/resend-otp", "/api/verify-reset-code"]):
-            max_reqs = 10
-        elif "/api/ai/chat" in clean_path or clean_path.startswith("/ai/chat"):
-            max_reqs = 40
-        elif clean_path.startswith("/api/upload"):
-            max_reqs = 25
-        else:
-            max_reqs = 180  # Standard endpoint limit
+        # Health checks, openapi docs and root pings are never rate limited
+        if clean_path in ["", "/", "/health", "/api/health", "/docs", "/openapi.json"]:
+            return True, 0
 
-        key = f"{client_ip}:{clean_path}"
+        # Strict rate limits on authentication and password reset to stop brute force
+        if any(clean_path.startswith(p) for p in ["/api/login", "/api/forgot-password", "/login", "/forgot-password"]):
+            max_reqs = 15
+        elif any(clean_path.startswith(p) for p in ["/api/register", "/register"]):
+            max_reqs = 15
+        elif any(clean_path.startswith(p) for p in ["/api/verify-email", "/api/resend-otp", "/api/verify-reset-code"]):
+            max_reqs = 15
+        elif "/ai/chat" in clean_path:
+            max_reqs = 60
+        elif clean_path.startswith("/api/upload") or clean_path.startswith("/upload"):
+            max_reqs = 60
+        elif method.upper() == "GET":
+            # Very generous 1200 req/min (20 req/s) for GET requests (browsing, chat polling, active tab switching)
+            max_reqs = 1200
+        else:
+            # 360 req/min (6 req/s) for mutations (POST, PUT, DELETE, PATCH)
+            max_reqs = 360
+
+        key = f"{identifier}:{clean_path}"
         req_times = [t for t in self.requests[key] if now - t < window]
         self.requests[key] = req_times
+
+        # Housekeeping: prune old keys every 5 minutes if request table grows large
+        if now - self.last_cleanup > 300.0:
+            self.last_cleanup = now
+            if len(self.requests) > 2000:
+                dead_keys = [k for k, v in self.requests.items() if not v or (now - v[-1] >= window)]
+                for dk in dead_keys:
+                    self.requests.pop(dk, None)
 
         if len(req_times) >= max_reqs:
             retry_after = int(window - (now - req_times[0])) + 1
@@ -256,7 +274,15 @@ async def security_and_cors_middleware(request: Request, call_next):
         request.headers.get("x-forwarded-for", "").split(",")[0].strip()
         or (request.client.host if request.client else "unknown")
     )
-    is_allowed, retry_after = rate_limiter.is_allowed(client_ip, request.url.path)
+    auth_header = request.headers.get("authorization", "")
+    if auth_header and auth_header.startswith("Bearer "):
+        token_part = auth_header.split(" ")[1].strip()
+        # Fast hash of token suffix to isolate users even on shared campus Wi-Fi
+        limiter_id = f"usr_{abs(hash(token_part[-24:])) % 10000000}" if len(token_part) > 16 else f"ip_{client_ip}"
+    else:
+        limiter_id = f"ip_{client_ip}"
+
+    is_allowed, retry_after = rate_limiter.is_allowed(limiter_id, request.url.path, request.method)
     if not is_allowed:
         rate_resp = JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

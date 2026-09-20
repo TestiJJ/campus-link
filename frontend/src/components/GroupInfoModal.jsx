@@ -19,19 +19,20 @@ export default function GroupInfoModal({
   onGroupDeleted,
   onOpenDirectChat,
   onOpenAddMembers,
-  onOpenSettings
+  onOpenSettings,
+  initialGroupData
 }) {
-  const [group, setGroup] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [group, setGroup] = useState(initialGroupData || null);
+  const [loading, setLoading] = useState(!initialGroupData);
   const [savingSettings, setSavingSettings] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
   // Inline Editing
   const [isEditingName, setIsEditingName] = useState(false);
-  const [editNameValue, setEditNameValue] = useState('');
+  const [editNameValue, setEditNameValue] = useState(initialGroupData?.name || '');
   const [isEditingDesc, setIsEditingDesc] = useState(false);
-  const [editDescValue, setEditDescValue] = useState('');
+  const [editDescValue, setEditDescValue] = useState(initialGroupData?.description || '');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   // Participant search
@@ -42,19 +43,28 @@ export default function GroupInfoModal({
   const [actionLoading, setActionLoading] = useState(false);
 
   const fileInputRef = useRef(null);
+  const isFetchingRef = useRef(false);
 
   const fetchGroupDetails = async () => {
-    if (!groupId) return;
-    setLoading(true);
+    if (!groupId || isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (!group) setLoading(true);
+    setErrorMessage('');
     try {
       const res = await API.get(`/groups/${groupId}`);
       setGroup(res.data);
       setEditNameValue(res.data.name || '');
       setEditDescValue(res.data.description || '');
     } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to load group details.');
+      const is429 = err?.response?.status === 429;
+      if (is429) {
+        setErrorMessage('Network is busy. Showing cached group information.');
+      } else {
+        setErrorMessage(err?.response?.data?.detail || 'Failed to load group details.');
+      }
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   };
 
@@ -65,6 +75,11 @@ export default function GroupInfoModal({
       setIsEditingName(false);
       setIsEditingDesc(false);
       setActiveActionMember(null);
+      if (initialGroupData) {
+        setGroup(initialGroupData);
+        setEditNameValue(initialGroupData.name || '');
+        setEditDescValue(initialGroupData.description || '');
+      }
       fetchGroupDetails();
     }
   }, [isOpen, groupId]);

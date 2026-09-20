@@ -19,43 +19,72 @@ export default function AddGroupMembersModal({
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const existingMemberIdsRef = React.useRef(existingMemberIds);
+  existingMemberIdsRef.current = existingMemberIds;
+  const currentUserRef = React.useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const isFetchingRef = React.useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !groupId) return;
+
     setSearchQuery('');
     setSelectedUserIds([]);
     setErrorMessage('');
-    setLoading(true);
 
     let isMounted = true;
 
+    // 1. Instant Cache Load: display cached students immediately with 0ms delay
+    let initialCached = [];
+    try {
+      const raw = localStorage.getItem('campusStudents') || localStorage.getItem('communityUsers');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          initialCached = parsed;
+        }
+      }
+    } catch (_) {}
+
+    const myUid = String(currentUserRef.current?.user_id || currentUserRef.current?.id || '');
+    const baseExistingSet = new Set((existingMemberIdsRef.current || []).map(String));
+
+    const filterAvailable = (rawList, currExistingSet) => {
+      return (rawList || []).filter((u) => {
+        const uid = String(u.user_id || u.id || '');
+        if (!uid || uid === myUid) return false;
+        if (currExistingSet.has(uid)) return false;
+        return u.role === 'student' || !u.role;
+      });
+    };
+
+    if (initialCached.length > 0) {
+      const immediateAvailable = filterAvailable(initialCached, baseExistingSet);
+      if (immediateAvailable.length > 0) {
+        setStudents(immediateAvailable);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    } else {
+      setLoading(true);
+    }
+
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
     async function loadData() {
       try {
-        // Try cached students first so UI is immediately responsive
-        let initialCached = [];
-        try {
-          const raw = localStorage.getItem('campusStudents') || localStorage.getItem('communityUsers');
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              initialCached = parsed;
-            }
-          }
-        } catch (_) {}
-
         // Fetch group details to know all existing member IDs dynamically
-        let existingSet = new Set((existingMemberIds || []).map(String));
-        if (groupId) {
-          try {
-            const groupRes = await API.get(`/groups/${groupId}`);
-            if (groupRes?.data?.members && Array.isArray(groupRes.data.members)) {
-              groupRes.data.members.forEach((m) => existingSet.add(String(m.user_id)));
-            }
-          } catch (e) {
-            console.warn('[AddGroupMembersModal] Could not fetch group details for existing members:', e);
+        let existingSet = new Set((existingMemberIdsRef.current || []).map(String));
+        try {
+          const groupRes = await API.get(`/groups/${groupId}`);
+          if (groupRes?.data?.members && Array.isArray(groupRes.data.members)) {
+            groupRes.data.members.forEach((m) => existingSet.add(String(m.user_id)));
           }
+        } catch (e) {
+          console.warn('[AddGroupMembersModal] Could not fetch group details for existing members:', e);
         }
-
-        const myUid = String(currentUser?.user_id || currentUser?.id || '');
 
         // Fetch fresh students from backend
         let fetchedStudents = [];
@@ -71,33 +100,37 @@ export default function AddGroupMembersModal({
               fetchedStudents = fallbackRes.data;
             }
           } catch (err2) {
-            console.warn('[AddGroupMembersModal] Network fetch failed, falling back to cache');
+            console.warn('[AddGroupMembersModal] Network fetch failed, using cached list');
           }
         }
 
         if (!isMounted) return;
 
-        const candidateList = fetchedStudents.length > 0 ? fetchedStudents : initialCached;
-
-        // Filter: student only, not current user, and not already in group
-        const available = candidateList.filter((u) => {
-          const uid = String(u.user_id || u.id || '');
-          if (!uid || uid === myUid) return false;
-          if (existingSet.has(uid)) return false;
-          const isStudent = u.role === 'student' || !u.role;
-          return isStudent;
-        });
-
-        setStudents(available);
+        if (fetchedStudents.length > 0) {
+          try {
+            localStorage.setItem('campusStudents', JSON.stringify(fetchedStudents));
+          } catch (_) {}
+          const available = filterAvailable(fetchedStudents, existingSet);
+          setStudents(available);
+        } else if (initialCached.length > 0) {
+          const available = filterAvailable(initialCached, existingSet);
+          setStudents(available);
+        }
       } catch (err) {
         console.error('[AddGroupMembersModal] Error loading students:', err);
         if (isMounted) {
-          setErrorMessage(err?.response?.data?.detail || 'Failed to load students list. Please check your connection.');
+          const is429 = err?.response?.status === 429;
+          if (is429) {
+            setErrorMessage('Network is busy. Showing available students from cache.');
+          } else {
+            setErrorMessage(err?.response?.data?.detail || 'Failed to load students list. Please check your connection.');
+          }
         }
       } finally {
         if (isMounted) {
           setLoading(false);
         }
+        isFetchingRef.current = false;
       }
     }
 
@@ -105,8 +138,9 @@ export default function AddGroupMembersModal({
 
     return () => {
       isMounted = false;
+      isFetchingRef.current = false;
     };
-  }, [isOpen, groupId, existingMemberIds, currentUser]);
+  }, [isOpen, groupId]);
 
   if (!isOpen) return null;
 

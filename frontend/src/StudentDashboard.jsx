@@ -11069,6 +11069,16 @@ export default function StudentDashboard() {
           setActiveGroupIdForModal(null);
         }}
         groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
+        initialGroupData={selectedPartner?.is_group ? {
+          id: selectedPartner.group_id,
+          name: selectedPartner.partner_name,
+          avatar_url: selectedPartner.partner_avatar,
+          creator_id: selectedPartner.creator_id,
+          description: selectedPartner.description,
+          only_admins_can_message: selectedPartner.only_admins_can_message,
+          only_admins_can_edit_info: selectedPartner.only_admins_can_edit_info,
+          current_user_role: selectedPartner.is_admin ? 'admin' : 'member'
+        } : null}
         currentUser={currentUser}
         onOpenDirectChat={(member) => {
           handleSelectPartner(member);
@@ -11145,6 +11155,15 @@ export default function StudentDashboard() {
         isOpen={groupSettingsModalOpen}
         onClose={() => setGroupSettingsModalOpen(false)}
         groupId={activeGroupIdForModal || selectedPartner?.group_id || (selectedPartner?.is_group ? String(selectedPartner?.partner_id).replace('group_', '') : null)}
+        initialGroupData={selectedPartner?.is_group ? {
+          id: selectedPartner.group_id,
+          name: selectedPartner.partner_name,
+          avatar_url: selectedPartner.partner_avatar,
+          creator_id: selectedPartner.creator_id,
+          only_admins_can_message: selectedPartner.only_admins_can_message,
+          only_admins_can_edit_info: selectedPartner.only_admins_can_edit_info,
+          current_user_role: selectedPartner.is_admin ? 'admin' : 'member'
+        } : null}
         currentUser={currentUser}
         onGroupUpdated={(updatedGroup) => {
           setConversations(prev => prev.map(c => {

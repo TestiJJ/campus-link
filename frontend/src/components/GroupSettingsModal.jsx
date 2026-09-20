@@ -13,10 +13,11 @@ export default function GroupSettingsModal({
   groupId,
   currentUser,
   onGroupUpdated,
-  onGroupDeleted
+  onGroupDeleted,
+  initialGroupData
 }) {
-  const [group, setGroup] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [group, setGroup] = useState(initialGroupData || null);
+  const [loading, setLoading] = useState(!initialGroupData);
   const [updatingSetting, setUpdatingSetting] = useState(false);
   const [memberRoleActionUser, setMemberRoleActionUser] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -25,17 +26,26 @@ export default function GroupSettingsModal({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingGroup, setDeletingGroup] = useState(false);
 
+  const isFetchingRef = React.useRef(false);
+
   const fetchDetails = async () => {
-    if (!groupId) return;
-    setLoading(true);
+    if (!groupId || isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    if (!group) setLoading(true);
     setErrorMessage('');
     try {
       const res = await API.get(`/groups/${groupId}`);
       setGroup(res.data);
     } catch (err) {
-      setErrorMessage(err?.response?.data?.detail || 'Failed to load group settings.');
+      const is429 = err?.response?.status === 429;
+      if (is429) {
+        setErrorMessage('Server is busy (rate limit). Please tap retry in a moment.');
+      } else {
+        setErrorMessage(err?.response?.data?.detail || 'Failed to load group settings.');
+      }
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   };
 
@@ -44,6 +54,10 @@ export default function GroupSettingsModal({
       setErrorMessage('');
       setSuccessMessage('');
       setShowDeleteConfirm(false);
+      if (initialGroupData) {
+        setGroup(initialGroupData);
+        setLoading(false);
+      }
       fetchDetails();
     }
   }, [isOpen, groupId]);
@@ -181,9 +195,18 @@ export default function GroupSettingsModal({
           ) : (
             <>
               {errorMessage && (
-                <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{errorMessage}</span>
+                <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{errorMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={fetchDetails}
+                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-lg text-[11px] font-bold cursor-pointer shrink-0 transition-colors"
+                  >
+                    Retry
+                  </button>
                 </div>
               )}
               {successMessage && (
