@@ -23,7 +23,7 @@ class UserBase(BaseModel):
     phone_number: Optional[str] = None
     role: str = "student"  # student | vendor | admin
     status: Optional[str] = "active"  # active | suspended
-    university_id: Optional[int] = None
+    university_id: Optional[Union[int, str]] = None
     state: Optional[str] = None
     department: Optional[str] = None
     level: Optional[str] = None

@@ -98,7 +98,8 @@ export default function Auth() {
     } catch {}
     return DEFAULT_INSTITUTIONS;
   });
-  const [instSearch, setInstSearch] = useState('');
+  const [selectedInstName, setSelectedInstName] = useState('');
+  const [instSearchQuery, setInstSearchQuery] = useState('');
   const [showInstDropdown, setShowInstDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -134,6 +135,7 @@ export default function Auth() {
     return '';
   });
   const [invalidFieldId, setInvalidFieldId] = useState(null);
+  const [emailAlreadyExists, setEmailAlreadyExists] = useState(false);
   const [otpSuccessMessage, setOtpSuccessMessage] = useState('');
 
   // Diagnostic Server Health Check (Warms up Render backend & checks reachability)
@@ -252,11 +254,14 @@ export default function Auth() {
   };
 
   const handleSelectInstitution = (inst) => {
+    const uniId = inst.id || 52;
+    const displayName = inst.abbreviation ? `${inst.name} (${inst.abbreviation})` : inst.name;
     setFormData((prev) => ({
       ...prev,
-      university_id: inst.id || inst.abbreviation || inst.name,
+      university_id: uniId,
     }));
-    setInstSearch(inst.abbreviation ? `${inst.name} (${inst.abbreviation})` : inst.name);
+    setSelectedInstName(displayName);
+    setInstSearchQuery('');
     setShowInstDropdown(false);
     setErrorMessage('');
     setInvalidFieldId(null);
@@ -266,6 +271,17 @@ export default function Auth() {
     // 1. Direct Backend Detail Message (e.g., "Invalid email or password", "Database connection failed", etc.)
     if (serverData?.detail && typeof serverData.detail === 'string') {
       return serverData.detail;
+    }
+
+    // 1b. Backend Pydantic / Validation array of errors (e.g. 422 Unprocessable Entity)
+    if (Array.isArray(serverData?.detail) && serverData.detail.length > 0) {
+      return serverData.detail
+        .map((item) => {
+          const loc = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : '';
+          const fieldLabel = loc ? `${String(loc).replace(/_/g, ' ')}: ` : '';
+          return `${fieldLabel}${item?.msg || 'Invalid input'}`;
+        })
+        .join('; ');
     }
 
     const msg = String(err?.message || '');
@@ -346,8 +362,13 @@ export default function Auth() {
         return;
       }
       if (!formData.university_id) {
-        triggerValidationError('Please select your university or polytechnic institution.', 'field-university');
-        return;
+        if (instSearchQuery && (instSearchQuery.toLowerCase().includes('jabu') || instSearchQuery.toLowerCase().includes('babalola'))) {
+          formData.university_id = 52;
+          setSelectedInstName("Joseph Ayo Babalola University, Ikeji-Arakeji (JABU)");
+        } else {
+          triggerValidationError('Please select your university or polytechnic institution.', 'field-university');
+          return;
+        }
       }
       if (role === 'vendor' && !formData.business_name.trim()) {
         triggerValidationError('Business store name is required for vendor registration.', 'field-business_name');
@@ -382,7 +403,9 @@ export default function Auth() {
         phone_number: formData.phone_number.trim(),
         password: formData.password,
         role,
-        university_id: formData.university_id,
+        university_id: (formData.university_id && !isNaN(Number(formData.university_id)))
+          ? Number(formData.university_id)
+          : (formData.university_id || 52),
         matric_number: formData.matric_number ? formData.matric_number.trim() : null,
         department: role === 'student' ? (formData.department?.trim() || null) : null,
         level: role === 'student' ? formData.level : null,
@@ -716,11 +739,15 @@ export default function Auth() {
   };
 
   const filteredInstitutions = institutions.filter((inst) => {
-    const q = (instSearch || '').toLowerCase().trim();
+    const rawQ = (instSearchQuery || '').toLowerCase().trim();
+    if (!rawQ) return true;
+
+    // Clean query: strip out parentheses and commas
+    const q = rawQ.replace(/[(),]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!q) return true;
 
     const cleanQ = q.replace(/\buni\b/g, 'university').trim();
-    const nameLower = (inst.name || '').toLowerCase();
+    const nameLower = (inst.name || '').toLowerCase().replace(/[(),]/g, ' ');
     const abbrLower = (inst.abbreviation || '').toLowerCase();
     const stateLower = (inst.state || '').toLowerCase();
 
@@ -1017,7 +1044,10 @@ export default function Auth() {
                 <div
                   id="field-university"
                   tabIndex={0}
-                  onClick={() => setShowInstDropdown(true)}
+                  onClick={() => {
+                    setShowInstDropdown(prev => !prev);
+                    setInstSearchQuery('');
+                  }}
                   className={`w-full pl-10 pr-4 py-3 rounded-xl text-xs flex items-center justify-between cursor-pointer focus:outline-none transition-all ${
                     invalidFieldId === 'field-university'
                       ? 'bg-rose-50 border-2 border-rose-500 ring-2 ring-rose-200 text-rose-900 shadow-sm'
@@ -1026,7 +1056,7 @@ export default function Auth() {
                 >
                   <Building2 className={`w-4 h-4 absolute left-3.5 top-[38px] -translate-y-1/2 ${invalidFieldId === 'field-university' ? 'text-rose-500' : 'text-slate-400'}`} />
                   <span className={formData.university_id ? 'font-bold text-slate-900' : (invalidFieldId === 'field-university' ? 'font-bold text-rose-600' : 'text-slate-400')}>
-                    {instSearch || (invalidFieldId === 'field-university' ? '⚠️ Click here to select your university' : 'Select your university/polytechnic')}
+                    {selectedInstName || (invalidFieldId === 'field-university' ? '⚠️ Click here to select your university' : 'Select your university/polytechnic')}
                   </span>
                   <ChevronDown className={`w-4 h-4 ${invalidFieldId === 'field-university' ? 'text-rose-500' : 'text-slate-400'}`} />
                 </div>
@@ -1037,20 +1067,49 @@ export default function Auth() {
                 )}
 
                 {showInstDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 max-h-56 overflow-y-auto">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2.5 max-h-64 overflow-y-auto">
                     <input
                       type="text"
-                      placeholder="Search institution name..."
-                      value={instSearch}
-                      onChange={(e) => setInstSearch(e.target.value)}
+                      placeholder="Search institution or acronym (e.g. JABU, UNILAG, UI)..."
+                      value={instSearchQuery}
+                      onChange={(e) => setInstSearchQuery(e.target.value)}
+                      autoFocus
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 mb-2 focus:outline-none focus:border-sky-500"
                     />
+
+                    {/* Popular Quick Select Chips */}
+                    <div className="flex items-center space-x-1.5 overflow-x-auto pb-1.5 mb-1.5 text-[11px] no-scrollbar">
+                      <span className="text-[10px] font-semibold text-slate-400 shrink-0">Popular:</span>
+                      {[
+                        { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU" },
+                        { id: 25, name: "University of Lagos", abbreviation: "UNILAG" },
+                        { id: 22, name: "University of Ibadan", abbreviation: "UI" },
+                        { id: 18, name: "Obafemi Awolowo University, Ile-Ife", abbreviation: "OAU" },
+                        { id: 12, name: "Federal University of Technology, Akure", abbreviation: "FUTA" },
+                      ].map((chip) => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => handleSelectInstitution(chip)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-colors shrink-0 cursor-pointer ${
+                            formData.university_id === chip.id
+                              ? 'bg-sky-500 text-white border-sky-600'
+                              : 'bg-slate-100 hover:bg-sky-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {chip.abbreviation}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="space-y-1">
                       {filteredInstitutions.map((inst) => (
                         <div
                           key={inst.id || inst.name}
                           onClick={() => handleSelectInstitution(inst)}
-                          className="p-2.5 rounded-xl hover:bg-sky-50 text-xs font-semibold text-slate-700 hover:text-sky-700 cursor-pointer flex items-center justify-between transition-colors"
+                          className={`p-2.5 rounded-xl hover:bg-sky-50 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${
+                            formData.university_id === inst.id ? 'bg-sky-50 text-sky-700 font-bold border border-sky-200' : 'text-slate-700 hover:text-sky-700'
+                          }`}
                         >
                           <div className="flex items-center space-x-2">
                             <span>{inst.name}</span>
@@ -1064,8 +1123,30 @@ export default function Auth() {
                         </div>
                       ))}
                       {filteredInstitutions.length === 0 && (
-                        <div className="p-3 text-center text-xs text-slate-400">
-                          No institution found matching "{instSearch}".
+                        <div className="p-3 text-center space-y-2">
+                          <p className="text-xs text-slate-500">
+                            No institution found matching "{instSearchQuery}".
+                          </p>
+                          {instSearchQuery.trim().length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const q = instSearchQuery.trim();
+                                if (q.toLowerCase().includes('jabu') || q.toLowerCase().includes('babalola')) {
+                                  handleSelectInstitution({ id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU" });
+                                } else {
+                                  setFormData(prev => ({ ...prev, university_id: q }));
+                                  setSelectedInstName(q);
+                                  setShowInstDropdown(false);
+                                  setErrorMessage('');
+                                  setInvalidFieldId(null);
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+                            >
+                              Use "{instSearchQuery.trim()}" as my school
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>

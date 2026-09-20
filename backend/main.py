@@ -207,6 +207,22 @@ _extra_fe = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
 if _extra_fe:
     ALLOWED_ORIGINS.add(_extra_fe)
 
+def is_origin_allowed(origin: Optional[str]) -> bool:
+    if not origin:
+        return False
+    if origin in ALLOWED_ORIGINS:
+        return True
+    origin_clean = origin.strip().rstrip("/").lower()
+    if (
+        origin_clean.endswith(".onrender.com") or
+        origin_clean.endswith(".campus-link.com.ng") or
+        origin_clean.endswith(".vercel.app") or
+        "localhost" in origin_clean or
+        "127.0.0.1" in origin_clean
+    ):
+        return True
+    return False
+
 def apply_security_and_cors_headers(response, origin: Optional[str]):
     """Applies OWASP security headers and strictly whitelisted CORS headers to every response."""
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -215,7 +231,7 @@ def apply_security_and_cors_headers(response, origin: Optional[str]):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     
-    if origin and origin in ALLOWED_ORIGINS:
+    if origin and is_origin_allowed(origin):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
@@ -270,6 +286,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(onrender\.com|campus-link\.com\.ng|vercel\.app)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
@@ -861,7 +878,7 @@ def register_user(
             uni = db.query(models.University).filter(models.University.id == int(u_val)).first()
             if uni:
                 parsed_uni_id = uni.id
-        if not parsed_uni_id:
+        if not parsed_uni_id and u_val:
             uni = db.query(models.University).filter(
                 (models.University.name == u_val) |
                 (models.University.abbreviation == u_val) |
@@ -869,6 +886,43 @@ def register_user(
             ).first()
             if uni:
                 parsed_uni_id = uni.id
+            elif "jabu" in u_val.lower() or "babalola" in u_val.lower():
+                jabu = db.query(models.University).filter(
+                    (models.University.abbreviation == "JABU") |
+                    (models.University.name.ilike("%Joseph Ayo Babalola%"))
+                ).first()
+                if not jabu:
+                    try:
+                        jabu = models.University(
+                            name="Joseph Ayo Babalola University, Ikeji-Arakeji",
+                            state="Osun",
+                            type="Private",
+                            abbreviation="JABU"
+                        )
+                        db.add(jabu)
+                        db.commit()
+                        db.refresh(jabu)
+                    except Exception:
+                        db.rollback()
+                        jabu = db.query(models.University).filter(
+                            (models.University.abbreviation == "JABU") |
+                            (models.University.name.ilike("%Joseph Ayo Babalola%"))
+                        ).first()
+                if jabu:
+                    parsed_uni_id = jabu.id
+            elif len(u_val) >= 3 and not u_val.isdigit():
+                try:
+                    new_inst = models.University(
+                        name=u_val,
+                        state="Other",
+                        type="Higher Institution"
+                    )
+                    db.add(new_inst)
+                    db.commit()
+                    db.refresh(new_inst)
+                    parsed_uni_id = new_inst.id
+                except Exception:
+                    db.rollback()
 
     hashed_pw = auth.hash_password(user_data.password)
     otp = str(random.randint(100000, 999999))
