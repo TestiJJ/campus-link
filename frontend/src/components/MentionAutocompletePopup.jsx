@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { AtSign, Shield, Crown, Users, BellRing, Sparkles } from 'lucide-react';
+import { AtSign, Shield, Crown, Users, BellRing } from 'lucide-react';
 import SafeImage from './SafeImage';
 
 export default function MentionAutocompletePopup({
@@ -29,7 +29,7 @@ export default function MentionAutocompletePopup({
   // Clean and prepare query
   const cleanQuery = query.toLowerCase().trim();
 
-  // Generate Special Mention Tags (@everyone, @admins)
+  // Generate Special Mention Tags (Only @everyone)
   const specialTags = useMemo(() => {
     const list = [
       {
@@ -41,16 +41,6 @@ export default function MentionAutocompletePopup({
         description: 'Notify all members of this group',
         icon: Users,
         iconBg: 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-400'
-      },
-      {
-        id: '__admins__',
-        isSpecial: true,
-        display: '@admins',
-        name: 'admins',
-        label: '@admins',
-        description: 'Notify group administrators only',
-        icon: Shield,
-        iconBg: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-400'
       }
     ];
 
@@ -58,7 +48,7 @@ export default function MentionAutocompletePopup({
     return list.filter((t) =>
       t.name.includes(cleanQuery) ||
       t.label.toLowerCase().includes(cleanQuery) ||
-      (t.name === 'everyone' && ('all'.includes(cleanQuery) || 'everybody'.includes(cleanQuery)))
+      ('all'.includes(cleanQuery) || 'everybody'.includes(cleanQuery))
     );
   }, [cleanQuery]);
 
@@ -182,9 +172,8 @@ export default function MentionAutocompletePopup({
                     <span className="font-extrabold text-xs text-amber-700 dark:text-amber-300 truncate">
                       {item.display}
                     </span>
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">
-                      <Sparkles className="w-2.5 h-2.5 text-amber-500 fill-amber-500" />
-                      <span>Tag</span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">
+                      All Members
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{item.description}</p>

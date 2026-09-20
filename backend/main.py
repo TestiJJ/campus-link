@@ -49,7 +49,8 @@ def init_db_schema():
             "CREATE TABLE IF NOT EXISTS groups (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, description TEXT, avatar_url VARCHAR(500), creator_id VARCHAR(36) NOT NULL, only_admins_can_message BOOLEAN DEFAULT FALSE, only_admins_can_edit_info BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
             "CREATE TABLE IF NOT EXISTS group_members (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, user_id VARCHAR(36) NOT NULL, role VARCHAR(20) DEFAULT 'member', joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_group_member UNIQUE (group_id, user_id));",
             "CREATE TABLE IF NOT EXISTS group_messages (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, sender_id VARCHAR(36) NOT NULL, content TEXT NOT NULL, message_type VARCHAR(20) DEFAULT 'text', media_url VARCHAR(550), duration INTEGER, reply_to_id INTEGER, reply_to_sender VARCHAR(100), reply_to_text VARCHAR(255), reactions TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
-            "ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS mentions TEXT;"
+            "ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS mentions TEXT;",
+            "ALTER TABLE group_members ADD COLUMN IF NOT EXISTS last_read_message_id INTEGER DEFAULT 0;"
         ]:
             try:
                 with database.engine.begin() as _conn:
@@ -4426,6 +4427,37 @@ def get_conversations_list(
                         s_name = "You" if str(last_g_msg.sender_id) == str(user_id) else (last_g_msg.sender.full_name.split()[0] if last_g_msg.sender else "Member")
                         preview = f"{s_name}: {last_g_msg.content}"
 
+                # Calculate unread messages count for this member in this group
+                last_read_id = mem.last_read_message_id or 0
+                unread_msgs = db.query(models.GroupMessage).filter(
+                    models.GroupMessage.group_id == grp.id,
+                    models.GroupMessage.sender_id != user_id,
+                    models.GroupMessage.id > last_read_id
+                ).all()
+                unread_count = len(unread_msgs)
+
+                # Check if current user is tagged in any unread group messages
+                has_unread_mention = False
+                my_uid_str = str(user_id)
+                my_name_tag = f"@{current_user.full_name.strip()}".lower() if current_user.full_name else ""
+
+                for um in unread_msgs:
+                    c_lower = (um.content or "").lower()
+                    if "@everyone" in c_lower or "@all" in c_lower:
+                        has_unread_mention = True
+                        break
+                    if getattr(um, "mentions", None):
+                        try:
+                            m_list = json.loads(um.mentions) if isinstance(um.mentions, str) else um.mentions
+                            if isinstance(m_list, list) and any(str(x).strip() == my_uid_str or str(x).strip() in ("everyone", "all", "__everyone__") for x in m_list):
+                                has_unread_mention = True
+                                break
+                        except Exception:
+                            pass
+                    if my_name_tag and my_name_tag in c_lower:
+                        has_unread_mention = True
+                        break
+
                 m_count = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).count()
                 conv_map[f"group_{grp.id}"] = {
                     "is_group": True,
@@ -4442,7 +4474,8 @@ def get_conversations_list(
                     "last_message": preview,
                     "last_message_type": last_g_msg.message_type if last_g_msg else "text",
                     "last_timestamp": last_g_msg.created_at if last_g_msg else grp.created_at,
-                    "unread_count": 0,
+                    "unread_count": unread_count,
+                    "has_unread_mention": has_unread_mention,
                     "is_online": True,
                     "last_seen": None,
                     "recent_messages": []
@@ -5160,7 +5193,165 @@ def get_group_messages(
             "mentions": raw_mentions,
             "created_at": m.created_at
         })
+
+    # Automatically advance last_read_message_id for current user to latest message
+    if msgs:
+        try:
+            max_id = max(m.id for m in msgs)
+            if (my_mem.last_read_message_id or 0) < max_id:
+                my_mem.last_read_message_id = max_id
+                db.commit()
+        except Exception:
+            pass
+
     return results
+
+
+@app.post("/api/groups/{group_id}/read", status_code=status.HTTP_200_OK)
+@app.post("/groups/{group_id}/read", status_code=status.HTTP_200_OK)
+def mark_group_read(
+    group_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    my_mem = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+    if not my_mem:
+        raise HTTPException(status_code=403, detail="You are not a member of this group.")
+
+    latest_msg = db.query(models.GroupMessage).filter(models.GroupMessage.group_id == group_id).order_by(models.GroupMessage.id.desc()).first()
+    if latest_msg and (my_mem.last_read_message_id or 0) < latest_msg.id:
+        my_mem.last_read_message_id = latest_msg.id
+        db.commit()
+
+    return {"status": "success", "group_id": group_id, "last_read_message_id": my_mem.last_read_message_id}
+
+
+@app.get("/api/groups/{group_id}/preview")
+@app.get("/groups/{group_id}/preview")
+def get_group_preview(
+    group_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
+    grp = db.query(models.Group).options(joinedload(models.Group.creator)).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found or invite link has expired.")
+
+    m_count = db.query(models.GroupMember).filter(models.GroupMember.group_id == group_id).count()
+    is_member = False
+    if current_user:
+        is_member = db.query(models.GroupMember).filter(
+            models.GroupMember.group_id == group_id,
+            models.GroupMember.user_id == current_user.user_id
+        ).first() is not None
+
+    return {
+        "id": grp.id,
+        "name": grp.name,
+        "description": grp.description,
+        "avatar_url": grp.avatar_url,
+        "member_count": m_count,
+        "creator_name": grp.creator.full_name if grp.creator else "Campus Admin",
+        "created_at": grp.created_at.isoformat() if grp.created_at else None,
+        "is_member": is_member
+    }
+
+
+@app.post("/api/groups/{group_id}/join")
+@app.post("/groups/{group_id}/join")
+async def join_group_via_link(
+    group_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    if current_user.role != "student":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Campus groups are exclusively for students. Vendor accounts cannot join student groups."
+        )
+
+    grp = db.query(models.Group).filter(models.Group.id == group_id).first()
+    if not grp:
+        raise HTTPException(status_code=404, detail="Group not found or invite link has expired.")
+
+    # Check if already a member
+    existing = db.query(models.GroupMember).filter(
+        models.GroupMember.group_id == group_id,
+        models.GroupMember.user_id == current_user.user_id
+    ).first()
+
+    if existing:
+        return {
+            "status": "already_member",
+            "group_id": grp.id,
+            "name": grp.name,
+            "message": "You are already a member of this group."
+        }
+
+    # Find latest message ID for initial last_read_message_id
+    latest_msg = db.query(models.GroupMessage).filter(models.GroupMessage.group_id == group_id).order_by(models.GroupMessage.id.desc()).first()
+    initial_read_id = latest_msg.id if latest_msg else 0
+
+    new_mem = models.GroupMember(
+        group_id=grp.id,
+        user_id=current_user.user_id,
+        role="member",
+        last_read_message_id=initial_read_id
+    )
+    db.add(new_mem)
+
+    # Add system notification message inside the group
+    sys_content = f"{current_user.full_name} joined using this group's invite link"
+    sys_msg = models.GroupMessage(
+        group_id=grp.id,
+        sender_id=current_user.user_id,
+        content=sys_content,
+        message_type="system"
+    )
+    db.add(sys_msg)
+    db.commit()
+    db.refresh(sys_msg)
+
+    # Broadcast system message over WebSocket to all current members
+    members = db.query(models.GroupMember).filter(models.GroupMember.group_id == grp.id).all()
+    ws_payload = {
+        "type": "new_group_message",
+        "group_id": grp.id,
+        "message": {
+            "id": sys_msg.id,
+            "group_id": grp.id,
+            "sender_id": current_user.user_id,
+            "sender_name": "CampusLink",
+            "sender_avatar": None,
+            "sender_role": "System",
+            "content": sys_content,
+            "message_type": "system",
+            "media_url": None,
+            "duration": None,
+            "reply_to_id": None,
+            "reply_to_sender": None,
+            "reply_to_text": None,
+            "reactions": None,
+            "mentions": [],
+            "created_at": sys_msg.created_at.isoformat() if sys_msg.created_at else None
+        }
+    }
+    for m in members:
+        if str(m.user_id) != str(current_user.user_id):
+            try:
+                await ws_manager.broadcast_to_user(str(m.user_id), ws_payload)
+            except Exception:
+                pass
+
+    return {
+        "status": "success",
+        "group_id": grp.id,
+        "name": grp.name,
+        "message": f"Welcome to {grp.name}!"
+    }
 
 
 @app.post("/api/groups/{group_id}/messages", response_model=schemas.GroupMessageOut)
@@ -5198,42 +5389,38 @@ async def send_group_message(
     # Fetch group members
     members = db.query(models.GroupMember).options(joinedload(models.GroupMember.user)).filter(models.GroupMember.group_id == grp.id).all()
 
-    # Identify mentioned group members from payload, @everyone, @admins, or @Full Name
+    # Tagging Security Policy: Only group administrators / creator can mention members or use @everyone
+    is_sender_admin = (my_mem.role == "admin") or (str(current_user.user_id) == str(grp.creator_id))
+
     mentioned_ids = set()
-    content_lower = clean_content.lower()
+    is_everyone = False
 
-    is_everyone = (
-        "@everyone" in content_lower or
-        "@all" in content_lower or
-        (getattr(msg_data, "mentions", None) and any(str(m).lower() in ("everyone", "all", "__everyone__") for m in msg_data.mentions))
-    )
-    is_admins = (
-        "@admin" in content_lower or
-        "@admins" in content_lower or
-        (getattr(msg_data, "mentions", None) and any(str(m).lower() in ("admin", "admins", "__admins__") for m in msg_data.mentions))
-    )
+    if is_sender_admin:
+        content_lower = clean_content.lower()
+        is_everyone = (
+            "@everyone" in content_lower or
+            "@all" in content_lower or
+            (getattr(msg_data, "mentions", None) and any(str(m).lower() in ("everyone", "all", "__everyone__") for m in msg_data.mentions))
+        )
 
-    if is_everyone:
-        for m in members:
-            mentioned_ids.add(str(m.user_id))
-    elif is_admins:
-        for m in members:
-            if m.role == "admin" or str(m.user_id) == str(grp.creator_id):
+        if is_everyone:
+            for m in members:
                 mentioned_ids.add(str(m.user_id))
-    else:
-        if getattr(msg_data, "mentions", None):
-            for mid in msg_data.mentions:
-                if mid and str(mid).strip() not in ("everyone", "all", "admin", "admins", "__everyone__", "__admins__"):
-                    mentioned_ids.add(str(mid).strip())
+        else:
+            if getattr(msg_data, "mentions", None):
+                for mid in msg_data.mentions:
+                    if mid and str(mid).strip() not in ("everyone", "all", "__everyone__"):
+                        mentioned_ids.add(str(mid).strip())
 
-        for m in members:
-            if m.user and m.user.full_name:
-                tag_str = f"@{m.user.full_name.strip()}".lower()
-                if tag_str in content_lower:
-                    mentioned_ids.add(str(m.user_id))
+            for m in members:
+                if m.user and m.user.full_name:
+                    tag_str = f"@{m.user.full_name.strip()}".lower()
+                    if tag_str in content_lower:
+                        mentioned_ids.add(str(m.user_id))
 
-    # Exclude sender from receiving mention notification
-    mentioned_ids.discard(str(current_user.user_id))
+        # Exclude sender from receiving mention notification
+        mentioned_ids.discard(str(current_user.user_id))
+
     valid_mentioned_ids = list(mentioned_ids)
 
     new_msg = models.GroupMessage(
@@ -5251,6 +5438,12 @@ async def send_group_message(
     db.add(new_msg)
     db.commit()
     db.refresh(new_msg)
+
+    try:
+        my_mem.last_read_message_id = new_msg.id
+        db.commit()
+    except Exception:
+        pass
 
     is_vendor = db.query(models.Vendor).filter(models.Vendor.user_id == current_user.user_id).first() is not None
     sender_role = "Vendor" if is_vendor else "Student"
@@ -5280,9 +5473,6 @@ async def send_group_message(
     notif_message = f"{current_user.full_name} mentioned you: \"{snippet}\""
     if is_everyone:
         notif_message = f"{current_user.full_name} mentioned @everyone: \"{snippet}\""
-    elif is_admins:
-        notif_title = f"Admin Mention in {grp.name}"
-        notif_message = f"{current_user.full_name} mentioned @admins: \"{snippet}\""
 
     for target_uid in valid_mentioned_ids:
         try:

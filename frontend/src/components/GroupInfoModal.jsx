@@ -4,7 +4,8 @@ import {
   Users, X, Search, Camera, Check, AlertCircle,
   Shield, ShieldCheck, ShieldAlert, UserPlus, UserMinus,
   MessageSquare, Edit3, LogOut, Settings,
-  MoreVertical, GraduationCap, Loader2, Crown, User
+  MoreVertical, GraduationCap, Loader2, Crown, User,
+  Share2, Copy, CheckCheck, Link2
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl } from '../api';
 import SafeImage from './SafeImage';
@@ -34,6 +35,7 @@ export default function GroupInfoModal({
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [editDescValue, setEditDescValue] = useState(initialGroupData?.description || '');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Participant search
   const [participantSearch, setParticipantSearch] = useState('');
@@ -194,6 +196,39 @@ export default function GroupInfoModal({
       onClose();
     } catch (err) {
       setErrorMessage(err?.response?.data?.detail || 'Failed to leave group.');
+    }
+  };
+
+  // 7. Group Share URL & Action
+  const getGroupShareUrl = () => {
+    return `${window.location.origin}/student-dashboard?tab=messages&join_group=${groupId}`;
+  };
+
+  const handleShareGroup = async () => {
+    const shareUrl = getGroupShareUrl();
+    const shareData = {
+      title: group?.name || 'CampusLink Group',
+      text: `Join our campus group "${group?.name || 'Group'}" on CampusLink!`,
+      url: shareUrl
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        setSuccessMessage('Group shared successfully!');
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedLink(true);
+      setSuccessMessage('Group invite link copied to clipboard!');
+      setTimeout(() => setCopiedLink(false), 3000);
+    } catch {
+      setErrorMessage('Failed to copy link. Please manually copy: ' + shareUrl);
     }
   };
 
@@ -394,7 +429,7 @@ export default function GroupInfoModal({
               </div>
 
               {/* 2. Quick Action Buttons Row */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className={`grid ${isCurrentUserAdmin ? 'grid-cols-3' : 'grid-cols-1'} gap-2 pt-1`}>
                 {isCurrentUserAdmin && (
                   <button
                     type="button"
@@ -403,12 +438,21 @@ export default function GroupInfoModal({
                         onOpenAddMembers();
                       }
                     }}
-                    className="py-2.5 px-3 bg-sky-50 hover:bg-sky-100 active:scale-98 border border-sky-200/80 rounded-2xl text-sky-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs"
+                    className="py-2.5 px-2 bg-sky-50 hover:bg-sky-100 active:scale-98 border border-sky-200/80 rounded-2xl text-sky-800 text-xs font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer shadow-xs"
                   >
-                    <UserPlus className="w-4 h-4 text-sky-600" />
-                    <span>Add Members</span>
+                    <UserPlus className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Add</span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleShareGroup}
+                  className="py-2.5 px-2 bg-gradient-to-r from-sky-50 to-indigo-50 hover:from-sky-100 hover:to-indigo-100 active:scale-98 border border-sky-200/80 rounded-2xl text-sky-900 text-xs font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer shadow-xs"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-sky-600" />
+                  <span>Share Group</span>
+                </button>
 
                 {isCurrentUserAdmin && (
                   <button
@@ -418,12 +462,45 @@ export default function GroupInfoModal({
                         onOpenSettings();
                       }
                     }}
-                    className="py-2.5 px-3 bg-slate-50 hover:bg-slate-100 active:scale-98 border border-slate-200 rounded-2xl text-slate-800 text-xs font-bold flex items-center justify-center space-x-1.5 transition-all cursor-pointer shadow-xs"
+                    className="py-2.5 px-2 bg-slate-50 hover:bg-slate-100 active:scale-98 border border-slate-200 rounded-2xl text-slate-800 text-xs font-bold flex items-center justify-center space-x-1 transition-all cursor-pointer shadow-xs"
                   >
-                    <Settings className="w-4 h-4 text-slate-600" />
-                    <span>Group Settings</span>
+                    <Settings className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Settings</span>
                   </button>
                 )}
+              </div>
+
+              {/* Group Invite Link Card */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-sky-50/80 via-blue-50/40 to-indigo-50/70 border border-sky-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                <div className="flex items-center space-x-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-slate-900 truncate">Group Invite Link</h4>
+                    <p className="text-[10px] text-slate-500 truncate">Students with this link can join this group</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleShareGroup}
+                    className="flex-1 sm:flex-none px-3 py-1.5 bg-white hover:bg-sky-50 text-sky-700 font-bold border border-sky-200 rounded-xl text-xs flex items-center justify-center space-x-1.5 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    {copiedLink ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
+                  </button>
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(`Join our campus group "${group?.name || 'Group'}" on CampusLink: ${getGroupShareUrl()}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 sm:flex-none px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-1.5 cursor-pointer transition-colors shadow-2xs"
+                    title="Share to WhatsApp"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </a>
+                </div>
               </div>
 
               {/* Group Policy Badges */}

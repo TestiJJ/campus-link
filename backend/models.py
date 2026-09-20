@@ -496,6 +496,7 @@ class GroupMember(Base):
     group_id = Column(Integer, ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
     role = Column(String(20), default="member")  # "admin" | "member"
+    last_read_message_id = Column(Integer, default=0, nullable=True)
     joined_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

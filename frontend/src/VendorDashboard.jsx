@@ -13,7 +13,7 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore
+  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore, ArrowLeft
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -394,7 +394,7 @@ export default function VendorDashboard() {
       return [];
     }
   });
-  const [showArchivedModal, setShowArchivedModal] = useState(false);
+  const [isViewingArchivedChats, setIsViewingArchivedChats] = useState(false);
   const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false);
   const [messageSubtab, setMessageSubtab] = useState('chats'); // 'chats' | 'friends' | 'requests' | 'my_friends'
   const [communityUsers, setCommunityUsers] = useState(() => {
@@ -695,6 +695,22 @@ export default function VendorDashboard() {
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Intercept group invite links clicked by vendors and display notice
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('join_group')) {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('join_group');
+        window.history.replaceState({}, '', newUrl.toString());
+        setToast({
+          text: 'Campus study and interest groups are reserved for student accounts.',
+          type: 'error'
+        });
+      }
+    } catch {}
   }, []);
 
   // --- REFS FOR POPSTATE & MOBILE BACK BUTTON HANDLING ---
@@ -5067,109 +5083,228 @@ export default function VendorDashboard() {
                       </button>
                     </div>
 
-                    {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
-                    {archivedChatIds.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowArchivedModal(true)}
-                        className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
-                            <Archive className="w-4 h-4" />
-                          </div>
-                          <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
-                        </div>
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
-                          {archivedChatIds.length}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Section: Active Conversations */}
-                    {filteredConversations.length > 0 && (
+                    {isViewingArchivedChats ? (
                       <div>
-                        <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                          <span>Recent Chats</span>
-                          <span className="font-bold text-sky-600">({filteredConversations.length})</span>
-                        </div>
-                        {filteredConversations.map((c) => {
-                          const pid = c.partner_id || c.user_id || c.id;
-                          const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
-                          const hasStory = partnerStoryIdx !== -1;
-                          const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                          const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
-                          const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
-
-                          return (
+                        {/* WhatsApp-Style In-Place Archived Folder Header */}
+                        <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10">
+                          <div className="flex items-center space-x-2.5">
                             <button
-                              key={pid}
                               type="button"
-                              onClick={() => handleSelectPartner(c)}
-                              className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                }`}
+                              onClick={() => setIsViewingArchivedChats(false)}
+                              className="p-1.5 hover:bg-slate-200/80 rounded-xl transition-colors cursor-pointer text-slate-700"
+                              title="Back to all chats"
                             >
-                              {/* WhatsApp-Style Clickable Story Avatar */}
-                              <div
-                                onClick={(e) => {
-                                  if (hasStory) {
-                                    e.stopPropagation();
-                                    const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                    setActiveStatusViewer({
-                                      userIdx: partnerStoryIdx,
-                                      itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                    });
-                                  }
-                                }}
-                                title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
-                                className={`relative shrink-0 rounded-2xl transition-all ${hasStory
-                                    ? `p-0.5 cursor-pointer ${hasUnviewedStory
-                                      ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                      : 'bg-slate-200 border border-slate-300 opacity-70'
-                                    }`
-                                    : ''
-                                  }`}
-                              >
-                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                  {c.partner_avatar ? (
-                                    <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
-                                      {c.partner_name?.charAt(0) || 'S'}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex-1 overflow-hidden">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                  <div className="flex items-center space-x-1.5 shrink-0">
-                                    {c.unread_count > 0 && (
-                                      <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                                        {c.unread_count}
-                                      </span>
-                                    )}
-                                    <span className="text-[10px] text-slate-400">
-                                      {c.role === 'vendor' ? 'Vendor' : 'Student'}
-                                    </span>
-                                  </div>
-                                </div>
-                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                  {(() => {
-                                    if (!c.last_message) return 'Say hello...';
-                                    if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
-                                      const parsed = parseStatusReply(c.last_message);
-                                      return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
-                                    }
-                                    return c.last_message;
-                                  })()}
-                                </p>
-                              </div>
+                              <ArrowLeft className="w-5 h-5" />
                             </button>
-                          );
-                        })}
+                            <div className="flex items-center space-x-2">
+                              <Archive className="w-4 h-4 text-sky-600" />
+                              <h3 className="font-extrabold text-sm text-slate-800">Archived Chats</h3>
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                                {archivedConversations.length}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {archivedConversations.length > 0 ? (
+                          <div>
+                            <div className="px-3 py-1.5 bg-slate-50/60 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                              <span>Archived Conversations</span>
+                              <span className="font-bold text-sky-600">({archivedConversations.length})</span>
+                            </div>
+                            {archivedConversations
+                              .filter(c => {
+                                if (!chatSearchQuery.trim()) return true;
+                                const q = chatSearchQuery.toLowerCase().trim();
+                                return (c.partner_name || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q);
+                              })
+                              .map((c) => {
+                                const pid = c.partner_id || c.user_id || c.id;
+                                const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                                return (
+                                  <div
+                                    key={pid}
+                                    className={`w-full text-left flex items-start justify-between transition-all group ${
+                                      isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSelectPartner(c)}
+                                      className="flex-1 min-w-0 p-3.5 flex items-start space-x-3 cursor-pointer text-left"
+                                    >
+                                      <div className="relative shrink-0 rounded-2xl">
+                                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                          {c.partner_avatar ? (
+                                            <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                                          ) : (
+                                            <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                              {c.partner_name?.charAt(0) || 'S'}
+                                            </div>
+                                          )}
+                                        </div>
+                                        {c.unread_count > 0 && (
+                                          <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
+                                            {c.unread_count}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex-1 overflow-hidden">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                          <span className="text-[10px] text-slate-400">
+                                            {c.role === 'vendor' ? 'Vendor' : 'Student'}
+                                          </span>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                          {c.last_message || 'Start conversation'}
+                                        </p>
+                                      </div>
+                                    </button>
+                                    {/* Quick Unarchive Action Button */}
+                                    <div className="p-3.5 pl-0 self-center">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleArchiveChat(String(pid));
+                                        }}
+                                        className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                        title="Unarchive chat"
+                                        aria-label="Unarchive chat"
+                                      >
+                                        <ArchiveRestore className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="p-8 text-center text-xs text-slate-400">
+                            <Archive className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                            <p className="font-bold text-slate-600">No archived chats</p>
+                            <p className="mt-1">
+                              Chats you archive will remain here until unarchived.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setIsViewingArchivedChats(false)}
+                              className="mt-4 px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                            >
+                              Back to Chats
+                            </button>
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      <>
+                        {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
+                        {archivedChatIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setIsViewingArchivedChats(true)}
+                            className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
+                                <Archive className="w-4 h-4" />
+                              </div>
+                              <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
+                            </div>
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                              {archivedChatIds.length}
+                            </span>
+                          </button>
+                        )}
+
+                        {/* Section: Active Conversations */}
+                        {filteredConversations.length > 0 && (
+                          <div>
+                            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                              <span>Recent Chats</span>
+                              <span className="font-bold text-sky-600">({filteredConversations.length})</span>
+                            </div>
+                            {filteredConversations.map((c) => {
+                              const pid = c.partner_id || c.user_id || c.id;
+                              const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                              const hasStory = partnerStoryIdx !== -1;
+                              const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                              const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                              const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                              return (
+                                <button
+                                  key={pid}
+                                  type="button"
+                                  onClick={() => handleSelectPartner(c)}
+                                  className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                    }`}
+                                >
+                                  {/* WhatsApp-Style Clickable Story Avatar */}
+                                  <div
+                                    onClick={(e) => {
+                                      if (hasStory) {
+                                        e.stopPropagation();
+                                        const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                        setActiveStatusViewer({
+                                          userIdx: partnerStoryIdx,
+                                          itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                        });
+                                      }
+                                    }}
+                                    title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
+                                    className={`relative shrink-0 rounded-2xl transition-all ${hasStory
+                                        ? `p-0.5 cursor-pointer ${hasUnviewedStory
+                                          ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                          : 'bg-slate-200 border border-slate-300 opacity-70'
+                                        }`
+                                        : ''
+                                      }`}
+                                  >
+                                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                      {c.partner_avatar ? (
+                                        <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
+                                      ) : (
+                                        <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                          {c.partner_name?.charAt(0) || 'S'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex-1 overflow-hidden">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
+                                      <div className="flex items-center space-x-1.5 shrink-0">
+                                        {c.unread_count > 0 && (
+                                          <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
+                                            {c.unread_count}
+                                          </span>
+                                        )}
+                                        <span className="text-[10px] text-slate-400">
+                                          {c.role === 'vendor' ? 'Vendor' : 'Student'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                      {(() => {
+                                        if (!c.last_message) return 'Say hello...';
+                                        if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
+                                          const parsed = parseStatusReply(c.last_message);
+                                          return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
+                                        }
+                                        return c.last_message;
+                                      })()}
+                                    </p>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
                     )}
 
                     {/* Section: Connected Friends to Message */}
@@ -5470,6 +5605,12 @@ export default function VendorDashboard() {
                                 <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
                                   {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
                                 </span>
+                                {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) && (
+                                  <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 bg-amber-100 text-amber-800 flex items-center space-x-0.5">
+                                    <Archive className="w-2.5 h-2.5" />
+                                    <span>Archived</span>
+                                  </span>
+                                )}
                               </div>
                               <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
                                 {(() => {
@@ -10611,19 +10752,6 @@ export default function VendorDashboard() {
         })()}
       </AnimatePresence>
 
-      {/* --- ARCHIVED CHATS MODAL (WHATSAPP-STYLE PERSISTENT ARCHIVE) --- */}
-      <ArchivedChatsModal
-        isOpen={showArchivedModal}
-        onClose={() => setShowArchivedModal(false)}
-        archivedConversations={archivedConversations}
-        onSelectChat={(conv) => {
-          setShowArchivedModal(false);
-          handleSelectPartner(conv);
-        }}
-        onUnarchiveChat={(chatId) => {
-          toggleArchiveChat(chatId);
-        }}
-      />
 
       {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>

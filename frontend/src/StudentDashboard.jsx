@@ -13,7 +13,7 @@ import {
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe,
-  Archive, ArchiveRestore, AtSign
+  Archive, ArchiveRestore, AtSign, ArrowLeft
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -133,8 +133,8 @@ export function renderMessageTextWithMentions(rawContent, isMine, isGroup, onMen
   if (!text || typeof text !== 'string') return text;
   if (!isGroup || !text.includes('@')) return text;
 
-  // Non-greedy mention tokenizer: matches @everyone, @all, @admins, @admin or @Username / @First Last (up to 2 words without trailing punctuation)
-  const mentionRegex = /(@(?:everyone|all|admins?|[A-Za-z0-9_]+(?:\s[A-Za-z0-9_]+)?))(?=\s|[.,!?:;]|$)/gi;
+  // Non-greedy mention tokenizer: matches @everyone, @all, or @Username / @First Last (up to 2 words without trailing punctuation)
+  const mentionRegex = /(@(?:everyone|all|[A-Za-z0-9_]+(?:\s[A-Za-z0-9_]+)?))(?=\s|[.,!?:;]|$)/gi;
   const parts = [];
   let lastIndex = 0;
   let match;
@@ -153,7 +153,7 @@ export function renderMessageTextWithMentions(rawContent, isMine, isGroup, onMen
   return parts.map((part, i) => {
     if (typeof part === 'object' && part.isMention) {
       const lower = part.text.toLowerCase();
-      const isSpecial = lower === '@everyone' || lower === '@all' || lower.startsWith('@admin');
+      const isEveryone = lower === '@everyone' || lower === '@all';
       return (
         <span
           key={i}
@@ -163,7 +163,7 @@ export function renderMessageTextWithMentions(rawContent, isMine, isGroup, onMen
           } ${
             isMine
               ? 'bg-blue-500/40 text-white border border-blue-400/40'
-              : isSpecial
+              : isEveryone
                 ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold'
                 : 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200 border border-sky-200 dark:border-sky-700'
           }`}
@@ -545,6 +545,10 @@ export default function StudentDashboard() {
   const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
   const [activeGroupIdForModal, setActiveGroupIdForModal] = useState(null);
 
+  // Group Invite Link / Preview Join Modal State
+  const [joinGroupPreview, setJoinGroupPreview] = useState(null);
+  const [isJoiningGroup, setIsJoiningGroup] = useState(false);
+
   // Chat Archiving State (Persisted per user in localStorage)
   const [archivedChatIds, setArchivedChatIds] = useState(() => {
     try {
@@ -556,7 +560,7 @@ export default function StudentDashboard() {
       return [];
     }
   });
-  const [showArchivedModal, setShowArchivedModal] = useState(false);
+  const [isViewingArchivedChats, setIsViewingArchivedChats] = useState(false);
 
   // Group @Mentions Autocomplete State
   const [mentionQuery, setMentionQuery] = useState('');
@@ -683,6 +687,52 @@ export default function StudentDashboard() {
       }).catch(() => {});
     }
   }, []);
+
+  // Auto-detect and handle Group Invite Link (?join_group={groupId})
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const joinGid = urlParams.get('join_group');
+      if (joinGid) {
+        // Clean URL search param without full page reload
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('join_group');
+        window.history.replaceState({}, '', newUrl.toString());
+
+        const role = (currentUser?.role || '').toLowerCase();
+        if (role === 'vendor' || role === 'seller') {
+          showToast('Campus study and interest groups are exclusive to students.', 'error');
+          return;
+        }
+
+        API.get(`/groups/${joinGid}/preview`)
+          .then(res => {
+            if (res.data) {
+              if (res.data.is_member) {
+                // Already a member: snap directly into group chat
+                setActiveTab('messages');
+                handleSelectPartner({
+                  partner_id: `group_${joinGid}`,
+                  group_id: Number(joinGid),
+                  partner_name: res.data.name || 'Campus Group',
+                  partner_avatar: res.data.avatar_url || null,
+                  is_group: true,
+                  is_admin: false,
+                  unread_count: 0,
+                  has_unread_mention: false
+                });
+              } else {
+                setJoinGroupPreview(res.data);
+              }
+            }
+          })
+          .catch(err => {
+            const msg = err.response?.data?.detail || 'Group invite link is invalid or expired.';
+            showToast(msg, 'error');
+          });
+      }
+    } catch {}
+  }, [currentUser]);
 
 
   const handleEnablePush = async () => {
@@ -1293,6 +1343,8 @@ export default function StudentDashboard() {
                 activeTabRef.current === 'messages';
 
               if (isCurrentGroupOpen) {
+                // Group is currently open on screen: mark read immediately on server and keep local unread_count at 0
+                API.post(`/groups/${data.group_id}/read`).catch(() => {});
                 setChatMessages(prev => {
                   if (prev.some(m => String(m.id) === String(newM.id))) return prev;
                   if (isFromMe) {
@@ -1308,6 +1360,20 @@ export default function StudentDashboard() {
                 if (isUserNearBottom(chatContainerRef.current)) {
                   smartScrollToBottom(chatContainerRef.current, true);
                 }
+                setConversations(prev => {
+                  const existing = prev.find(c => String(c.partner_id) === gKey);
+                  if (existing) {
+                    return prev.map(c => String(c.partner_id) === gKey ? {
+                      ...c,
+                      last_message: `${newM.sender_name || 'Member'}: ${newM.content}`,
+                      last_message_type: newM.message_type,
+                      last_timestamp: newM.created_at,
+                      unread_count: 0,
+                      has_unread_mention: false
+                    } : c);
+                  }
+                  return prev;
+                });
               } else {
                 const currentUid = String(currentUser?.user_id || currentUser?.id || '');
                 if (String(newM.sender_id) !== currentUid) {
@@ -1339,6 +1405,10 @@ export default function StudentDashboard() {
                         unread_count: (c.unread_count || 0) + 1,
                         has_unread_mention: isMentioned || Boolean(c.has_unread_mention)
                       } : c);
+                    } else {
+                      API.get('/conversations').then(res => {
+                        if (Array.isArray(res.data)) setConversations(res.data);
+                      }).catch(() => {});
                     }
                     return prev;
                   });
@@ -2051,9 +2121,14 @@ export default function StudentDashboard() {
   const fetchMessagesForPartner = async (partnerId) => {
     if (!partnerId) return;
     // Mark as read immediately on the server and update local UI without waiting for GET
-    API.post(`/messages/${partnerId}/read`).catch(() => {});
+    if (String(partnerId).startsWith('group_')) {
+      const gid = String(partnerId).replace('group_', '');
+      API.post(`/groups/${gid}/read`).catch(() => {});
+    } else {
+      API.post(`/messages/${partnerId}/read`).catch(() => {});
+    }
     setConversations(prev =>
-      prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0 } : c))
+      prev.map(c => (String(c.partner_id) === String(partnerId) ? { ...c, unread_count: 0, has_unread_mention: false } : c))
     );
 
     try {
@@ -2130,6 +2205,77 @@ export default function StudentDashboard() {
     } catch {}
   };
 
+  // Share Group Invite Link (WhatsApp, Native Share Sheet, or Clipboard Copy)
+  const handleShareGroup = async (groupId, groupName) => {
+    if (!groupId) return;
+    const shareUrl = `${window.location.origin}/student-dashboard?tab=messages&join_group=${groupId}`;
+    const shareTitle = `${groupName || 'Campus Group'} on CampusLink`;
+    const shareText = `Join the "${groupName || 'Campus Group'}" group on CampusLink to collaborate with classmates: ${shareUrl}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: shareUrl
+        });
+        setToast({ text: 'Invite link shared!', type: 'success' });
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setToast({ text: 'Group invite link copied to clipboard!', type: 'success' });
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = shareUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setToast({ text: 'Group invite link copied to clipboard!', type: 'success' });
+    }
+  };
+
+  // Join Group via Invite Link Preview Modal
+  const handleConfirmJoinGroup = async (groupId) => {
+    if (!groupId || isJoiningGroup) return;
+    setIsJoiningGroup(true);
+    try {
+      const res = await API.post(`/groups/${groupId}/join`);
+      setToast({ text: res.data?.message || 'Joined group successfully!', type: 'success' });
+      const joinedGroup = res.data?.group || joinGroupPreview;
+      setJoinGroupPreview(null);
+
+      // Refresh conversations so the new group is immediately listed
+      const convRes = await API.get('/conversations');
+      if (Array.isArray(convRes.data)) {
+        setConversations(convRes.data);
+      }
+
+      // Auto-select and open the joined group
+      const partnerObj = {
+        partner_id: `group_${groupId}`,
+        group_id: Number(groupId),
+        partner_name: joinedGroup?.name || 'Campus Group',
+        partner_avatar: joinedGroup?.avatar_url || null,
+        is_group: true,
+        is_admin: false,
+        unread_count: 0,
+        has_unread_mention: false
+      };
+      handleSelectPartner(partnerObj);
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'Failed to join group.';
+      setToast({ text: msg, type: 'error' });
+    } finally {
+      setIsJoiningGroup(false);
+    }
+  };
+
   // Instant 0ms Chat Selection (Loads cached messages immediately on click and snaps to latest chat)
   const handleSelectPartner = (c) => {
     if (!c) return;
@@ -2160,9 +2306,14 @@ export default function StudentDashboard() {
     setMessageSubtab('chats');
 
     // 1. Instantly mark messages as read without waiting for network revalidation
-    API.post(`/messages/${partnerId}/read`).catch(() => {});
+    if (c.is_group || String(partnerId).startsWith('group_')) {
+      const gid = c.group_id || String(partnerId).replace('group_', '');
+      API.post(`/groups/${gid}/read`).catch(() => {});
+    } else {
+      API.post(`/messages/${partnerId}/read`).catch(() => {});
+    }
     setConversations(prev =>
-      prev.map(conv => (String(conv.partner_id || conv.user_id || conv.id) === String(partnerId) ? { ...conv, unread_count: 0 } : conv))
+      prev.map(conv => (String(conv.partner_id || conv.user_id || conv.id) === String(partnerId) ? { ...conv, unread_count: 0, has_unread_mention: false } : conv))
     );
 
     // 2. Multi-tier instant scroll to bottom to guarantee user is taken to the last chat message
@@ -2359,14 +2510,22 @@ export default function StudentDashboard() {
     return () => { isMounted = false; };
   }, [selectedPartner?.partner_id, selectedPartner?.group_id, selectedPartner?.is_group]);
 
-  // Input change handler supporting dynamic @ mention detection
+  // Group Admin Status (Only group admins/creator are authorized to tag anyone or use @everyone)
+  const isGroupAdmin = useMemo(() => {
+    if (!selectedPartner?.is_group) return false;
+    const myUid = String(currentUser?.user_id || currentUser?.id || '');
+    if (selectedPartner.is_admin || selectedPartner.is_creator) return true;
+    return activeGroupMembers.some(m => String(m.user_id || m.id) === myUid && (m.group_role === 'admin' || m.role === 'admin' || m.is_creator));
+  }, [selectedPartner, currentUser, activeGroupMembers]);
+
+  // Input change handler supporting dynamic @ mention detection (Admin only)
   const handleChatInputChange = (e) => {
     const val = e.target.value;
     setNewMsgText(val);
     e.target.style.height = 'auto';
     e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
 
-    if (selectedPartner?.is_group) {
+    if (selectedPartner?.is_group && isGroupAdmin) {
       const cursorPos = e.target.selectionStart ?? val.length;
       const textBeforeCursor = val.slice(0, cursorPos);
       const atOnlyMatch = textBeforeCursor.match(/(?:^|\s)@$/);
@@ -2426,10 +2585,6 @@ export default function StudentDashboard() {
     const lower = cleanTag.toLowerCase();
     if (lower === 'everyone' || lower === 'all') {
       setToast({ text: 'Tagged all group members', type: 'info' });
-      return;
-    }
-    if (lower === 'admin' || lower === 'admins') {
-      setToast({ text: 'Tagged all group administrators', type: 'info' });
       return;
     }
     const matched = (activeGroupMembers || []).find(m =>
@@ -6981,131 +7136,290 @@ export default function StudentDashboard() {
                         </button>
                       </div>
 
-                      {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
-                      {archivedChatIds.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowArchivedModal(true)}
-                          className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
-                              <Archive className="w-4 h-4" />
-                            </div>
-                            <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
-                          </div>
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
-                            {archivedChatIds.length}
-                          </span>
-                        </button>
-                      )}
-
-                      {/* Section: Active Conversations */}
-                      {filteredConversations.length > 0 && (
+                      {isViewingArchivedChats ? (
                         <div>
-                          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                            <span>Recent Chats</span>
-                            <span className="font-bold text-sky-600">({filteredConversations.length})</span>
-                          </div>
-                          {filteredConversations.map((c) => {
-                            const pid = c.partner_id || c.user_id || c.id;
-                            const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
-                            const hasStory = partnerStoryIdx !== -1;
-                            const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                            const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
-                            const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
-
-                            return (
+                          {/* WhatsApp-Style In-Place Archived Folder Header */}
+                          <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10">
+                            <div className="flex items-center space-x-2.5">
                               <button
-                                key={pid}
                                 type="button"
-                                onClick={() => handleSelectPartner(c)}
-                                className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${
-                                  isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                }`}
+                                onClick={() => setIsViewingArchivedChats(false)}
+                                className="p-1.5 hover:bg-slate-200/80 rounded-xl transition-colors cursor-pointer text-slate-700"
+                                title="Back to all chats"
                               >
-                                {/* WhatsApp-Style Clickable Story Avatar */}
-                                <div
-                                  onClick={(e) => {
-                                    if (hasStory) {
-                                      e.stopPropagation();
-                                      const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                      setActiveStatusViewer({
-                                        userIdx: partnerStoryIdx,
-                                        itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                      });
-                                    }
-                                  }}
-                                  title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
-                                  className={`relative shrink-0 rounded-2xl transition-all ${
-                                    hasStory
-                                      ? `p-0.5 cursor-pointer ${
-                                          hasUnviewedStory
-                                            ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                            : 'bg-slate-200 border border-slate-300 opacity-70'
-                                        }`
-                                      : ''
-                                  }`}
-                                >
-                                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                    {c.partner_avatar ? (
-                                      <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
-                                    ) : c.is_group ? (
-                                      <div className="w-full h-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shrink-0">
-                                        <Users className="w-5 h-5" />
-                                      </div>
-                                    ) : (
-                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
-                                        {c.partner_name?.charAt(0) || 'U'}
-                                      </div>
-                                    )}
-                                  </div>
-                                  {/* Online presence dot (peers only) */}
-                                  {!c.is_group && (
-                                    <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                  )}
-                                  {c.unread_count > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
-                                      {c.unread_count}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex-1 overflow-hidden">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-slate-900 truncate flex items-center space-x-1">
-                                      {c.is_group && <Users className="w-3 h-3 text-sky-600 shrink-0 inline" />}
-                                      <span className="truncate">{c.partner_name}</span>
-                                    </span>
-                                    <span className="text-[10px] font-medium text-slate-400">
-                                      {c.is_group ? 'Group' : c.partner_role}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center space-x-1.5 mt-0.5 min-w-0">
-                                    {c.is_group && c.has_unread_mention && (
-                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded bg-sky-500 text-white text-[9px] font-extrabold shadow-2xs shrink-0">
-                                        <AtSign className="w-2.5 h-2.5 stroke-[2.5]" />
-                                        <span>Mention</span>
-                                      </span>
-                                    )}
-                                    <p className="text-[11px] text-slate-500 truncate">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
-                                  </div>
-                                </div>
+                                <ArrowLeft className="w-5 h-5" />
                               </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                              <div className="flex items-center space-x-2">
+                                <Archive className="w-4 h-4 text-sky-600" />
+                                <h3 className="font-extrabold text-sm text-slate-800">Archived Chats</h3>
+                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                                  {archivedConversations.length}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
 
-                      {filteredConversations.length === 0 && (
-                        <div className="p-8 text-center text-xs text-slate-400">
-                          <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                          <p className="font-bold text-slate-600">
-                            {chatSearchQuery ? 'No matching conversations' : 'No active conversations'}
-                          </p>
-                          <p className="mt-1">
-                            {chatSearchQuery ? 'Try checking the name or clearing your search.' : 'Your chats with friends, peers, and campus vendors will appear here.'}
-                          </p>
+                          {archivedConversations.length > 0 ? (
+                            <div>
+                              <div className="px-3 py-1.5 bg-slate-50/60 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                <span>Archived Conversations</span>
+                                <span className="font-bold text-sky-600">({archivedConversations.length})</span>
+                              </div>
+                              {archivedConversations
+                                .filter(c => {
+                                  if (!chatSearchQuery.trim()) return true;
+                                  const q = chatSearchQuery.toLowerCase().trim();
+                                  return (c.partner_name || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q);
+                                })
+                                .map((c) => {
+                                  const pid = c.partner_id || c.user_id || c.id;
+                                  const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                                  return (
+                                    <div
+                                      key={pid}
+                                      className={`w-full text-left flex items-start justify-between transition-all group ${
+                                        isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectPartner(c)}
+                                        className="flex-1 min-w-0 p-3.5 flex items-start space-x-3 cursor-pointer text-left"
+                                      >
+                                        <div className="relative shrink-0 rounded-2xl">
+                                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                            {c.partner_avatar ? (
+                                              <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                            ) : c.is_group ? (
+                                              <div className="w-full h-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shrink-0">
+                                                <Users className="w-5 h-5" />
+                                              </div>
+                                            ) : (
+                                              <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                                {c.partner_name?.charAt(0) || 'U'}
+                                              </div>
+                                            )}
+                                          </div>
+                                          {!c.is_group && (
+                                            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                          )}
+                                          {c.unread_count > 0 && (
+                                            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-emerald-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white">
+                                              {c.unread_count > 99 ? '99+' : c.unread_count}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex-1 overflow-hidden">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-900 truncate flex items-center space-x-1">
+                                              {c.is_group && <Users className="w-3 h-3 text-sky-600 shrink-0 inline" />}
+                                              <span className="truncate">{c.partner_name}</span>
+                                            </span>
+                                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                              {c.is_group && c.has_unread_mention && (
+                                                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white text-[10px] font-black shadow-xs shrink-0" title="You were mentioned in this group">
+                                                  @
+                                                </span>
+                                              )}
+                                              {c.unread_count > 0 && (
+                                                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs shrink-0">
+                                                  {c.unread_count > 99 ? '99+' : c.unread_count}
+                                                </span>
+                                              )}
+                                              <span className="text-[10px] font-medium text-slate-400">
+                                                {c.is_group ? 'Group' : c.partner_role}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center space-x-1.5 mt-0.5 min-w-0">
+                                            {c.is_group && c.has_unread_mention && (
+                                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-sky-500 text-white text-[9px] font-extrabold shadow-2xs shrink-0">
+                                                <AtSign className="w-2.5 h-2.5 stroke-[2.5]" />
+                                                <span>Mentioned</span>
+                                              </span>
+                                            )}
+                                            <p className="text-[11px] text-slate-500 truncate">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                          </div>
+                                        </div>
+                                      </button>
+                                      {/* Quick Unarchive Action Button */}
+                                      <div className="p-3.5 pl-0 self-center">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleArchiveChat(String(pid));
+                                          }}
+                                          className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                          title="Unarchive chat"
+                                          aria-label="Unarchive chat"
+                                        >
+                                          <ArchiveRestore className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center text-xs text-slate-400">
+                              <Archive className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                              <p className="font-bold text-slate-600">No archived chats</p>
+                              <p className="mt-1">
+                                Chats you archive will remain here until unarchived.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setIsViewingArchivedChats(false)}
+                                className="mt-4 px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                              >
+                                Back to Chats
+                              </button>
+                            </div>
+                          )}
                         </div>
+                      ) : (
+                        <>
+                          {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
+                          {archivedChatIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setIsViewingArchivedChats(true)}
+                              className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
+                                  <Archive className="w-4 h-4" />
+                                </div>
+                                <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
+                              </div>
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                                {archivedChatIds.length}
+                              </span>
+                            </button>
+                          )}
+
+                          {/* Section: Active Conversations */}
+                          {filteredConversations.length > 0 && (
+                            <div>
+                              <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                <span>Recent Chats</span>
+                                <span className="font-bold text-sky-600">({filteredConversations.length})</span>
+                              </div>
+                              {filteredConversations.map((c) => {
+                                const pid = c.partner_id || c.user_id || c.id;
+                                const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                                const hasStory = partnerStoryIdx !== -1;
+                                const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                                const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                                const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                                return (
+                                  <button
+                                    key={pid}
+                                    type="button"
+                                    onClick={() => handleSelectPartner(c)}
+                                    className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${
+                                      isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {/* WhatsApp-Style Clickable Story Avatar */}
+                                    <div
+                                      onClick={(e) => {
+                                        if (hasStory) {
+                                          e.stopPropagation();
+                                          const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                          setActiveStatusViewer({
+                                            userIdx: partnerStoryIdx,
+                                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                          });
+                                        }
+                                      }}
+                                      title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
+                                      className={`relative shrink-0 rounded-2xl transition-all ${
+                                        hasStory
+                                          ? `p-0.5 cursor-pointer ${
+                                              hasUnviewedStory
+                                                ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                                : 'bg-slate-200 border border-slate-300 opacity-70'
+                                            }`
+                                          : ''
+                                      }`}
+                                    >
+                                      <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                        {c.partner_avatar ? (
+                                          <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                        ) : c.is_group ? (
+                                          <div className="w-full h-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shrink-0">
+                                            <Users className="w-5 h-5" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                            {c.partner_name?.charAt(0) || 'U'}
+                                          </div>
+                                        )}
+                                      </div>
+                                      {/* Online presence dot (peers only) */}
+                                      {!c.is_group && (
+                                        <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      )}
+                                      {c.unread_count > 0 && (
+                                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-emerald-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white">
+                                          {c.unread_count > 99 ? '99+' : c.unread_count}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 overflow-hidden">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-900 truncate flex items-center space-x-1">
+                                          {c.is_group && <Users className="w-3 h-3 text-sky-600 shrink-0 inline" />}
+                                          <span className="truncate">{c.partner_name}</span>
+                                        </span>
+                                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                          {c.is_group && c.has_unread_mention && (
+                                            <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-sky-500 text-white text-[10px] font-black shadow-xs shrink-0" title="You were mentioned in this group">
+                                              @
+                                            </span>
+                                          )}
+                                          {c.unread_count > 0 && (
+                                            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs shrink-0">
+                                              {c.unread_count > 99 ? '99+' : c.unread_count}
+                                            </span>
+                                          )}
+                                          <span className="text-[10px] font-medium text-slate-400">
+                                            {c.is_group ? 'Group' : c.partner_role}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center space-x-1.5 mt-0.5 min-w-0">
+                                        {c.is_group && c.has_unread_mention && (
+                                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-sky-500 text-white text-[9px] font-extrabold shadow-2xs shrink-0">
+                                            <AtSign className="w-2.5 h-2.5 stroke-[2.5]" />
+                                            <span>Mentioned</span>
+                                          </span>
+                                        )}
+                                        <p className="text-[11px] text-slate-500 truncate">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {filteredConversations.length === 0 && (
+                            <div className="p-8 text-center text-xs text-slate-400">
+                              <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                              <p className="font-bold text-slate-600">
+                                {chatSearchQuery ? 'No matching conversations' : 'No active conversations'}
+                              </p>
+                              <p className="mt-1">
+                                {chatSearchQuery ? 'Try checking the name or clearing your search.' : 'Your chats with friends, peers, and campus vendors will appear here.'}
+                              </p>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -7383,6 +7697,12 @@ export default function StudentDashboard() {
                                   }`}>
                                     {selectedPartner.is_group ? 'Group' : (selectedPartner.partner_role || selectedPartner.role || 'Student')}
                                   </span>
+                                  {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 bg-amber-100 text-amber-800 flex items-center space-x-0.5">
+                                      <Archive className="w-2.5 h-2.5" />
+                                      <span>Archived</span>
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
                                   {selectedPartner.is_group ? (
@@ -7403,6 +7723,18 @@ export default function StudentDashboard() {
                             <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
                               {selectedPartner.is_group ? (
                                 <div className="flex items-center space-x-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const gid = selectedPartner.group_id || String(selectedPartner.partner_id).replace('group_', '');
+                                      handleShareGroup(gid, selectedPartner.partner_name);
+                                    }}
+                                    className="px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                    title="Share group invite"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    <span className="hidden xs:inline">Share</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -7633,17 +7965,13 @@ export default function StudentDashboard() {
                                         const myFullName = (currentUser?.full_name || '').toLowerCase().trim();
                                         const cText = typeof msg.content === 'string' ? msg.content.toLowerCase() : '';
                                         const isEveryoneMention = cText.includes('@everyone') || cText.includes('@all');
-                                        const isAdminMention = (cText.includes('@admin') || cText.includes('@admins')) &&
-                                          (selectedPartner?.is_admin || activeGroupMembers.some(m => String(m.user_id) === myUid && m.group_role === 'admin'));
                                         const isDirectMention = (Array.isArray(msg.mentions) && msg.mentions.map(String).includes(myUid)) ||
                                           (Boolean(myFullName) && cText.includes(`@${myFullName}`));
 
-                                        const isMentioned = selectedPartner?.is_group && !isMine && (isDirectMention || isEveryoneMention || isAdminMention);
+                                        const isMentioned = selectedPartner?.is_group && !isMine && (isDirectMention || isEveryoneMention);
                                         const mentionBadgeText = isEveryoneMention
                                           ? 'Mentioned @everyone'
-                                          : isAdminMention
-                                            ? 'Mentioned @admins'
-                                            : 'Mentioned you';
+                                          : 'Mentioned you';
                                         return (
                                           <div
                                             className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
@@ -8019,7 +8347,7 @@ export default function StudentDashboard() {
                               ) : (
                                 <>
                                   {/* Group @Mention Autocomplete Popup */}
-                                  {selectedPartner?.is_group && (
+                                  {selectedPartner?.is_group && isGroupAdmin && (
                                     <MentionAutocompletePopup
                                       isOpen={mentionPopupOpen}
                                       query={mentionQuery}
@@ -11522,19 +11850,6 @@ export default function StudentDashboard() {
         }}
       />
 
-      {/* --- ARCHIVED CHATS MODAL (WHATSAPP-STYLE PERSISTENT ARCHIVE) --- */}
-      <ArchivedChatsModal
-        isOpen={showArchivedModal}
-        onClose={() => setShowArchivedModal(false)}
-        archivedConversations={archivedConversations}
-        onSelectChat={(conv) => {
-          setShowArchivedModal(false);
-          handleSelectPartner(conv);
-        }}
-        onUnarchiveChat={(chatId) => {
-          toggleArchiveChat(chatId);
-        }}
-      />
 
       {/* --- ADD GROUP MEMBERS MODAL --- */}
       <AddGroupMembersModal
@@ -11600,6 +11915,92 @@ export default function StudentDashboard() {
           setToast({ text: 'Group deleted.', type: 'info' });
         }}
       />
+
+      {/* --- GROUP INVITE LINK PREVIEW / JOIN MODAL --- */}
+      <AnimatePresence>
+        {joinGroupPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl max-w-sm w-full shadow-2xl overflow-hidden border border-slate-100"
+            >
+              {/* Header Gradient */}
+              <div className="bg-gradient-to-tr from-sky-600 to-indigo-600 p-6 text-white text-center relative">
+                <button
+                  type="button"
+                  onClick={() => setJoinGroupPreview(null)}
+                  className="absolute top-3 right-3 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <div className="w-20 h-20 mx-auto rounded-2xl bg-white/20 border-2 border-white/40 shadow-inner flex items-center justify-center overflow-hidden mb-3">
+                  {joinGroupPreview.avatar_url ? (
+                    <SafeImage src={joinGroupPreview.avatar_url} alt={joinGroupPreview.name} fallbackType="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <Users className="w-10 h-10 text-white" />
+                  )}
+                </div>
+                <h3 className="font-black text-lg text-white truncate px-2">{joinGroupPreview.name}</h3>
+                <p className="text-xs text-sky-100 mt-0.5">
+                  Created by <span className="font-semibold">{joinGroupPreview.creator_name || 'Campus Member'}</span>
+                </p>
+                <div className="inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full bg-white/15 text-[11px] font-medium text-sky-50">
+                  <Users className="w-3 h-3" />
+                  <span>{joinGroupPreview.member_count || 1} participant{(joinGroupPreview.member_count || 1) === 1 ? '' : 's'}</span>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                {joinGroupPreview.description ? (
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs text-slate-600 leading-relaxed max-h-28 overflow-y-auto">
+                    {joinGroupPreview.description}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 text-center italic">No group description provided.</p>
+                )}
+
+                <div className="p-3 rounded-xl bg-sky-50/70 border border-sky-100 flex items-start space-x-2 text-sky-800 text-xs">
+                  <Sparkles className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                  <p>You have been invited to join this campus group. Connect, collaborate, and share with classmates.</p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setJoinGroupPreview(null)}
+                    disabled={isJoiningGroup}
+                    className="flex-1 py-2.5 rounded-2xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmJoinGroup(joinGroupPreview.id)}
+                    disabled={isJoiningGroup}
+                    className="flex-1 py-2.5 rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-xs font-bold text-white shadow-md shadow-sky-500/20 transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isJoiningGroup ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Joining...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="w-4 h-4" />
+                        <span>Join Group</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* --- FACEBOOK LITE MODE: MOBILE NAVIGATION IS ANCHORED AT TOP TAB BAR --- */}
 

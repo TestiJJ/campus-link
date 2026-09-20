@@ -25,7 +25,7 @@ export const isMobileContainer = () => {
  *    - Authenticated users automatically bypass public & login routes directly to their primary dashboard.
  */
 export default function PublicRoute({ children }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const token = localStorage.getItem('token');
   const storedUser = localStorage.getItem('user');
 
@@ -34,13 +34,14 @@ export default function PublicRoute({ children }) {
     try {
       const user = JSON.parse(storedUser);
       if (user && user.role) {
+        const query = search || '';
         if (user.role === 'admin') {
-          return <Navigate to="/admin-dashboard" replace />;
+          return <Navigate to={`/admin-dashboard${query}`} replace />;
         }
         if (user.role === 'vendor') {
-          return <Navigate to="/vendor-dashboard" replace />;
+          return <Navigate to={`/vendor-dashboard${query}`} replace />;
         }
-        return <Navigate to="/student-dashboard" replace />;
+        return <Navigate to={`/student-dashboard${query}`} replace />;
       }
     } catch {
       localStorage.removeItem('token');

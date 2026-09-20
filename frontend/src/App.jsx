@@ -278,6 +278,7 @@ export default function App() {
 
                 {/* Fast-Navigation Direct URLs & Aliases */}
                 <Route path="/dashboard" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
+                <Route path="/student" element={<PrivateRoute><DashboardRedirect /></PrivateRoute>} />
                 <Route path="/vendor" element={<PrivateRoute><VendorRedirect /></PrivateRoute>} />
                 <Route path="/home" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
                 <Route path="/feed" element={<PrivateRoute><TabRedirect tab="reels" /></PrivateRoute>} />
