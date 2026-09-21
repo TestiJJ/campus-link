@@ -381,6 +381,7 @@ export default function VendorDashboard() {
   const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const [pendingMediaFile, setPendingMediaFile] = useState(null);
   const [pendingMediaFiles, setPendingMediaFiles] = useState([]);
+  const [showMediaEditor, setShowMediaEditor] = useState(false);
   const [isSendingMsg, setIsSendingMsg] = useState(false);
 
   // Chat Archiving State (Persisted per vendor in localStorage)

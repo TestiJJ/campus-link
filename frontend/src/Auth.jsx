@@ -19,6 +19,7 @@ const API_BASE_URL = (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onren
   : DEFAULT_BACKEND_URL;
 
 const DEFAULT_INSTITUTIONS = [
+  { id: 53, name: "Mercy Medical University, Iwara, Iwo", abbreviation: "MMU", state: "Osun", type: "Private" },
   { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU", state: "Osun", type: "Private" },
   { id: 25, name: "University of Lagos", abbreviation: "UNILAG", state: "Lagos", type: "Federal" },
   { id: 22, name: "University of Ibadan", abbreviation: "UI", state: "Oyo", type: "Federal" },
@@ -88,6 +89,16 @@ export default function Auth() {
               id: 52,
               name: "Joseph Ayo Babalola University, Ikeji-Arakeji",
               abbreviation: "JABU",
+              state: "Osun",
+              type: "Private"
+            });
+          }
+          const hasMmu = parsed.some(u => (u.abbreviation || '').toUpperCase() === 'MMU' || (u.name || '').toLowerCase().includes('mercy medical'));
+          if (!hasMmu) {
+            parsed.unshift({
+              id: 53,
+              name: "Mercy Medical University, Iwara, Iwo",
+              abbreviation: "MMU",
               state: "Osun",
               type: "Private"
             });
@@ -185,6 +196,16 @@ export default function Auth() {
                 id: 52,
                 name: "Joseph Ayo Babalola University, Ikeji-Arakeji",
                 abbreviation: "JABU",
+                state: "Osun",
+                type: "Private"
+              });
+            }
+            const hasMmu = data.some(u => (u.abbreviation || '').toUpperCase() === 'MMU' || (u.name || '').toLowerCase().includes('mercy medical'));
+            if (!hasMmu) {
+              data.push({
+                id: 53,
+                name: "Mercy Medical University, Iwara, Iwo",
+                abbreviation: "MMU",
                 state: "Osun",
                 type: "Private"
               });
@@ -365,6 +386,9 @@ export default function Auth() {
         if (instSearchQuery && (instSearchQuery.toLowerCase().includes('jabu') || instSearchQuery.toLowerCase().includes('babalola'))) {
           formData.university_id = 52;
           setSelectedInstName("Joseph Ayo Babalola University, Ikeji-Arakeji (JABU)");
+        } else if (instSearchQuery && (instSearchQuery.toLowerCase().includes('mmu') || instSearchQuery.toLowerCase().includes('mercy'))) {
+          formData.university_id = 53;
+          setSelectedInstName("Mercy Medical University, Iwara, Iwo (MMU)");
         } else {
           triggerValidationError('Please select your university or polytechnic institution.', 'field-university');
           return;
@@ -1070,7 +1094,7 @@ export default function Auth() {
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2.5 max-h-64 overflow-y-auto">
                     <input
                       type="text"
-                      placeholder="Search institution or acronym (e.g. JABU, UNILAG, UI)..."
+                      placeholder="Search institution or acronym (e.g. MMU, JABU, UNILAG, UI)..."
                       value={instSearchQuery}
                       onChange={(e) => setInstSearchQuery(e.target.value)}
                       autoFocus
@@ -1081,6 +1105,7 @@ export default function Auth() {
                     <div className="flex items-center space-x-1.5 overflow-x-auto pb-1.5 mb-1.5 text-[11px] no-scrollbar">
                       <span className="text-[10px] font-semibold text-slate-400 shrink-0">Popular:</span>
                       {[
+                        { id: 53, name: "Mercy Medical University, Iwara, Iwo", abbreviation: "MMU" },
                         { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU" },
                         { id: 25, name: "University of Lagos", abbreviation: "UNILAG" },
                         { id: 22, name: "University of Ibadan", abbreviation: "UI" },
@@ -1134,6 +1159,8 @@ export default function Auth() {
                                 const q = instSearchQuery.trim();
                                 if (q.toLowerCase().includes('jabu') || q.toLowerCase().includes('babalola')) {
                                   handleSelectInstitution({ id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU" });
+                                } else if (q.toLowerCase().includes('mmu') || q.toLowerCase().includes('mercy')) {
+                                  handleSelectInstitution({ id: 53, name: "Mercy Medical University, Iwara, Iwo", abbreviation: "MMU" });
                                 } else {
                                   setFormData(prev => ({ ...prev, university_id: q }));
                                   setSelectedInstName(q);

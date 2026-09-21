@@ -49,6 +49,7 @@ NIGERIAN_INSTITUTIONS = [
     {"name": "Covenant University, Ota", "state": "Ogun", "type": "Private"},
     {"name": "Elizade University, Ilara-Mokin", "state": "Ondo", "type": "Private", "abbreviation": "ELIZADE"},
     {"name": "Joseph Ayo Babalola University, Ikeji-Arakeji", "state": "Osun", "type": "Private", "abbreviation": "JABU"},
+    {"name": "Mercy Medical University, Iwara, Iwo", "state": "Osun", "type": "Private", "abbreviation": "MMU"},
     {"name": "Lead City University, Ibadan", "state": "Oyo", "type": "Private"},
     {"name": "Mountain Top University", "state": "Ogun", "type": "Private"},
     {"name": "Nile University of Nigeria, Abuja", "state": "FCT", "type": "Private"},

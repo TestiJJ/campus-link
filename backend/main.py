@@ -941,6 +941,30 @@ def register_user(
                         ).first()
                 if jabu:
                     parsed_uni_id = jabu.id
+            elif "mmu" in u_val.lower() or "mercy" in u_val.lower():
+                mmu = db.query(models.University).filter(
+                    (models.University.abbreviation == "MMU") |
+                    (models.University.name.ilike("%Mercy Medical%"))
+                ).first()
+                if not mmu:
+                    try:
+                        mmu = models.University(
+                            name="Mercy Medical University, Iwara, Iwo",
+                            state="Osun",
+                            type="Private",
+                            abbreviation="MMU"
+                        )
+                        db.add(mmu)
+                        db.commit()
+                        db.refresh(mmu)
+                    except Exception:
+                        db.rollback()
+                        mmu = db.query(models.University).filter(
+                            (models.University.abbreviation == "MMU") |
+                            (models.University.name.ilike("%Mercy Medical%"))
+                        ).first()
+                if mmu:
+                    parsed_uni_id = mmu.id
             elif len(u_val) >= 3 and not u_val.isdigit():
                 try:
                     new_inst = models.University(
@@ -3772,6 +3796,21 @@ def get_universities(db: Session = Depends(database.get_db)):
             db.add(new_jabu)
             db.commit()
             print("[CampusLink] Auto-seeded JABU on demand.")
+
+        mmu_entry = db.query(models.University).filter(
+            (models.University.abbreviation == "MMU") |
+            (models.University.name.ilike("%Mercy Medical%"))
+        ).first()
+        if not mmu_entry:
+            new_mmu = models.University(
+                name="Mercy Medical University, Iwara, Iwo",
+                state="Osun",
+                type="Private",
+                abbreviation="MMU"
+            )
+            db.add(new_mmu)
+            db.commit()
+            print("[CampusLink] Auto-seeded MMU on demand.")
 
         if db.query(models.University).count() < len(seed_universities.NIGERIAN_INSTITUTIONS):
             seed_universities.seed_database()
