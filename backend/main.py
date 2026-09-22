@@ -2927,6 +2927,8 @@ def get_products(
     category_id: Optional[int] = None,
     search: Optional[str] = None,
     university_id: Optional[int] = None,
+    vendor_id: Optional[int] = None,
+    limit: Optional[int] = None,
     db: Session = Depends(database.get_db)
 ):
     query = (
@@ -2941,11 +2943,18 @@ def get_products(
         query = query.filter(models.Product.category_id == category_id)
     if university_id:
         query = query.filter(models.Product.university_id == university_id)
+    if vendor_id:
+        query = query.filter(models.Product.vendor_id == vendor_id)
     if search:
         s = f"%{search.strip()}%"
         query = query.filter((models.Product.name.ilike(s)) | (models.Product.description.ilike(s)))
 
-    products = query.limit(100).all()
+    if limit is not None and limit > 0:
+        query = query.limit(limit)
+    elif not vendor_id and not search:
+        query = query.limit(100)
+
+    products = query.all()
     results = []
     for p in products:
         u = p.university or (p.vendor.university if p.vendor else None)
@@ -3123,6 +3132,9 @@ def delete_product(
 def get_services(
     category_id: Optional[int] = None,
     search: Optional[str] = None,
+    university_id: Optional[int] = None,
+    vendor_id: Optional[int] = None,
+    limit: Optional[int] = None,
     db: Session = Depends(database.get_db)
 ):
     query = (
@@ -3134,11 +3146,20 @@ def get_services(
     )
     if category_id:
         query = query.filter(models.Service.category_id == category_id)
+    if university_id:
+        query = query.filter(models.Service.university_id == university_id)
+    if vendor_id:
+        query = query.filter(models.Service.vendor_id == vendor_id)
     if search:
         s = f"%{search.strip()}%"
         query = query.filter((models.Service.name.ilike(s)) | (models.Service.description.ilike(s)))
 
-    services = query.limit(100).all()
+    if limit is not None and limit > 0:
+        query = query.limit(limit)
+    elif not vendor_id and not search:
+        query = query.limit(100)
+
+    services = query.all()
     results = []
     for svc in services:
         u = svc.vendor.university if (svc.vendor and svc.vendor.university) else None

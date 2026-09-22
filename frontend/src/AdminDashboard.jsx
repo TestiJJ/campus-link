@@ -105,8 +105,8 @@ export default function AdminDashboard() {
       const results = await Promise.allSettled([
         API.get('/admin/stats'),
         API.get('/admin/vendors'),
-        API.get('/products'),
-        API.get('/services'),
+        API.get('/products?limit=2000'),
+        API.get('/services?limit=2000'),
         API.get('/reels'),
         API.get('/admin/users')
       ]);

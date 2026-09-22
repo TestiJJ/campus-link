@@ -1906,6 +1906,22 @@ export default function VendorDashboard() {
                   setCachedData('reviews', revs);
                 })
                 .catch(() => {});
+
+              API.get('/products', { params: { vendor_id: storeData.id } })
+                .then((pRes) => {
+                  const myProds = pRes.data || [];
+                  setProducts(myProds);
+                  setCachedData('products', myProds);
+                })
+                .catch(() => {});
+
+              API.get('/services', { params: { vendor_id: storeData.id } })
+                .then((sRes) => {
+                  const mySvcs = sRes.data || [];
+                  setServices(mySvcs);
+                  setCachedData('services', mySvcs);
+                })
+                .catch(() => {});
             }
           }
         })
@@ -1931,13 +1947,23 @@ export default function VendorDashboard() {
           setMarketplaceProducts(allProds);
           setCachedData('marketplace_products', allProds);
           const currentUserId = String(user?.id || user?.user_id || '');
-          const myProds = allProds.filter((p) => {
-            if (vendorStore?.id && p.vendor_id === vendorStore.id) return true;
-            if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
-            return false;
-          });
-          setProducts(myProds);
-          setCachedData('products', myProds);
+          const targetVendorId = vendorStore?.id;
+          if (targetVendorId) {
+            API.get('/products', { params: { vendor_id: targetVendorId } })
+              .then((pRes) => {
+                const myProds = pRes.data || [];
+                setProducts(myProds);
+                setCachedData('products', myProds);
+              })
+              .catch(() => {});
+          } else {
+            const myProds = allProds.filter((p) => {
+              if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
+              return false;
+            });
+            setProducts(myProds);
+            setCachedData('products', myProds);
+          }
         })
         .catch(() => {});
 
@@ -1947,13 +1973,23 @@ export default function VendorDashboard() {
           setMarketplaceServices(allSvcs);
           setCachedData('marketplace_services', allSvcs);
           const currentUserId = String(user?.id || user?.user_id || '');
-          const mySvcs = allSvcs.filter((s) => {
-            if (vendorStore?.id && s.vendor_id === vendorStore.id) return true;
-            if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
-            return false;
-          });
-          setServices(mySvcs);
-          setCachedData('services', mySvcs);
+          const targetVendorId = vendorStore?.id;
+          if (targetVendorId) {
+            API.get('/services', { params: { vendor_id: targetVendorId } })
+              .then((sRes) => {
+                const mySvcs = sRes.data || [];
+                setServices(mySvcs);
+                setCachedData('services', mySvcs);
+              })
+              .catch(() => {});
+          } else {
+            const mySvcs = allSvcs.filter((s) => {
+              if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
+              return false;
+            });
+            setServices(mySvcs);
+            setCachedData('services', mySvcs);
+          }
         })
         .catch(() => {});
 
@@ -3537,18 +3573,22 @@ export default function VendorDashboard() {
       setProductForm({ name: '', description: '', price: '', category_id: 1, custom_category: '', quantity: 1, university_id: '' });
       setProdFile(null);
       setProdPreview(null);
-      API.get('/products').then(res => {
+      const vId = vendorStore?.id;
+      const params = vId ? { vendor_id: vId } : {};
+      API.get('/products', { params }).then(res => {
         const fresh = res.data || [];
-        setMarketplaceProducts(fresh);
-        setCachedData('marketplace_products', fresh);
-        const myProds = fresh.filter(p => {
-          if (vendorStore?.id && p.vendor_id === vendorStore.id) return true;
-          const currentUserId = String(user?.id || user?.user_id || '');
+        const currentUserId = String(user?.id || user?.user_id || '');
+        const myProds = vId ? fresh : fresh.filter(p => {
           if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
           return false;
         });
         setProducts(myProds);
         setCachedData('products', myProds);
+      }).catch(() => { });
+      API.get('/products').then(res => {
+        const mkt = res.data || [];
+        setMarketplaceProducts(mkt);
+        setCachedData('marketplace_products', mkt);
       }).catch(() => { });
     } catch (err) {
       showToast(err.response?.data?.detail || (editingProduct ? 'Failed to update product.' : 'Failed to add product.'), 'error');
@@ -3587,18 +3627,22 @@ export default function VendorDashboard() {
       setSvcFile(null);
       setSvcPreview(null);
       showToast('Service published to Campus Marketplace!', 'success');
-      API.get('/services').then(res => {
+      const vId = vendorStore?.id;
+      const params = vId ? { vendor_id: vId } : {};
+      API.get('/services', { params }).then(res => {
         const fresh = res.data || [];
-        setMarketplaceServices(fresh);
-        setCachedData('marketplace_services', fresh);
-        const mySvcs = fresh.filter(s => {
-          if (vendorStore?.id && s.vendor_id === vendorStore.id) return true;
-          const currentUserId = String(user?.id || user?.user_id || '');
+        const currentUserId = String(user?.id || user?.user_id || '');
+        const mySvcs = vId ? fresh : fresh.filter(s => {
           if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
           return false;
         });
         setServices(mySvcs);
         setCachedData('services', mySvcs);
+      }).catch(() => { });
+      API.get('/services').then(res => {
+        const mkt = res.data || [];
+        setMarketplaceServices(mkt);
+        setCachedData('marketplace_services', mkt);
       }).catch(() => { });
     } catch (err) {
       showToast(err.response?.data?.detail || 'Failed to add service.', 'error');
@@ -3660,18 +3704,22 @@ export default function VendorDashboard() {
 
     try {
       await API.delete(`/products/${id}`);
-      API.get('/products').then(res => {
+      const vId = vendorStore?.id;
+      const params = vId ? { vendor_id: vId } : {};
+      API.get('/products', { params }).then(res => {
         const fresh = res.data || [];
-        setMarketplaceProducts(fresh);
-        setCachedData('marketplace_products', fresh);
-        const myProds = fresh.filter(p => {
-          if (vendorStore?.id && p.vendor_id === vendorStore.id) return true;
-          const currentUserId = String(user?.id || user?.user_id || '');
+        const currentUserId = String(user?.id || user?.user_id || '');
+        const myProds = vId ? fresh : fresh.filter(p => {
           if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
           return false;
         });
         setProducts(myProds);
         setCachedData('products', myProds);
+      }).catch(() => { });
+      API.get('/products').then(res => {
+        const mkt = res.data || [];
+        setMarketplaceProducts(mkt);
+        setCachedData('marketplace_products', mkt);
       }).catch(() => { });
     } catch (err) {
       setProducts(prevProducts);
@@ -3690,18 +3738,22 @@ export default function VendorDashboard() {
 
     try {
       await API.delete(`/services/${id}`);
-      API.get('/services').then(res => {
+      const vId = vendorStore?.id;
+      const params = vId ? { vendor_id: vId } : {};
+      API.get('/services', { params }).then(res => {
         const fresh = res.data || [];
-        setMarketplaceServices(fresh);
-        setCachedData('marketplace_services', fresh);
-        const mySvcs = fresh.filter(s => {
-          if (vendorStore?.id && s.vendor_id === vendorStore.id) return true;
-          const currentUserId = String(user?.id || user?.user_id || '');
+        const currentUserId = String(user?.id || user?.user_id || '');
+        const mySvcs = vId ? fresh : fresh.filter(s => {
           if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
           return false;
         });
         setServices(mySvcs);
         setCachedData('services', mySvcs);
+      }).catch(() => { });
+      API.get('/services').then(res => {
+        const mkt = res.data || [];
+        setMarketplaceServices(mkt);
+        setCachedData('marketplace_services', mkt);
       }).catch(() => { });
     } catch (err) {
       setServices(prevServices);
