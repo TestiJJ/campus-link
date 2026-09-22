@@ -14,6 +14,7 @@ NIGERIAN_INSTITUTIONS = [
     {"name": "Federal University of Technology, Minna", "state": "Niger", "type": "Federal"},
     {"name": "Federal University of Technology, Owerri", "state": "Imo", "type": "Federal"},
     {"name": "Federal University, Oye-Ekiti", "state": "Ekiti", "type": "Federal"},
+    {"name": "Federal University of Health Sciences, Ila-Orangun", "state": "Osun", "type": "Federal", "abbreviation": "FUHSI"},
     {"name": "Nnamdi Azikiwe University, Awka", "state": "Anambra", "type": "Federal"},
     {"name": "Obafemi Awolowo University, Ile-Ife", "state": "Osun", "type": "Federal"},
     {"name": "University of Abuja", "state": "FCT", "type": "Federal"},

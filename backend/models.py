@@ -50,6 +50,9 @@ class User(Base):
     verification_code = Column(String(6), nullable=True)
     code_expires_at = Column(DateTime, nullable=True)
 
+    # CampusLink Mini Bank Wallet
+    wallet_balance = Column(Float, default=0.0)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     university = relationship("University", back_populates="users")
@@ -527,3 +530,99 @@ class GroupMessage(Base):
     group = relationship("Group", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id])
     reply_to = relationship("GroupMessage", remote_side=[id], foreign_keys=[reply_to_id])
+
+
+# ==========================================
+# CAMPUSLINK MINI BANK / VTU WALLET
+# ==========================================
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    transaction_type = Column(String(30), nullable=False)  # credit, debit, airtime, data, electricity, cable_tv, education_pin
+    amount = Column(Float, nullable=False)
+    service_category = Column(String(50), nullable=False)  # deposit, airtime, data, electricity, cable, education
+    network_provider = Column(String(50), nullable=True)  # MTN, AIRTEL, GLO, 9MOBILE, IKEDC, EKEDC, DSTV, GOTV, JAMB, etc.
+    package_name = Column(String(150), nullable=True)  # e.g., MTN SME 1GB, ₦1,000 Recharge, IKEDC Prepaid
+    recipient_phone_or_meter = Column(String(100), nullable=True)  # phone number, meter number, smartcard no
+    status = Column(String(20), default="successful", index=True)  # successful, pending, failed
+    reference = Column(String(100), unique=True, index=True)
+    token_or_pin = Column(String(255), nullable=True)  # Electricity token, recharge PIN, or e-PIN
+    balance_before = Column(Float, default=0.0)
+    balance_after = Column(Float, default=0.0)
+    details = Column(Text, nullable=True)  # JSON metadata or operator notes
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    user = relationship("User")
+
+
+# ==========================================
+# REAL CAMPUS & JAMB NEWS
+# ==========================================
+class CampusNews(Base):
+    __tablename__ = "campus_news"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(300), nullable=False)
+    summary = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)
+    category = Column(String(50), default="university", index=True)  # jamb, university, asuu, scholarship, campus
+    source_name = Column(String(100), default="CampusLink Education Desk")
+    source_url = Column(String(550), nullable=True)
+    image_url = Column(String(550), nullable=True)
+    is_breaking = Column(Boolean, default=False)
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=True, index=True)
+    published_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    university = relationship("University")
+
+
+# ==========================================
+# ACADEMIC VAULT (PAST QUESTIONS & STUDY MATERIALS)
+# ==========================================
+class PastQuestion(Base):
+    __tablename__ = "past_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=True, index=True)
+    course_code = Column(String(50), nullable=False, index=True)  # GST 111, MTH 101, CSC 201
+    course_title = Column(String(255), nullable=False)
+    faculty = Column(String(100), nullable=False)
+    department = Column(String(100), nullable=False, index=True)
+    level = Column(String(20), nullable=False)  # 100L, 200L, 300L, 400L, 500L
+    semester = Column(String(20), default="1st Semester")  # 1st Semester, 2nd Semester
+    exam_year = Column(String(30), default="Recent Session")
+    file_url = Column(String(550), nullable=True)
+    content_text = Column(Text, nullable=True)
+    contributor_id = Column(String(36), ForeignKey("users.user_id"), nullable=True)
+    downloads_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", foreign_keys=[contributor_id])
+    university = relationship("University")
+
+
+# ==========================================
+# CAMPUS LODGE & ACCOMMODATION LISTINGS
+# ==========================================
+class LodgeListing(Base):
+    __tablename__ = "lodge_listings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    university_id = Column(Integer, ForeignKey("universities.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    lodge_name = Column(String(120), nullable=False)
+    location = Column(String(255), nullable=False)  # Near Campus Gate, Back of Hall, etc.
+    price_per_year = Column(Float, nullable=False)
+    room_type = Column(String(50), default="Self-contained")  # Single Room, Self-contained, Flat
+    amenities = Column(String(255), nullable=True)  # Water, Prepaid Meter, Fenced, Security
+    contact_phone = Column(String(50), nullable=False)
+    image_url = Column(String(550), nullable=True)
+    is_available = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")
+    university = relationship("University")

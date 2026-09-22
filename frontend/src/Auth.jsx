@@ -20,6 +20,7 @@ const API_BASE_URL = (rawEnvUrl && !rawEnvUrl.includes('campuslink-backend.onren
 
 const DEFAULT_INSTITUTIONS = [
   { id: 53, name: "Mercy Medical University, Iwara, Iwo", abbreviation: "MMU", state: "Osun", type: "Private" },
+  { id: 55, name: "Federal University of Health Sciences, Ila-Orangun", abbreviation: "FUHSI", state: "Osun", type: "Federal" },
   { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU", state: "Osun", type: "Private" },
   { id: 25, name: "University of Lagos", abbreviation: "UNILAG", state: "Lagos", type: "Federal" },
   { id: 22, name: "University of Ibadan", abbreviation: "UI", state: "Oyo", type: "Federal" },
@@ -1106,6 +1107,7 @@ export default function Auth() {
                       <span className="text-[10px] font-semibold text-slate-400 shrink-0">Popular:</span>
                       {[
                         { id: 53, name: "Mercy Medical University, Iwara, Iwo", abbreviation: "MMU" },
+                        { id: 55, name: "Federal University of Health Sciences, Ila-Orangun", abbreviation: "FUHSI" },
                         { id: 52, name: "Joseph Ayo Babalola University, Ikeji-Arakeji", abbreviation: "JABU" },
                         { id: 25, name: "University of Lagos", abbreviation: "UNILAG" },
                         { id: 22, name: "University of Ibadan", abbreviation: "UI" },

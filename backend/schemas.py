@@ -662,3 +662,153 @@ class GroupMessageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ==========================================
+# CAMPUSLINK MINI BANK / VTU WALLET SCHEMAS
+# ==========================================
+class WalletFundRequest(BaseModel):
+    amount: float
+    reference: Optional[str] = None
+    method: Optional[str] = "demo_card"  # demo_card, bank_transfer, paystack
+
+class VTUPurchaseRequest(BaseModel):
+    service_category: str  # airtime, data, electricity, cable, education
+    network_provider: str  # MTN, AIRTEL, GLO, 9MOBILE, IKEDC, EKEDC, DSTV, GOTV, JAMB, etc.
+    package_name: str  # e.g. "MTN SME 1.0GB (30 Days)" or "Airtime Recharge"
+    package_id: Optional[str] = None  # provider plan code
+    amount: float
+    recipient: str  # phone number, meter number, smartcard no, profile code
+    meter_type: Optional[str] = "prepaid"  # prepaid or postpaid (for electricity)
+
+class VTUPurchaseResponse(BaseModel):
+    success: bool
+    message: str
+    reference: str
+    service_category: str
+    network_provider: str
+    package_name: str
+    recipient: str
+    amount: float
+    token_or_pin: Optional[str] = None
+    balance_after: float
+    created_at: Optional[str] = None
+
+class WalletTransactionOut(BaseModel):
+    id: int
+    user_id: str
+    transaction_type: str
+    amount: float
+    service_category: str
+    network_provider: Optional[str] = None
+    package_name: Optional[str] = None
+    recipient_phone_or_meter: Optional[str] = None
+    status: str
+    reference: str
+    token_or_pin: Optional[str] = None
+    balance_before: float
+    balance_after: float
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# REAL CAMPUS & JAMB NEWS SCHEMAS
+# ==========================================
+class CampusNewsCreate(BaseModel):
+    title: str
+    summary: str
+    content: Optional[str] = None
+    category: Optional[str] = "university"  # jamb, university, asuu, scholarship, campus
+    source_name: Optional[str] = "CampusLink Education Desk"
+    source_url: Optional[str] = None
+    image_url: Optional[str] = None
+    is_breaking: Optional[bool] = False
+    university_id: Optional[int] = None
+
+class CampusNewsOut(BaseModel):
+    id: int
+    title: str
+    summary: str
+    content: Optional[str] = None
+    category: str
+    source_name: str
+    source_url: Optional[str] = None
+    image_url: Optional[str] = None
+    is_breaking: bool
+    university_id: Optional[int] = None
+    published_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# ACADEMIC VAULT (PAST QUESTIONS) SCHEMAS
+# ==========================================
+class PastQuestionCreate(BaseModel):
+    course_code: str
+    course_title: str
+    faculty: str
+    department: str
+    level: str
+    semester: Optional[str] = "1st Semester"
+    exam_year: Optional[str] = "Recent Session"
+    file_url: Optional[str] = None
+    content_text: Optional[str] = None
+    university_id: Optional[int] = None
+
+class PastQuestionOut(BaseModel):
+    id: int
+    university_id: Optional[int] = None
+    course_code: str
+    course_title: str
+    faculty: str
+    department: str
+    level: str
+    semester: str
+    exam_year: str
+    file_url: Optional[str] = None
+    content_text: Optional[str] = None
+    contributor_id: Optional[str] = None
+    downloads_count: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# CAMPUS LODGE LISTING SCHEMAS
+# ==========================================
+class LodgeListingCreate(BaseModel):
+    title: str
+    lodge_name: str
+    location: str
+    price_per_year: float
+    room_type: Optional[str] = "Self-contained"
+    amenities: Optional[str] = None
+    contact_phone: str
+    image_url: Optional[str] = None
+    university_id: Optional[int] = None
+
+class LodgeListingOut(BaseModel):
+    id: int
+    university_id: int
+    user_id: str
+    title: str
+    lodge_name: str
+    location: str
+    price_per_year: float
+    room_type: str
+    amenities: Optional[str] = None
+    contact_phone: str
+    image_url: Optional[str] = None
+    is_available: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

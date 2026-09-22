@@ -13,7 +13,7 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore, ArrowLeft
+  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore, ArrowLeft, WalletCards
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -27,6 +27,9 @@ import ChatMediaGallery from './components/ChatMediaGallery';
 import InstallAppButton from './components/InstallAppButton';
 import CampusSelectModal from './components/CampusSelectModal';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
+import CampusNewsCard from './components/CampusNewsCard';
+import CampusNewsModal from './components/CampusNewsModal';
+import CampusHub from './components/CampusHub';
 import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
 import {
   isPushSupported,
@@ -238,7 +241,7 @@ export function getInitialVendorTab() {
     const tabParam = params.get('tab');
     if (tabParam === 'reels' || tabParam === 'feed') return 'home';
     if (tabParam === 'services' || tabParam === 'catalog') return 'inventory';
-    const validTabs = ['home', 'reels', 'inventory', 'services', 'marketplace', 'messages', 'friends', 'notifications', 'hub', 'settings', 'verification'];
+    const validTabs = ['home', 'reels', 'inventory', 'services', 'marketplace', 'messages', 'friends', 'notifications', 'hub', 'campus', 'settings', 'verification'];
     if (tabParam && validTabs.includes(tabParam)) {
       return tabParam === 'reels' ? 'home' : (tabParam === 'services' || tabParam === 'catalog') ? 'inventory' : tabParam;
     }
@@ -285,6 +288,11 @@ export default function VendorDashboard() {
   const [catalogSearchOpen, setCatalogSearchOpen] = useState(false);
   const [selectedCatalogCategory, setSelectedCatalogCategory] = useState('all');
   const [friendsTabFilter, setFriendsTabFilter] = useState('find'); // 'find' (1st) | 'all' (requests 2nd) | 'friends' (3rd)
+
+  // Real School & JAMB News State
+  const [campusNews, setCampusNews] = useState(() => getCachedData('campus_news', []));
+  const [activeNewsModal, setActiveNewsModal] = useState(null);
+  const [homeFeedFilter, setHomeFeedFilter] = useState('all'); // 'all' | 'drops' | 'news'
 
   // Settings & Profile Experience Modals
   const [editProfileModalOpen, setEditProfileModalOpen] = useState(false);
@@ -519,6 +527,20 @@ export default function VendorDashboard() {
       return false;
     }
   });
+
+  // Fetch Real School & JAMB News
+  useEffect(() => {
+    API.get('/campus/news')
+      .then(res => {
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          setCampusNews(res.data);
+          try {
+            localStorage.setItem('cl_cache_campus_news', JSON.stringify(res.data));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Auto-sync push registration to backend on mount if already granted
   useEffect(() => {
@@ -3941,6 +3963,7 @@ export default function VendorDashboard() {
                 { id: 'home', icon: Home, label: 'Home' },
                 { id: 'inventory', icon: Store, label: 'My Store', badge: (products.length + services.length) },
                 { id: 'marketplace', icon: ShoppingBag, label: 'Marketplace' },
+                { id: 'campus', icon: WalletCards, label: 'Mini Bank & Hub' },
                 { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
                 { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
                 { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadNotifCount }
@@ -7034,13 +7057,13 @@ export default function VendorDashboard() {
               {/* Reels Feed Stream */}
               <div className="space-y-4">
                 {filteredReels.filter(r => !hiddenPostIds.includes(r.id)).length > 0 ? (
-                  filteredReels.filter(r => !hiddenPostIds.includes(r.id)).map((reel) => {
+                  filteredReels.filter(r => !hiddenPostIds.includes(r.id)).map((reel, rIdx) => {
                     const isVideo = reel.media_type === 'video' || (reel.media_url && reel.media_url.match(/\.(mp4|webm|mov|ogg)$/i));
                     const isMine = (reel.author_id === user?.user_id || reel.user_id === user?.user_id || reel.author_id === user?.id);
 
                     return (
+                      <React.Fragment key={reel.id}>
                       <div
-                        key={reel.id}
                         id={`reel-${reel.id}`}
                         className={`bg-white rounded-2xl sm:rounded-3xl border overflow-hidden shadow-xs transition-all duration-500 ${
                           highlightedReelId === reel.id
@@ -7325,6 +7348,13 @@ export default function VendorDashboard() {
                           </div>
                         )}
                       </div>
+                      {(rIdx + 1) % 4 === 0 && campusNews.length > 0 && (
+                        <CampusNewsCard
+                          news={campusNews[Math.floor(rIdx / 4) % campusNews.length]}
+                          onOpenModal={(item) => setActiveNewsModal(item)}
+                        />
+                      )}
+                      </React.Fragment>
                     );
                   })
                 ) : (
@@ -7340,6 +7370,17 @@ export default function VendorDashboard() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* --- TAB: CAMPUSLINK MINI BANK & CAMPUS HUB (DATA, AIRTIME, BILLS, LODGES) --- */}
+          {/* ========================================================================= */}
+          {activeTab === 'campus' && (
+            <CampusHub
+              currentUser={user}
+              universityName={vendorStore?.university_name || 'Campus'}
+              isVendor={true}
+            />
           )}
 
           {/* ========================================================================= */}
@@ -10250,6 +10291,13 @@ export default function VendorDashboard() {
                   <div className="grid grid-cols-2 gap-2.5">
                     {[
                       {
+                        title: 'Mini Bank & Bills',
+                        desc: 'Data, Airtime, Light',
+                        icon: WalletCards,
+                        color: 'text-emerald-600 bg-emerald-50',
+                        tab: 'campus'
+                      },
+                      {
                         title: 'Feed & Drops',
                         desc: 'Campus moments',
                         icon: Home,
@@ -10760,8 +10808,8 @@ export default function VendorDashboard() {
           {[
             { id: 'home', icon: Home, label: 'Home' },
             { id: 'inventory', icon: Store, label: 'Store' },
+            { id: 'campus', icon: WalletCards, label: 'Hub' },
             { id: 'marketplace', icon: ShoppingBag, label: 'Market' },
-            { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
             { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadNotifCount }
           ].map((tab) => {
@@ -10801,6 +10849,13 @@ export default function VendorDashboard() {
           })}
         </div>
       </nav>
+
+      {/* Real School & JAMB News Article Reader Modal */}
+      <CampusNewsModal
+        news={activeNewsModal}
+        isOpen={Boolean(activeNewsModal)}
+        onClose={() => setActiveNewsModal(null)}
+      />
 
     </div>
   );

@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional, List
-import models, schemas, auth, database
+import models, schemas, auth, database, news_service, vtu_service, academic_service
 try:
     from groq import Groq
     groq_api_key = os.getenv("GROQ_API_KEY")
@@ -31,6 +31,7 @@ def init_db_schema():
         for col_stmt in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance FLOAT DEFAULT 0.0;",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id INTEGER;",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_sender VARCHAR(100);",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_text VARCHAR(255);",
@@ -65,12 +66,19 @@ def init_db_schema():
         print("[CampusLink] DB schema initialized successfully.")
     except Exception as _db_err:
         print(f"[CampusLink] Database init notice: {_db_err}")
-    # Auto-seed institutions and marketplace categories
+    # Auto-seed institutions, marketplace categories, news, and academics
     try:
         import seed_universities
         seed_universities.seed_database()
     except Exception as _e:
         print(f"[CampusLink] Auto-seed status: {_e}")
+    try:
+        db_session = database.SessionLocal()
+        news_service.seed_default_news(db_session)
+        academic_service.seed_academic_and_lodges(db_session)
+        db_session.close()
+    except Exception as _seed_e:
+        print(f"[CampusLink] News/Academic auto-seed notice: {_seed_e}")
 
 # Automatically migrate any legacy localhost image URLs in the database to the live backend domain
 def clean_legacy_image_urls():
@@ -3812,6 +3820,23 @@ def get_universities(db: Session = Depends(database.get_db)):
             db.commit()
             print("[CampusLink] Auto-seeded MMU on demand.")
 
+        # Ensure FUHSI (Federal University of Health Sciences, Ila-Orangun) exists
+        fuhsi_entry = db.query(models.University).filter(
+            (models.University.abbreviation == "FUHSI") |
+            (models.University.name.ilike("%Ila-Orangun%")) |
+            (models.University.name.ilike("%Ila Orangun%"))
+        ).first()
+        if not fuhsi_entry:
+            new_fuhsi = models.University(
+                name="Federal University of Health Sciences, Ila-Orangun",
+                state="Osun",
+                type="Federal",
+                abbreviation="FUHSI"
+            )
+            db.add(new_fuhsi)
+            db.commit()
+            print("[CampusLink] Auto-seeded FUHSI on demand.")
+
         if db.query(models.University).count() < len(seed_universities.NIGERIAN_INSTITUTIONS):
             seed_universities.seed_database()
     except Exception as _e:
@@ -7317,6 +7342,281 @@ def clear_ai_chat(
     ).delete()
     db.commit()
     return {"message": "AI chat history cleared"}
+
+
+# ==========================================
+# 1. REAL CAMPUS & JAMB NEWS ENDPOINTS
+# ==========================================
+@app.get("/api/campus/news", response_model=List[schemas.CampusNewsOut])
+def get_school_and_jamb_news(
+    category: Optional[str] = Query(None, description="Category filter: all, jamb, university, asuu, scholarship"),
+    search: Optional[str] = Query(None, description="Search term for news"),
+    university_id: Optional[int] = Query(None, description="University filter"),
+    limit: int = Query(30, ge=1, le=100),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(database.get_db)
+):
+    """
+    Returns authentic, real-time Nigerian university & JAMB educational news.
+    Syncs live headlines via RSS in background while instantly returning cached news.
+    """
+    # Trigger background live RSS sync if available
+    if background_tasks:
+        background_tasks.add_task(news_service.fetch_live_rss_news, db, 8)
+
+    articles = news_service.get_campus_news(
+        db=db,
+        category=category,
+        search=search,
+        university_id=university_id,
+        limit=limit
+    )
+    return articles
+
+
+@app.post("/api/campus/news", response_model=schemas.CampusNewsOut)
+def create_campus_news(
+    news_in: schemas.CampusNewsCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Publish a verified campus or educational news bulletin."""
+    news_obj = models.CampusNews(
+        title=news_in.title.strip(),
+        summary=news_in.summary.strip(),
+        content=news_in.content.strip() if news_in.content else None,
+        category=(news_in.category or "university").lower(),
+        source_name=news_in.source_name or f"CampusLink ({current_user.full_name})",
+        source_url=news_in.source_url,
+        image_url=news_in.image_url or news_service.NEWS_IMAGE_MAP.get(news_in.category, news_service.NEWS_IMAGE_MAP["university"]),
+        is_breaking=news_in.is_breaking or False,
+        university_id=news_in.university_id or current_user.university_id,
+        published_at=datetime.utcnow()
+    )
+    db.add(news_obj)
+    db.commit()
+    db.refresh(news_obj)
+    return news_obj
+
+
+# ==========================================
+# 2. CAMPUSLINK MINI BANK / WALLET ENDPOINTS
+# ==========================================
+@app.get("/api/wallet/balance")
+def get_wallet_balance(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Get the current authenticated user's CampusLink wallet balance."""
+    # Ensure user record is fresh from database
+    user_db = db.query(models.User).filter(models.User.user_id == current_user.user_id).first()
+    bal = float(user_db.wallet_balance or 0.0) if user_db else 0.0
+    return {
+        "user_id": current_user.user_id,
+        "full_name": current_user.full_name,
+        "wallet_balance": bal,
+        "formatted_balance": f"₦{bal:,.2f}"
+    }
+
+
+@app.post("/api/wallet/fund")
+def fund_wallet(
+    fund_in: schemas.WalletFundRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Top up user's CampusLink wallet balance."""
+    user_db = db.query(models.User).filter(models.User.user_id == current_user.user_id).first()
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User account not found.")
+
+    try:
+        res = vtu_service.fund_user_wallet(
+            db=db,
+            user=user_db,
+            amount=float(fund_in.amount),
+            method=fund_in.method or "demo_card",
+            reference=fund_in.reference
+        )
+        return res
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fund wallet: {str(e)}")
+
+
+@app.get("/api/wallet/transactions", response_model=List[schemas.WalletTransactionOut])
+def get_wallet_transactions(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """List recent Mini Bank & VTU transactions for the authenticated user."""
+    txs = db.query(models.WalletTransaction).filter(
+        models.WalletTransaction.user_id == current_user.user_id
+    ).order_by(models.WalletTransaction.created_at.desc()).limit(limit).all()
+    return txs
+
+
+# ==========================================
+# 3. VTU & BILL PAYMENTS ENGINE ENDPOINTS
+# ==========================================
+@app.get("/api/vtu/catalog")
+def get_vtu_catalog():
+    """Returns the full catalog of cheapest SME data, airtime bonuses, DisCos, and exam PINs."""
+    return vtu_service.get_vtu_catalog()
+
+
+@app.post("/api/vtu/purchase", response_model=schemas.VTUPurchaseResponse)
+def purchase_vtu_service(
+    order: schemas.VTUPurchaseRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Executes instant purchase of Airtime, SME Data, Electricity token, Cable TV, or Education PIN.
+    Deducts user wallet balance, verifies recipient, and generates instant delivery token.
+    """
+    user_db = db.query(models.User).filter(models.User.user_id == current_user.user_id).first()
+    if not user_db:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    try:
+        result = vtu_service.process_vtu_purchase(
+            db=db,
+            user=user_db,
+            service_category=order.service_category,
+            network_provider=order.network_provider,
+            package_name=order.package_name,
+            amount=float(order.amount),
+            recipient=order.recipient.strip(),
+            package_id=order.package_id,
+            meter_type=order.meter_type
+        )
+        return result
+    except ValueError as val_err:
+        raise HTTPException(status_code=400, detail=str(val_err))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transaction could not be processed: {str(e)}")
+
+
+# ==========================================
+# 4. ACADEMIC VAULT (PAST QUESTIONS) ENDPOINTS
+# ==========================================
+@app.get("/api/campus/past-questions", response_model=List[schemas.PastQuestionOut])
+def get_past_questions(
+    faculty: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    level: Optional[str] = Query(None),
+    semester: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    db: Session = Depends(database.get_db)
+):
+    """Retrieve departmental past questions and study summaries."""
+    # Ensure benchmark materials exist
+    academic_service.seed_academic_and_lodges(db)
+
+    query = db.query(models.PastQuestion)
+    if faculty and faculty.lower() != "all":
+        query = query.filter(models.PastQuestion.faculty.ilike(f"%{faculty}%"))
+    if department and department.lower() != "all":
+        query = query.filter(models.PastQuestion.department.ilike(f"%{department}%"))
+    if level and level.lower() != "all":
+        query = query.filter(models.PastQuestion.level == level)
+    if semester and semester.lower() != "all":
+        query = query.filter(models.PastQuestion.semester == semester)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (models.PastQuestion.course_code.ilike(term)) |
+            (models.PastQuestion.course_title.ilike(term)) |
+            (models.PastQuestion.department.ilike(term))
+        )
+    return query.order_by(models.PastQuestion.downloads_count.desc(), models.PastQuestion.created_at.desc()).all()
+
+
+@app.post("/api/campus/past-questions", response_model=schemas.PastQuestionOut)
+def upload_past_question(
+    pq_in: schemas.PastQuestionCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Upload or share a past question for fellow students."""
+    pq_obj = models.PastQuestion(
+        university_id=pq_in.university_id or current_user.university_id,
+        course_code=pq_in.course_code.upper().strip(),
+        course_title=pq_in.course_title.strip(),
+        faculty=pq_in.faculty.strip(),
+        department=pq_in.department.strip(),
+        level=pq_in.level.strip(),
+        semester=pq_in.semester or "1st Semester",
+        exam_year=pq_in.exam_year or "Recent Session",
+        file_url=pq_in.file_url,
+        content_text=pq_in.content_text,
+        contributor_id=current_user.user_id,
+        downloads_count=1
+    )
+    db.add(pq_obj)
+    db.commit()
+    db.refresh(pq_obj)
+    return pq_obj
+
+
+# ==========================================
+# 5. CAMPUS LODGES & ROOMMATE FINDER ENDPOINTS
+# ==========================================
+@app.get("/api/campus/lodges", response_model=List[schemas.LodgeListingOut])
+def get_campus_lodges(
+    room_type: Optional[str] = Query(None),
+    max_price: Optional[float] = Query(None),
+    search: Optional[str] = Query(None),
+    university_id: Optional[int] = Query(None),
+    db: Session = Depends(database.get_db)
+):
+    """List verified off-campus student accommodation and lodges."""
+    academic_service.seed_academic_and_lodges(db)
+
+    query = db.query(models.LodgeListing).filter(models.LodgeListing.is_available == True)
+    if university_id:
+        query = query.filter(models.LodgeListing.university_id == university_id)
+    if room_type and room_type.lower() != "all":
+        query = query.filter(models.LodgeListing.room_type.ilike(f"%{room_type}%"))
+    if max_price:
+        query = query.filter(models.LodgeListing.price_per_year <= max_price)
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            (models.LodgeListing.title.ilike(term)) |
+            (models.LodgeListing.lodge_name.ilike(term)) |
+            (models.LodgeListing.location.ilike(term))
+        )
+    return query.order_by(models.LodgeListing.created_at.desc()).all()
+
+
+@app.post("/api/campus/lodges", response_model=schemas.LodgeListingOut)
+def create_lodge_listing(
+    lodge_in: schemas.LodgeListingCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    """Publish a new lodge or student bed space listing."""
+    lodge_obj = models.LodgeListing(
+        university_id=lodge_in.university_id or current_user.university_id or 1,
+        user_id=current_user.user_id,
+        title=lodge_in.title.strip(),
+        lodge_name=lodge_in.lodge_name.strip(),
+        location=lodge_in.location.strip(),
+        price_per_year=float(lodge_in.price_per_year),
+        room_type=lodge_in.room_type or "Self-contained",
+        amenities=lodge_in.amenities,
+        contact_phone=lodge_in.contact_phone.strip(),
+        image_url=lodge_in.image_url,
+        is_available=True
+    )
+    db.add(lodge_obj)
+    db.commit()
+    db.refresh(lodge_obj)
+    return lodge_obj
 
 
 # --- SERVE FRONTEND STATIC BUILD (IF PRESENT IN PRODUCTION) ---
