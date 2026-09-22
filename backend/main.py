@@ -2952,7 +2952,7 @@ def get_products(
     if limit is not None and limit > 0:
         query = query.limit(limit)
     elif not vendor_id and not search:
-        query = query.limit(100)
+        query = query.limit(500)
 
     products = query.all()
     results = []
@@ -3157,7 +3157,7 @@ def get_services(
     if limit is not None and limit > 0:
         query = query.limit(limit)
     elif not vendor_id and not search:
-        query = query.limit(100)
+        query = query.limit(500)
 
     services = query.all()
     results = []
