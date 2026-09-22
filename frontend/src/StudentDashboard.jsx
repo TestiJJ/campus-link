@@ -13,7 +13,7 @@ import {
   Mic, MicOff, Play, Pause, Paperclip, Image as ImageIcon, Film, Volume2,
   Bell, BellOff, Megaphone, ChevronLeft, ChevronRight, FileText, Settings, Check, CheckCheck, Sliders, EyeOff,
   MoreVertical, Copy, Flag, Bot, Brain, Bookmark, RefreshCw, Reply, Loader2, Store, Menu, ThumbsUp, Tv, PackageSearch, Globe,
-  Archive, ArchiveRestore, AtSign, ArrowLeft, WalletCards
+  Archive, ArchiveRestore, AtSign, ArrowLeft
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -34,7 +34,6 @@ import MentionAutocompletePopup from './components/MentionAutocompletePopup';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
-import CampusHub from './components/CampusHub';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -4629,7 +4628,7 @@ export default function StudentDashboard() {
                 { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
                 { id: 'marketplace', icon: Store, label: 'Market' },
                 { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
-                { id: 'campus', icon: WalletCards, label: 'Campus Hub' }
+                { id: 'campus', icon: PackageSearch, label: 'Lost & Found' }
               ].map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -6532,17 +6531,475 @@ export default function StudentDashboard() {
           </div>
         )}
 
-        {/* --- TAB 3: CAMPUSLINK ALL-IN-ONE SUPER HUB (MINI BANK, ACADEMICS, LODGES, NOTICES) --- */}
+        {/* --- TAB 3: CAMPUS NOTICE BOARD & LOST/FOUND SYSTEM --- */}
         {activeTab === 'campus' && (
-          <CampusHub
-            currentUser={currentUser}
-            universityName={universityName}
-            notices={notices}
-            onOpenReportNoticeModal={() => setReportModalOpen(true)}
-            onResolveNotice={handleResolveNotice}
-            isVendor={false}
-          />
+          <div className="space-y-5 sm:space-y-6">
+            {/* Sleek Top Banner & Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 bg-gradient-to-r from-sky-50/70 via-indigo-50/60 to-purple-50/50 p-4 sm:p-5 rounded-3xl border border-sky-100/80 shadow-2xs">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-500 text-white shadow-2xs">
+                    Campus Hub
+                  </span>
+                  <span className="text-xs text-slate-400">•</span>
+                  <span className="text-xs font-bold text-slate-700 flex items-center space-x-1">
+                    <Building2 className="w-3.5 h-3.5 text-sky-500" />
+                    <span>{universityName || 'Campus'}</span>
+                  </span>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
+                  Campus Notice Board & Lost / Found
+                </h1>
+                <p className="text-xs text-slate-600 mt-0.5 max-w-xl">
+                  Misplaced student ID card, phone, or keys? Report lost items or claim found property across campus.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setReportModalOpen(true)}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 active:scale-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Report Item / Post Notice</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Interactive Filter Cards (Metrics + Instant Tab Switcher) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+              {[
+                {
+                  id: 'all',
+                  label: 'All Notices',
+                  count: notices.length,
+                  sub: 'Total campus updates',
+                  icon: Bell,
+                  activeClass: 'bg-slate-900 text-white border-slate-900 shadow-md',
+                  inactiveClass: 'bg-white text-slate-700 border-slate-200/90 hover:bg-slate-50'
+                },
+                {
+                  id: 'lost',
+                  label: 'Lost Items',
+                  count: notices.filter(n => n.type === 'lost' && n.status === 'open').length,
+                  sub: 'Looking for owner',
+                  icon: AlertCircle,
+                  activeClass: 'bg-rose-500 text-white border-rose-500 shadow-rose-500/25 shadow-md',
+                  inactiveClass: 'bg-rose-50/60 text-rose-800 border-rose-200/90 hover:bg-rose-100/70'
+                },
+                {
+                  id: 'found',
+                  label: 'Found Items',
+                  count: notices.filter(n => n.type === 'found' && n.status === 'open').length,
+                  sub: 'Claim safe property',
+                  icon: CheckCircle2,
+                  activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-500/25 shadow-md',
+                  inactiveClass: 'bg-emerald-50/60 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/70'
+                },
+                {
+                  id: 'announcement',
+                  label: 'Announcements',
+                  count: notices.filter(n => n.type === 'announcement').length,
+                  sub: 'SUG & Faculty news',
+                  icon: Megaphone,
+                  activeClass: 'bg-sky-600 text-white border-sky-600 shadow-sky-500/25 shadow-md',
+                  inactiveClass: 'bg-sky-50/60 text-sky-800 border-sky-200/90 hover:bg-sky-100/70'
+                }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setNoticeType(item.id)}
+                  className={`p-3 sm:p-3.5 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer shadow-2xs flex items-center justify-between ${
+                    noticeType === item.id ? item.activeClass : item.inactiveClass
+                  }`}
+                >
+                  <div className="min-w-0 flex-1 pr-2">
+                    <div className="flex items-center space-x-1.5 mb-0.5">
+                      <item.icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="text-xs font-extrabold truncate">{item.label}</span>
+                    </div>
+                    <p className={`text-[10px] truncate ${noticeType === item.id ? 'opacity-85' : 'text-slate-500'}`}>{item.sub}</p>
+                  </div>
+                  <span className={`text-sm sm:text-base font-black shrink-0 px-2 py-0.5 rounded-xl ${
+                    noticeType === item.id ? 'bg-white/20 text-white' : 'bg-white/90 border border-slate-200/90 text-slate-800'
+                  }`}>
+                    {item.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Filter, Search & Category Strip */}
+            <div className="bg-white p-3 sm:p-4 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search notice title, student matric number, keys, hostel hall..."
+                    value={noticeSearch}
+                    onChange={(e) => setNoticeSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
+                  />
+                  {noticeSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setNoticeSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'id_card', label: 'ID Cards' },
+                    { id: 'phone_gadget', label: 'Gadgets' },
+                    { id: 'keys', label: 'Keys' },
+                    { id: 'wallet_atm', label: 'Wallets & ATMs' },
+                    { id: 'books', label: 'Books' },
+                    { id: 'announcement', label: 'Announcements' }
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setNoticeCategory(cat.id)}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer text-xs ${
+                        noticeCategory === cat.id
+                          ? 'bg-sky-500 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Notices Grid */}
+            <div>
+              <div className="flex items-center justify-between mb-3 px-1">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center space-x-2">
+                  <Bell className="w-4 h-4 text-sky-500" />
+                  <span>Campus Notices ({filteredNotices.length})</span>
+                </h3>
+                <span className="text-[11px] text-slate-400 font-medium">Real-time reports for {universityName || 'your university'}</span>
+              </div>
+
+              {filteredNotices.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+                  {filteredNotices.map((n) => {
+                    const isOwner = n.user_id === currentUser?.user_id;
+                    const isClaimed = n.status === 'claimed' || n.status === 'resolved';
+
+                    return (
+                      <div
+                        key={n.id}
+                        className={`bg-white rounded-2xl sm:rounded-3xl border transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-2xs hover:shadow-md ${
+                          n.type === 'lost'
+                            ? 'border-rose-200 hover:border-rose-300'
+                            : n.type === 'found'
+                              ? 'border-emerald-200 hover:border-emerald-300'
+                              : 'border-sky-200 hover:border-sky-300'
+                        }`}
+                      >
+                        <div>
+                          {/* Image preview (if any) */}
+                          {n.image_url && (
+                            <div className="h-40 w-full bg-slate-100 relative overflow-hidden group">
+                              <SafeImage
+                                src={n.image_url}
+                                alt={n.title}
+                                fallbackType="product"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                              />
+                            </div>
+                          )}
+
+                          <div className="p-4 sm:p-5">
+                            {/* Tags Header */}
+                            <div className="flex items-center justify-between gap-2 mb-2.5">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center space-x-1.5 border ${
+                                  n.type === 'lost'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : n.type === 'found'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-sky-50 text-sky-700 border-sky-200'
+                                }`}
+                              >
+                                {n.type === 'lost' && (
+                                  <>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                    <span>Lost Item</span>
+                                  </>
+                                )}
+                                {n.type === 'found' && (
+                                  <>
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Found Item</span>
+                                  </>
+                                )}
+                                {n.type === 'announcement' && (
+                                  <>
+                                    <Megaphone className="w-3 h-3 text-sky-600" />
+                                    <span>Announcement</span>
+                                  </>
+                                )}
+                              </span>
+
+                              <div className="flex items-center space-x-1.5 relative">
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    isClaimed
+                                      ? 'bg-slate-100 text-slate-500 line-through'
+                                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  }`}
+                                >
+                                  {isClaimed ? 'Claimed' : 'Active'}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveNoticeMenuId(activeNoticeMenuId === n.id ? null : n.id)}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                                  title="Notice options"
+                                  aria-label="Notice options"
+                                >
+                                  <MoreVertical className="w-3.5 h-3.5" />
+                                </button>
+
+                                {activeNoticeMenuId === n.id && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-20"
+                                      onClick={() => setActiveNoticeMenuId(null)}
+                                    />
+                                    <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
+                                      {isOwner && (
+                                        <>
+                                          {!isClaimed && (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setActiveNoticeMenuId(null);
+                                                handleResolveNotice(n.id);
+                                              }}
+                                              className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                            >
+                                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                              <span>Mark Claimed</span>
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setActiveNoticeMenuId(null);
+                                              handleDeleteNotice(n.id);
+                                            }}
+                                            className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                            <span>Delete Notice</span>
+                                          </button>
+                                        </>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveNoticeMenuId(null);
+                                          const noticeText = `${n.title}\n${n.description}\nLocation: ${n.location} • ${universityName}`;
+                                          if (navigator.clipboard && navigator.clipboard.writeText) {
+                                            navigator.clipboard.writeText(noticeText);
+                                            setToast({ text: 'Notice details copied to clipboard!', type: 'success' });
+                                          } else {
+                                            setToast({ text: 'Notice: ' + n.title, type: 'info' });
+                                          }
+                                        }}
+                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                      >
+                                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                        <span>Copy Details</span>
+                                      </button>
+                                      {n.user_id && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveNoticeMenuId(null);
+                                            handleViewProfile(n.user_id);
+                                          }}
+                                          className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2 transition-colors cursor-pointer"
+                                        >
+                                          <User className="w-3.5 h-3.5 text-slate-400" />
+                                          <span>View Reporter</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Title & Description */}
+                            <h4 className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug mb-1.5">
+                              {n.title}
+                            </h4>
+
+                            <p className="text-xs text-slate-600 leading-relaxed mb-3 line-clamp-2">
+                              {n.description}
+                            </p>
+
+                            {/* Location & Date Badge Row */}
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 mb-3.5">
+                              {n.location && (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-700 max-w-[200px] truncate">
+                                  <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
+                                  <span className="truncate">{n.location}</span>
+                                </span>
+                              )}
+                              {n.date_lost_or_found && (
+                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-600">
+                                  <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <span>{n.date_lost_or_found}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Reporter Info */}
+                            <div className="flex items-center space-x-2 pt-2.5 border-t border-slate-100">
+                              {n.author_avatar ? (
+                                <SafeImage src={n.author_avatar} alt={n.author_name} fallbackType="avatar" className="w-6 h-6 rounded-full object-cover" />
+                              ) : (
+                                <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-[10px]">
+                                  {n.author_name?.charAt(0) || 'U'}
+                                </div>
+                              )}
+                              <div className="overflow-hidden flex items-center space-x-1.5">
+                                <span className="text-xs font-bold text-slate-800 truncate">{n.author_name}</span>
+                                <span className="text-[10px] text-slate-400">•</span>
+                                <span className="text-[10px] text-slate-400 truncate">{n.author_department || n.author_dept || 'Student'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="p-4 sm:p-5 pt-0 space-y-2">
+                          {isOwner ? (
+                            <div className="flex items-center space-x-2">
+                              {!isClaimed && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResolveNotice(n.id)}
+                                  className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Mark Claimed</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteNotice(n.id)}
+                                className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-colors cursor-pointer"
+                                title="Delete notice"
+                                aria-label="Delete notice"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              {/* Direct WhatsApp Reporter */}
+                              {n.contact_phone && (
+                                <a
+                                  href={`https://wa.me/${n.contact_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                                    `Hello ${n.author_name}, I saw your notice for "${n.title}" at ${universityName} on CampusLink. I would like to inquire/claim.`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Message on WhatsApp</span>
+                                </a>
+                              )}
+
+                              <div className="flex items-center space-x-2">
+                                {/* Direct Call */}
+                                {n.contact_phone && (
+                                  <a
+                                    href={`tel:${n.contact_phone}`}
+                                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
+                                  >
+                                    <Phone className="w-3.5 h-3.5 text-slate-600" />
+                                    <span>Call</span>
+                                  </a>
+                                )}
+
+                                {/* CampusLink In-App Chat */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartChatWithStudent({
+                                    user_id: n.user_id,
+                                    full_name: n.author_name,
+                                    phone_number: n.contact_phone,
+                                    department: n.author_department,
+                                    profile_picture_url: n.author_avatar
+                                  })}
+                                  className="flex-1 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  <span>Chat</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-16 text-center bg-white rounded-3xl border border-slate-200 p-8 shadow-2xs">
+                  <Bell className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <h4 className="text-sm font-bold text-slate-800">No notices match your filter</h4>
+                  <p className="text-xs text-slate-500 mt-0.5">Try switching categories or report a new lost/found item.</p>
+                  <button
+                    type="button"
+                    onClick={() => setReportModalOpen(true)}
+                    className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors"
+                  >
+                    + Post Notice
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Campus Security & Recovery Protocol Tips */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-sky-50/80 via-blue-50/60 to-indigo-50/60 rounded-3xl border border-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-sky-700">Security & Safe Recovery Protocol</span>
+                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Found an item or claiming lost property?</h4>
+                <p className="text-[11px] text-slate-600 max-w-xl">
+                  Always arrange handovers in public, well-lit campus areas (library quad, faculty security desk). Verify ownership before releasing items.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReportModalOpen(true)}
+                className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
+              >
+                + Report an Item
+              </button>
+            </div>
+          </div>
         )}
+
 
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
@@ -11629,7 +12086,7 @@ export default function StudentDashboard() {
             { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'marketplace', icon: Store, label: 'Market' },
             { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
-            { id: 'campus', icon: WalletCards, label: 'Hub' }
+            { id: 'campus', icon: PackageSearch, label: 'Lost&Found' }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
