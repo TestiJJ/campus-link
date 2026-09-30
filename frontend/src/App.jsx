@@ -25,15 +25,48 @@ function ScrollToTop() {
   return null;
 }
 
-// Modern, lightweight loading indicator for route transitions
+// Modern skeleton loading indicator for route transitions
 function PageLoading() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-      <div className="relative flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-4 border-slate-200 border-t-sky-500 animate-spin" />
-        <div className="absolute w-2.5 h-2.5 bg-sky-500 rounded-full animate-ping" />
+    <div className="min-h-screen bg-slate-50 p-4 sm:p-6 max-w-4xl mx-auto space-y-5 animate-pulse">
+      {/* Top Navbar Skeleton */}
+      <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-2xl bg-slate-200" />
+          <div className="w-28 h-5 rounded-lg bg-slate-200" />
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className="w-9 h-9 rounded-xl bg-slate-200" />
+          <div className="w-9 h-9 rounded-xl bg-slate-200" />
+        </div>
       </div>
-      <p className="mt-4 text-xs font-semibold tracking-wider text-slate-500 uppercase">Loading CampusLink...</p>
+      {/* Hero / Banner Skeleton */}
+      <div className="h-32 sm:h-40 rounded-3xl bg-slate-200/80" />
+      {/* Content Cards Skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+        <div className="p-4 rounded-3xl bg-white border border-slate-200/80 space-y-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-slate-200" />
+            <div className="space-y-1.5 flex-1">
+              <div className="w-2/3 h-4 bg-slate-200 rounded-md" />
+              <div className="w-1/3 h-3 bg-slate-100 rounded-md" />
+            </div>
+          </div>
+          <div className="h-28 rounded-2xl bg-slate-100" />
+          <div className="w-4/5 h-3.5 bg-slate-200 rounded-md" />
+        </div>
+        <div className="p-4 rounded-3xl bg-white border border-slate-200/80 space-y-3 hidden sm:block">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-slate-200" />
+            <div className="space-y-1.5 flex-1">
+              <div className="w-2/3 h-4 bg-slate-200 rounded-md" />
+              <div className="w-1/3 h-3 bg-slate-100 rounded-md" />
+            </div>
+          </div>
+          <div className="h-28 rounded-2xl bg-slate-100" />
+          <div className="w-4/5 h-3.5 bg-slate-200 rounded-md" />
+        </div>
+      </div>
     </div>
   );
 }

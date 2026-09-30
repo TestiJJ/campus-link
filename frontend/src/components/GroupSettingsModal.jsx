@@ -188,9 +188,19 @@ export default function GroupSettingsModal({
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
           {loading ? (
-            <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
-              <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
-              <span>Loading settings...</span>
+            <div className="space-y-4 animate-pulse p-2">
+              <div className="space-y-2">
+                <div className="w-24 h-3.5 bg-slate-200 rounded-md" />
+                <div className="h-11 bg-slate-100 rounded-2xl" />
+              </div>
+              <div className="space-y-2">
+                <div className="w-28 h-3.5 bg-slate-200 rounded-md" />
+                <div className="h-20 bg-slate-100 rounded-2xl" />
+              </div>
+              <div className="space-y-2">
+                <div className="w-32 h-3.5 bg-slate-200 rounded-md" />
+                <div className="h-12 bg-slate-100 rounded-2xl" />
+              </div>
             </div>
           ) : (
             <>

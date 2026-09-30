@@ -289,9 +289,19 @@ export default function AddGroupMembersModal({
           {/* Students List */}
           <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl divide-y divide-slate-100 min-h-[160px]">
             {loading ? (
-              <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
-                <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
-                <span className="font-medium text-slate-500">Loading campus students...</span>
+              <div className="p-3 space-y-3">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="flex items-center justify-between p-2 rounded-xl animate-pulse">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-full bg-slate-200" />
+                      <div className="space-y-1.5">
+                        <div className="w-28 h-3.5 bg-slate-200 rounded-md" />
+                        <div className="w-20 h-2.5 bg-slate-100 rounded-md" />
+                      </div>
+                    </div>
+                    <div className="w-5 h-5 rounded-md bg-slate-200" />
+                  </div>
+                ))}
               </div>
             ) : filteredStudents.length === 0 ? (
               <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">

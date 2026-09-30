@@ -331,9 +331,19 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated, curr
               {/* Scrollable Members List */}
               <div className="border border-slate-100 rounded-2xl divide-y divide-slate-100 max-h-48 sm:max-h-56 overflow-y-auto">
                 {loadingUsers ? (
-                  <div className="p-6 text-center text-xs text-slate-400 flex items-center justify-center space-x-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-sky-500" />
-                    <span>Loading students...</span>
+                  <div className="p-3 space-y-2.5">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="flex items-center justify-between p-2 rounded-xl animate-pulse">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-200" />
+                          <div className="space-y-1">
+                            <div className="w-24 h-3 bg-slate-200 rounded-md" />
+                            <div className="w-16 h-2 bg-slate-100 rounded-md" />
+                          </div>
+                        </div>
+                        <div className="w-4 h-4 rounded-md bg-slate-200" />
+                      </div>
+                    ))}
                   </div>
                 ) : filteredUsers.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400">

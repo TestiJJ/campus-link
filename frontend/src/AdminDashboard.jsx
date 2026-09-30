@@ -909,9 +909,23 @@ export default function AdminDashboard() {
             </div>
 
             {loading ? (
-              <div className="py-24 text-center">
-                <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <span className="text-xs text-slate-500 font-semibold">Loading vendor profiles...</span>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 py-4">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4 animate-pulse">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-200" />
+                      <div className="space-y-1.5 flex-1">
+                        <div className="w-36 h-4 bg-slate-200 rounded-md" />
+                        <div className="w-24 h-3 bg-slate-100 rounded-md" />
+                      </div>
+                    </div>
+                    <div className="h-14 bg-slate-100 rounded-2xl" />
+                    <div className="flex justify-between items-center pt-2">
+                      <div className="w-20 h-4 bg-slate-200 rounded-md" />
+                      <div className="w-24 h-8 bg-slate-200 rounded-xl" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : filteredVendors.length > 0 ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

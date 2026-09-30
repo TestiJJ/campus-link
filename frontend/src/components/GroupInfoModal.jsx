@@ -275,9 +275,26 @@ export default function GroupInfoModal({
         {/* Modal Scroll Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           {loading ? (
-            <div className="py-16 text-center text-xs text-slate-400 flex flex-col items-center justify-center space-y-2">
-              <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
-              <span>Loading group information...</span>
+            <div className="space-y-4 animate-pulse p-2">
+              <div className="flex flex-col items-center space-y-3 py-4 border-b border-slate-100">
+                <div className="w-20 h-20 rounded-3xl bg-slate-200" />
+                <div className="w-36 h-5 bg-slate-200 rounded-lg" />
+                <div className="w-24 h-3 bg-slate-100 rounded-md" />
+              </div>
+              <div className="space-y-2 pt-2">
+                <div className="w-28 h-4 bg-slate-200 rounded-md" />
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="flex items-center justify-between p-2 rounded-xl">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-9 h-9 rounded-full bg-slate-200" />
+                      <div className="space-y-1.5">
+                        <div className="w-28 h-3.5 bg-slate-200 rounded-md" />
+                        <div className="w-16 h-2.5 bg-slate-100 rounded-md" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <>

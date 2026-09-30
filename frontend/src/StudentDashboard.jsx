@@ -799,10 +799,23 @@ export default function StudentDashboard() {
   const showToast = (text, type = 'success') => {
     if (!text) return;
     setToast({ text, type });
-    setTimeout(() => {
-      setToast(prev => (prev.text === text ? { text: '', type: '' } : prev));
-    }, 4000);
   };
+
+  // Auto-dismiss toast notification after 3.5 seconds without needing user to cancel
+  useEffect(() => {
+    if (!toast.text) return;
+    const timer = setTimeout(() => {
+      setToast({ text: '', type: '' });
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [toast.text]);
+
+  // Auto-dismiss push banner feedback after 4 seconds
+  useEffect(() => {
+    if (!pushMessage) return;
+    const timer = setTimeout(() => setPushMessage(''), 4000);
+    return () => clearTimeout(timer);
+  }, [pushMessage]);
 
   // --- REFS FOR POPSTATE & MOBILE BACK BUTTON HANDLING ---
   const menuDrawerOpenRef = useRef(menuDrawerOpen);
@@ -1887,10 +1900,11 @@ export default function StudentDashboard() {
   };
 
   const handleMarkAllNotificationsRead = async () => {
+    // Instant optimistic update
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    setUnreadCount(0);
     try {
       await API.post('/notifications/read-all');
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      setUnreadCount(0);
     } catch (err) {
       console.error('Failed to mark all as read:', err);
     }
@@ -7580,7 +7594,7 @@ export default function StudentDashboard() {
                             {isAiTyping && (
                               <div className="flex items-center space-x-2 text-slate-400 text-xs py-2">
                                 <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                                  <Sparkles className="w-4 h-4 animate-spin" />
+                                  <Sparkles className="w-4 h-4 animate-pulse text-amber-300" />
                                 </div>
                                 <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-xs text-slate-600 text-xs shadow-xs flex items-center space-x-2">
                                   <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
@@ -8830,9 +8844,10 @@ export default function StudentDashboard() {
 
               {/* Gallery Content */}
               {loadingMyMedia && myMedia.length === 0 ? (
-                <div className="py-12 text-center">
-                  <Loader2 className="w-6 h-6 animate-spin text-sky-500 mx-auto mb-2" />
-                  <p className="text-xs text-slate-500 font-medium">Loading your media library...</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 py-2">
+                  {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className="aspect-square bg-slate-200/80 rounded-2xl animate-pulse" />
+                  ))}
                 </div>
               ) : myMedia.length === 0 ? (
                 <div className="p-8 sm:p-12 text-center">
@@ -9441,9 +9456,18 @@ export default function StudentDashboard() {
               </div>
 
               {!selectedProfile ? (
-                <div className="p-10 text-center flex flex-col items-center justify-center space-y-3">
-                  <div className="w-8 h-8 border-3 border-sky-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-xs text-slate-500 font-bold">Loading student profile...</p>
+                <div className="p-6 pt-0 relative animate-pulse">
+                  <div className="-mt-12 mb-4 flex items-end justify-between">
+                    <div className="w-24 h-24 rounded-2xl bg-slate-200 border-4 border-white shadow-md" />
+                  </div>
+                  <div className="space-y-3">
+                    <div className="w-48 h-5 bg-slate-200 rounded-md" />
+                    <div className="w-32 h-3.5 bg-slate-100 rounded-md" />
+                    <div className="space-y-2 pt-2">
+                      <div className="w-full h-3 bg-slate-100 rounded-md" />
+                      <div className="w-4/5 h-3 bg-slate-100 rounded-md" />
+                    </div>
+                  </div>
                 </div>
               ) : (
                 /* Profile Card Body */
