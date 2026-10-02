@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ShoppingBag, Video, Home, Navigation, MessageSquare, User,
   LogOut, Search, Heart, Plus, ShieldCheck,
-  Phone, MapPin, Send, Utensils, CheckCircle2,
+  Phone, PhoneOff, MapPin, Send, Utensils, CheckCircle2,
   Clock, AlertCircle, Sparkles, X, Camera,
   Building2, Users, Wrench, Share2, Upload, MessageCircle,
   UserPlus, UserCheck, UserX, Eye, Mail, Star, Laptop, BookOpen, Scissors,
@@ -34,6 +34,8 @@ import MentionAutocompletePopup from './components/MentionAutocompletePopup';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
+import VoiceCallModal from './components/VoiceCallModal';
+import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -538,6 +540,44 @@ export default function StudentDashboard() {
   const chatContainerRef = useRef(null);
   const aiChatContainerRef = useRef(null);
   const { containerStyle: mobileChatContainerStyle } = useMobileChatViewport(Boolean(selectedPartner && activeTab === 'messages'));
+  const socketRef = useRef(null);
+
+  const {
+    callState,
+    callData,
+    startCall: startVoiceCall,
+    answerCall: answerVoiceCall,
+    rejectCall: rejectVoiceCall,
+    endCall: endVoiceCall,
+    toggleMute: toggleVoiceCallMute,
+    toggleSpeaker: toggleVoiceCallSpeaker,
+    inviteMember: inviteVoiceCallMember,
+    handleSignalingMessage: handleCallSignalingMessage
+  } = useWebRtcVoiceCall({
+    currentUser,
+    socketRef,
+    onSendWsMessage: (msgObj) => {
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        try {
+          socketRef.current.send(JSON.stringify(msgObj));
+        } catch (e) {
+          console.error('[WebRTC WS] Send error:', e);
+        }
+      }
+    },
+    onLogMissedCall: (targetId) => {
+      const missedMsg = {
+        id: `temp_call_${Date.now()}`,
+        sender_id: currentUser?.user_id || currentUser?.id,
+        recipient_id: targetId,
+        content: "📞 Missed voice call",
+        message_type: "call_missed",
+        created_at: new Date().toISOString(),
+        is_read: false
+      };
+      setChatMessages(prev => [...prev, missedMsg]);
+    }
+  });
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
@@ -1157,6 +1197,7 @@ export default function StudentDashboard() {
       try {
         const wsUrl = getWsUrl(`/ws/${currentUser.user_id}`);
         socket = new WebSocket(wsUrl);
+        socketRef.current = socket;
 
         socket.onopen = () => {
           retryCount = 0;
@@ -1173,6 +1214,16 @@ export default function StudentDashboard() {
           try {
             const data = JSON.parse(event.data);
             if (data.type === 'pong') return;
+
+            // Forward WebRTC voice call signaling events directly to call engine
+            if (data.type && [
+              'incoming_call', 'call_ringing', 'call_accepted',
+              'call_target_offline', 'call_rejected', 'ice_candidate',
+              'call_ended', 'incoming_group_call_invite'
+            ].includes(data.type)) {
+              handleCallSignalingMessage(data);
+              return;
+            }
 
             if (data.type === 'user_presence' && data.user_id) {
               const targetUid = String(data.user_id);
@@ -7821,27 +7872,41 @@ export default function StudentDashboard() {
                                 </div>
                               ) : (
                                 <>
+                                  {/* In-App Voice Call Button */}
                                   <button
                                     type="button"
-                                    onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                                    className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                    title="View profile"
+                                    onClick={() => startVoiceCall(selectedPartner)}
+                                    className="p-1.5 sm:p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                                    title="In-App Voice Call"
+                                    aria-label="In-App Voice Call"
                                   >
-                                    <span>Profile</span>
+                                    <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                   </button>
+
                                   {/* Strictly for Vendors: Students never expose WhatsApp contact */}
                                   {((selectedPartner.role === 'vendor' || selectedPartner.partner_role === 'vendor' || selectedPartner.partner_role === 'Vendor' || selectedPartner.partner_role === 'Seller') && (selectedPartner.phone || selectedPartner.whatsapp_phone)) && (
                                     <a
                                       href={`https://wa.me/${(selectedPartner.whatsapp_phone || selectedPartner.phone || '').replace(/[^0-9]/g, '')}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
-                                      title="Chat on WhatsApp"
+                                      className="p-1.5 sm:p-2 bg-green-50 hover:bg-green-100 text-green-700 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                                      title="WhatsApp Chat"
+                                      aria-label="WhatsApp Chat"
                                     >
-                                      <Phone className="w-3.5 h-3.5" />
-                                      <span className="hidden sm:inline">WhatsApp</span>
+                                      <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                                     </a>
                                   )}
+
+                                  {/* View Profile Icon Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                    className="p-1.5 sm:p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                                    title="View profile"
+                                    aria-label="View profile"
+                                  >
+                                    <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                                  </button>
                                 </>
                               )}
                               {/* Archive / Unarchive Chat Action */}
@@ -8091,6 +8156,33 @@ export default function StudentDashboard() {
                                               <span>📷 Replying to status</span>
                                             </div>
                                             <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                          </div>
+                                        ) : msg.message_type === 'call_missed' || (typeof msg.content === 'string' && msg.content.includes('Missed voice call')) ? (
+                                          <div className="flex items-center space-x-3 py-1">
+                                            <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                                              <PhoneOff className="w-4 h-4" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-xs font-bold leading-tight">Missed Voice Call</p>
+                                              <p className={`text-[10px] ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                {isMine ? 'They missed your call' : 'You missed a call'}
+                                              </p>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                startVoiceCall(selectedPartner);
+                                              }}
+                                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
+                                                isMine
+                                                  ? 'bg-white text-blue-700 hover:bg-blue-50'
+                                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                              }`}
+                                            >
+                                              <Phone className="w-3 h-3" />
+                                              <span>Call Back</span>
+                                            </button>
                                           </div>
                                         ) : msg.message_type === 'audio' ? (
                                           <div className="flex items-center space-x-3 py-1">
@@ -12145,6 +12237,19 @@ export default function StudentDashboard() {
           })}
         </div>
       </nav>
+
+      {/* Real In-App WebRTC Voice Call Modal */}
+      <VoiceCallModal
+        callState={callState}
+        callData={callData}
+        onAnswer={answerVoiceCall}
+        onReject={rejectVoiceCall}
+        onEndCall={endVoiceCall}
+        onToggleMute={toggleVoiceCallMute}
+        onToggleSpeaker={toggleVoiceCallSpeaker}
+        onInviteMember={inviteVoiceCallMember}
+        availableFriends={conversations || []}
+      />
 
     </div>
   );

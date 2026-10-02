@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Star } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import API from './api';
 
 export default function ServicesMarketplace({ user }) {
@@ -85,12 +85,12 @@ export default function ServicesMarketplace({ user }) {
                       {gig.title}
                     </h3>
                     
-                    <div className="flex items-center space-x-1 mt-2 text-amber-500 text-xs font-bold">
-                      <span className="flex items-center space-x-0.5">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>{gig.rating || '5.0'}</span>
+                    <div className="flex items-center space-x-1.5 mt-2 text-xs font-semibold text-slate-500">
+                      <span className="inline-flex items-center space-x-1 text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[11px]">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Verified</span>
                       </span>
-                      <span className="text-slate-400 font-normal">({gig.reviews_count || 0})</span>
+                      {gig.reviews_count ? <span className="text-slate-400 font-normal">({gig.reviews_count} reviews)</span> : null}
                     </div>
                   </div>
 

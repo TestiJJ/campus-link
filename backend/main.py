@@ -4003,8 +4003,136 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Opt
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("type") == "ping":
+                mtype = msg.get("type")
+                if mtype == "ping":
                     await websocket.send_json({"type": "pong"})
+
+                elif mtype == "call_user":
+                    target_id = str(msg.get("target_user_id"))
+                    call_id = str(msg.get("call_id") or f"call_{uuid.uuid4().hex[:12]}")
+                    caller_name = msg.get("caller_name") or "Campus Peer"
+                    caller_avatar = msg.get("caller_avatar")
+                    offer = msg.get("offer")
+
+                    is_target_online = bool(target_id in ws_manager.active_connections and ws_manager.active_connections[target_id])
+                    if not is_target_online:
+                        await websocket.send_json({
+                            "type": "call_target_offline",
+                            "target_user_id": target_id,
+                            "call_id": call_id,
+                            "message": "User is currently offline."
+                        })
+                        try:
+                            with database.SessionLocal() as _db:
+                                missed_msg = models.Message(
+                                    sender_id=str(user_id),
+                                    recipient_id=target_id,
+                                    content="📞 Missed voice call",
+                                    message_type="call_missed",
+                                    is_read=False
+                                )
+                                _db.add(missed_msg)
+                                _db.commit()
+                                _db.refresh(missed_msg)
+                                m_dict = {
+                                    "id": missed_msg.id,
+                                    "sender_id": missed_msg.sender_id,
+                                    "recipient_id": missed_msg.recipient_id,
+                                    "content": missed_msg.content,
+                                    "message_type": missed_msg.message_type,
+                                    "created_at": missed_msg.created_at.isoformat() if missed_msg.created_at else now_utc.isoformat(),
+                                    "is_read": False
+                                }
+                                await ws_manager.broadcast_to_user(str(user_id), {"type": "new_message", "message": m_dict})
+                        except Exception:
+                            pass
+                    else:
+                        await ws_manager.broadcast_to_user(target_id, {
+                            "type": "incoming_call",
+                            "call_id": call_id,
+                            "caller_id": str(user_id),
+                            "caller_name": caller_name,
+                            "caller_avatar": caller_avatar,
+                            "offer": offer
+                        })
+                        await websocket.send_json({
+                            "type": "call_ringing",
+                            "target_user_id": target_id,
+                            "call_id": call_id
+                        })
+
+                elif mtype == "accept_call":
+                    caller_id = str(msg.get("caller_id"))
+                    await ws_manager.broadcast_to_user(caller_id, {
+                        "type": "call_accepted",
+                        "call_id": msg.get("call_id"),
+                        "answer": msg.get("answer"),
+                        "responder_id": str(user_id),
+                        "responder_name": msg.get("responder_name")
+                    })
+
+                elif mtype == "reject_call":
+                    caller_id = str(msg.get("caller_id"))
+                    reason = msg.get("reason", "declined")
+                    await ws_manager.broadcast_to_user(caller_id, {
+                        "type": "call_rejected",
+                        "call_id": msg.get("call_id"),
+                        "reason": reason,
+                        "responder_id": str(user_id)
+                    })
+                    if reason in ("timeout", "busy", "declined"):
+                        try:
+                            with database.SessionLocal() as _db:
+                                missed_msg = models.Message(
+                                    sender_id=caller_id,
+                                    recipient_id=str(user_id),
+                                    content="📞 Missed voice call",
+                                    message_type="call_missed",
+                                    is_read=False
+                                )
+                                _db.add(missed_msg)
+                                _db.commit()
+                                _db.refresh(missed_msg)
+                                m_dict = {
+                                    "id": missed_msg.id,
+                                    "sender_id": missed_msg.sender_id,
+                                    "recipient_id": missed_msg.recipient_id,
+                                    "content": missed_msg.content,
+                                    "message_type": missed_msg.message_type,
+                                    "created_at": missed_msg.created_at.isoformat() if missed_msg.created_at else now_utc.isoformat(),
+                                    "is_read": False
+                                }
+                                await ws_manager.broadcast_to_user(caller_id, {"type": "new_message", "message": m_dict})
+                                await ws_manager.broadcast_to_user(str(user_id), {"type": "new_message", "message": m_dict})
+                        except Exception:
+                            pass
+
+                elif mtype == "ice_candidate":
+                    target_id = str(msg.get("target_user_id"))
+                    await ws_manager.broadcast_to_user(target_id, {
+                        "type": "ice_candidate",
+                        "call_id": msg.get("call_id"),
+                        "candidate": msg.get("candidate"),
+                        "from_user_id": str(user_id)
+                    })
+
+                elif mtype == "end_call":
+                    target_id = str(msg.get("target_user_id"))
+                    await ws_manager.broadcast_to_user(target_id, {
+                        "type": "call_ended",
+                        "call_id": msg.get("call_id"),
+                        "from_user_id": str(user_id)
+                    })
+
+                elif mtype == "add_call_participant":
+                    target_id = str(msg.get("target_user_id"))
+                    await ws_manager.broadcast_to_user(target_id, {
+                        "type": "incoming_group_call_invite",
+                        "call_id": msg.get("call_id"),
+                        "inviter_id": str(user_id),
+                        "inviter_name": msg.get("inviter_name") or "Campus Peer",
+                        "inviter_avatar": msg.get("inviter_avatar")
+                    })
             except Exception:
                 pass
     except (WebSocketDisconnect, Exception):
