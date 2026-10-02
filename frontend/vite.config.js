@@ -93,6 +93,10 @@ export default defineConfig({
               return 'vendor-core';
             }
           }
+          // PWA context & install prompts — shared across root App and dashboards
+          if (id.includes('PwaContext') || id.includes('InstallAppButton') || id.includes('InstallPwaPrompt')) {
+            return 'pwa-runtime';
+          }
           // Split chatCache into its own chunk — 28KB, loaded early on dashboard mount
           if (id.includes('chatCache')) {
             return 'chatCache';

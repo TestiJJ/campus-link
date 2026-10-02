@@ -8,23 +8,27 @@ import { PwaProvider } from './context/PwaContext';
 // Resilient code-splitting with auto-retry and cache-bust recovery on deployments
 function lazyWithRetry(componentImport, componentName = 'chunk') {
   return lazy(async () => {
-    const pageHasBeenRetried = typeof window !== 'undefined' ? sessionStorage.getItem(`cl_retry_${componentName}`) : null;
+    const retryKey = `cl_retry_${componentName}`;
+    const pageHasBeenRetried = typeof window !== 'undefined' ? sessionStorage.getItem(retryKey) : null;
     try {
       const module = await componentImport();
       if (typeof window !== 'undefined') {
-        sessionStorage.removeItem(`cl_retry_${componentName}`);
+        sessionStorage.removeItem(retryKey);
+      }
+      if (!module || typeof module !== 'object' || !module.default) {
+        throw new Error(`Dynamic import ${componentName} failed to resolve a default component export.`);
       }
       return module;
     } catch (error) {
       console.warn(`Dynamic module import error for ${componentName}:`, error);
       if (typeof window !== 'undefined' && !pageHasBeenRetried) {
-        sessionStorage.setItem(`cl_retry_${componentName}`, 'true');
+        sessionStorage.setItem(retryKey, 'true');
         // Force window reload to get fresh index.html and fresh chunk URLs
         window.location.reload();
         return new Promise(() => {}); // Hold until page reloads
       }
       if (typeof window !== 'undefined') {
-        sessionStorage.removeItem(`cl_retry_${componentName}`);
+        sessionStorage.removeItem(retryKey);
       }
       throw error;
     }
