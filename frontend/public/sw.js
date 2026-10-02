@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.0.8';
+const CACHE_NAME = 'campuslink-v1.0.9';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -118,17 +118,6 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
         if (cachedResponse) {
-          // Stale-While-Revalidate: Return cached immediately, fetch fresh in background
-          fetch(request)
-            .then((networkResponse) => {
-              if (networkResponse && networkResponse.status === 200) {
-                const clone = networkResponse.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                  cache.put(request, clone).catch(() => {});
-                }).catch(() => {});
-              }
-            })
-            .catch(() => {});
           return cachedResponse;
         }
 
@@ -139,6 +128,11 @@ self.addEventListener('fetch', (event) => {
               const clone = networkResponse.clone();
               caches.open(CACHE_NAME).then((cache) => {
                 cache.put(request, clone).catch(() => {});
+              }).catch(() => {});
+            } else if (networkResponse && networkResponse.status === 404 && (url.pathname.includes('/assets/') || request.destination === 'script')) {
+              // Old chunk hash requested after new deployment - signal clients to refresh
+              self.clients.matchAll({ type: 'window' }).then((clients) => {
+                clients.forEach((c) => c.postMessage({ type: 'CHUNK_MISSING_RELOAD' }));
               }).catch(() => {});
             }
             return networkResponse;

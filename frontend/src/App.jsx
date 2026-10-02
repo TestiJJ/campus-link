@@ -5,12 +5,38 @@ import PublicRoute from './PublicRoute';
 import InstallPwaPrompt from './InstallPwaPrompt';
 import { PwaProvider } from './context/PwaContext';
 
+// Resilient code-splitting with auto-retry and cache-bust recovery on deployments
+function lazyWithRetry(componentImport, componentName = 'chunk') {
+  return lazy(async () => {
+    const pageHasBeenRetried = typeof window !== 'undefined' ? sessionStorage.getItem(`cl_retry_${componentName}`) : null;
+    try {
+      const module = await componentImport();
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(`cl_retry_${componentName}`);
+      }
+      return module;
+    } catch (error) {
+      console.warn(`Dynamic module import error for ${componentName}:`, error);
+      if (typeof window !== 'undefined' && !pageHasBeenRetried) {
+        sessionStorage.setItem(`cl_retry_${componentName}`, 'true');
+        // Force window reload to get fresh index.html and fresh chunk URLs
+        window.location.reload();
+        return new Promise(() => {}); // Hold until page reloads
+      }
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(`cl_retry_${componentName}`);
+      }
+      throw error;
+    }
+  });
+}
+
 // Code-split route components for instant initial page load
-const LandingPage = lazy(() => import('./LandingPage'));
-const Auth = lazy(() => import('./Auth'));
-const StudentDashboard = lazy(() => import('./StudentDashboard'));
-const VendorDashboard = lazy(() => import('./VendorDashboard'));
-const AdminDashboard = lazy(() => import('./AdminDashboard'));
+const LandingPage = lazyWithRetry(() => import('./LandingPage'), 'LandingPage');
+const Auth = lazyWithRetry(() => import('./Auth'), 'Auth');
+const StudentDashboard = lazyWithRetry(() => import('./StudentDashboard'), 'StudentDashboard');
+const VendorDashboard = lazyWithRetry(() => import('./VendorDashboard'), 'VendorDashboard');
+const AdminDashboard = lazyWithRetry(() => import('./AdminDashboard'), 'AdminDashboard');
 
 // Native scroll restoration on route change
 function ScrollToTop() {
@@ -107,13 +133,33 @@ class ErrorBoundary extends React.Component {
     this.state = { hasError: false, error: null };
   }
   static getDerivedStateFromError(error) {
+    const errMsg = (error?.message || String(error || '')).toLowerCase();
+    const isChunkError =
+      errMsg.includes('dynamically imported module') ||
+      errMsg.includes('importing a module script failed') ||
+      errMsg.includes('failed to fetch dynamically imported module') ||
+      errMsg.includes('error loading dynamically imported module') ||
+      errMsg.includes('loading chunk');
+
+    if (isChunkError && typeof window !== 'undefined') {
+      const reloadKey = 'cl_boundary_chunk_reload';
+      if (!sessionStorage.getItem(reloadKey)) {
+        sessionStorage.setItem(reloadKey, 'true');
+        // Auto-refresh to fetch updated script chunks from server
+        window.location.reload();
+      }
+    }
     return { hasError: true, error };
   }
   componentDidCatch(error, errorInfo) {
     console.error('CampusLink App Error:', error, errorInfo);
   }
-  handleClearCache() {
+  async handleClearCacheAndReload() {
     try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
@@ -122,6 +168,7 @@ class ErrorBoundary extends React.Component {
         }
       }
       keysToRemove.forEach(k => localStorage.removeItem(k));
+      sessionStorage.clear();
     } catch {}
     this.setState({ hasError: false, error: null });
     window.location.reload();
@@ -137,6 +184,33 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       const errText = this.state.error ? (this.state.error.message || String(this.state.error)) : '';
+      const isChunkError =
+        errText.toLowerCase().includes('dynamically imported module') ||
+        errText.toLowerCase().includes('importing a module script failed') ||
+        errText.toLowerCase().includes('failed to fetch dynamically imported module') ||
+        errText.toLowerCase().includes('error loading dynamically imported module') ||
+        errText.toLowerCase().includes('loading chunk');
+
+      if (isChunkError) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 text-center font-sans">
+            <div className="w-16 h-16 rounded-3xl bg-blue-100 text-blue-600 flex items-center justify-center mb-4 font-black text-2xl shadow-sm animate-pulse">
+              ⚡
+            </div>
+            <h2 className="text-xl font-black text-slate-900 mb-2">New CampusLink Version Available</h2>
+            <p className="text-xs text-slate-500 max-w-sm mb-6 leading-relaxed">
+              We just released an update with the latest calling and performance improvements. Tap below to load the new version.
+            </p>
+            <button
+              onClick={() => this.handleClearCacheAndReload()}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-2xl shadow-md cursor-pointer transition-all"
+            >
+              Update to Latest Version
+            </button>
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 text-center font-sans">
           <div className="w-16 h-16 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4 font-black text-2xl shadow-sm">
@@ -162,7 +236,7 @@ class ErrorBoundary extends React.Component {
               Reload Page
             </button>
             <button
-              onClick={() => this.handleClearCache()}
+              onClick={() => this.handleClearCacheAndReload()}
               className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl cursor-pointer transition-all"
             >
               Clear Cache & Refresh
