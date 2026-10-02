@@ -34,8 +34,8 @@ import MentionAutocompletePopup from './components/MentionAutocompletePopup';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
-import VoiceCallModal from './components/VoiceCallModal';
-import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
+// import VoiceCallModal from './components/VoiceCallModal';
+// import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
   isPushSupported,
   getNotificationPermissionState,
@@ -542,73 +542,19 @@ export default function StudentDashboard() {
   const { containerStyle: mobileChatContainerStyle } = useMobileChatViewport(Boolean(selectedPartner && activeTab === 'messages'));
   const socketRef = useRef(null);
 
-  const {
-    callState,
-    callData,
-    callDuration,
-    startCall: startVoiceCall,
-    answerCall: answerVoiceCall,
-    rejectCall: rejectVoiceCall,
-    endCall: endVoiceCall,
-    toggleMute: toggleVoiceCallMute,
-    toggleSpeaker: toggleVoiceCallSpeaker,
-    inviteMember: inviteVoiceCallMember,
-    handleSignalingMessage: handleCallSignalingMessage
-  } = useWebRtcVoiceCall({
-    currentUser,
-    socketRef,
-    onSendWsMessage: (msgObj) => {
-      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-        try {
-          socketRef.current.send(JSON.stringify(msgObj));
-        } catch (e) {
-          console.error('[WebRTC WS] Send error:', e);
-        }
-      }
-    },
-    onLogMissedCall: (targetId) => {
-      const missedMsg = {
-        id: `temp_call_${Date.now()}`,
-        sender_id: currentUser?.user_id || currentUser?.id,
-        recipient_id: targetId,
-        content: "📞 Missed voice call",
-        message_type: "call_missed",
-        created_at: new Date().toISOString(),
-        is_read: false
-      };
-      setChatMessages(prev => [...prev, missedMsg]);
-    },
-    onLogCallEnded: (targetId, durationSecs) => {
-      const mins = Math.floor(durationSecs / 60);
-      const secs = durationSecs % 60;
-      const durText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-      const endedMsg = {
-        id: `temp_call_ended_${Date.now()}`,
-        sender_id: currentUser?.user_id || currentUser?.id,
-        recipient_id: targetId,
-        content: `📞 Voice call · ${durText}`,
-        message_type: "call_ended",
-        duration: durationSecs,
-        created_at: new Date().toISOString(),
-        is_read: false
-      };
-      setChatMessages(prev => [...prev, endedMsg]);
-    },
-    onLogCallDeclined: (targetId) => {
-      const declinedMsg = {
-        id: `temp_call_declined_${Date.now()}`,
-        sender_id: currentUser?.user_id || currentUser?.id,
-        recipient_id: targetId,
-        content: "📞 Call declined",
-        message_type: "call_declined",
-        created_at: new Date().toISOString(),
-        is_read: false
-      };
-      setChatMessages(prev => [...prev, declinedMsg]);
-    }
-  });
-  const callStateRef = useRef(callState);
-  useEffect(() => { callStateRef.current = callState; }, [callState]);
+  // Voice Calling temporarily disabled/hidden
+  const callState = 'idle';
+  const callData = null;
+  const callDuration = 0;
+  const startVoiceCall = () => {};
+  const answerVoiceCall = () => {};
+  const rejectVoiceCall = () => {};
+  const endVoiceCall = () => {};
+  const toggleVoiceCallMute = () => {};
+  const toggleVoiceCallSpeaker = () => {};
+  const inviteVoiceCallMember = () => {};
+  const handleCallSignalingMessage = () => {};
+  const callStateRef = useRef('idle');
 
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
@@ -7911,17 +7857,6 @@ export default function StudentDashboard() {
                                 </div>
                               ) : (
                                 <>
-                                  {/* In-App Voice Call Button */}
-                                  <button
-                                    type="button"
-                                    onClick={() => startVoiceCall(selectedPartner)}
-                                    className="p-1.5 sm:p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
-                                    title="In-App Voice Call"
-                                    aria-label="In-App Voice Call"
-                                  >
-                                    <Phone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                                  </button>
-
                                   {/* View Profile Icon Button */}
                                   <button
                                     type="button"
@@ -8201,21 +8136,6 @@ export default function StudentDashboard() {
                                                 })()}
                                               </p>
                                             </div>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                startVoiceCall(selectedPartner);
-                                              }}
-                                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                                isMine
-                                                  ? 'bg-white text-blue-700 hover:bg-blue-50'
-                                                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                                              }`}
-                                            >
-                                              <Phone className="w-3 h-3" />
-                                              <span>Call Again</span>
-                                            </button>
                                           </div>
                                                                                  ) : msg.message_type === 'call_declined' || (typeof msg.content === 'string' && (msg.content.includes('Call declined') || msg.content.includes('declined'))) ? (
                                            <div className="flex items-center space-x-3 py-1">
@@ -8228,21 +8148,6 @@ export default function StudentDashboard() {
                                                  {isMine ? 'Call was declined' : 'You declined this call'}
                                                </p>
                                              </div>
-                                             <button
-                                               type="button"
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 startVoiceCall(selectedPartner);
-                                               }}
-                                               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                                 isMine
-                                                   ? 'bg-white text-blue-700 hover:bg-blue-50'
-                                                   : 'bg-blue-600 text-white hover:bg-blue-700'
-                                               }`}
-                                             >
-                                               <Phone className="w-3 h-3" />
-                                               <span>Call Back</span>
-                                             </button>
                                            </div>
 ) : msg.message_type === 'call_missed' || (typeof msg.content === 'string' && msg.content.includes('Missed voice call')) ? (
                                           <div className="flex items-center space-x-3 py-1">
@@ -8255,21 +8160,6 @@ export default function StudentDashboard() {
                                                 {isMine ? 'They missed your call' : 'You missed a call'}
                                               </p>
                                             </div>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                startVoiceCall(selectedPartner);
-                                              }}
-                                              className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
-                                                isMine
-                                                  ? 'bg-white text-blue-700 hover:bg-blue-50'
-                                                  : 'bg-blue-600 text-white hover:bg-blue-700'
-                                              }`}
-                                            >
-                                              <Phone className="w-3 h-3" />
-                                              <span>Call Back</span>
-                                            </button>
                                           </div>
                                         ) : msg.message_type === 'audio' ? (
                                           <div className="flex items-center space-x-3 py-1">
@@ -12325,19 +12215,6 @@ export default function StudentDashboard() {
         </div>
       </nav>
 
-      {/* Real In-App WebRTC Voice Call Modal */}
-      <VoiceCallModal
-        callState={callState}
-        callData={callData}
-        callDuration={callDuration}
-        onAnswer={answerVoiceCall}
-        onReject={rejectVoiceCall}
-        onEndCall={endVoiceCall}
-        onToggleMute={toggleVoiceCallMute}
-        onToggleSpeaker={toggleVoiceCallSpeaker}
-        onInviteMember={inviteVoiceCallMember}
-        availableFriends={conversations || []}
-      />
 
     </div>
   );
