@@ -6,6 +6,7 @@ import {
   startRingbackTone,
   stopRingbackTone,
   playConnectedTone,
+  playDeclinedTone,
   playEndCallTone
 } from './callSounds';
 
@@ -24,7 +25,8 @@ export function useWebRtcVoiceCall({
   socketRef,
   onSendWsMessage,
   onLogMissedCall,
-  onLogCallEnded
+  onLogCallEnded,
+  onLogCallDeclined
 }) {
   const [callState, setCallState] = useState('idle'); // 'idle' | 'calling' | 'ringing' | 'incoming' | 'connected' | 'ended'
   const [callData, setCallData] = useState(null);
@@ -36,6 +38,7 @@ export function useWebRtcVoiceCall({
   const localStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const callTimeoutRef = useRef(null);
+  const disconnectTimerRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
 
   // Stale closure guards
@@ -94,6 +97,7 @@ export function useWebRtcVoiceCall({
       const audio = document.createElement('audio');
       audio.autoplay = true;
       audio.playsInline = true;
+      audio.volume = 1.0;
       remoteAudioRef.current = audio;
       document.body.appendChild(audio);
     }
@@ -102,6 +106,24 @@ export function useWebRtcVoiceCall({
         remoteAudioRef.current.parentNode.removeChild(remoteAudioRef.current);
         remoteAudioRef.current = null;
       }
+    };
+  }, []);
+
+  // Resume Web Audio context & ensure remote audio plays smoothly when switching apps or returning to tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+      if (remoteAudioRef.current && callStateRef.current === 'connected') {
+        remoteAudioRef.current.play().catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
     };
   }, []);
 
@@ -132,6 +154,11 @@ export function useWebRtcVoiceCall({
     if (callTimeoutRef.current) {
       clearTimeout(callTimeoutRef.current);
       callTimeoutRef.current = null;
+    }
+
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
     }
 
     if (localStreamRef.current) {
@@ -218,13 +245,32 @@ export function useWebRtcVoiceCall({
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        if (disconnectTimerRef.current) {
+          clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = null;
+        }
         playConnectedTone();
         setCallState('connected');
         if (callTimeoutRef.current) {
           clearTimeout(callTimeoutRef.current);
           callTimeoutRef.current = null;
         }
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      } else if (pc.connectionState === 'disconnected') {
+        // Do NOT drop call immediately when user leaves or minimizes app!
+        // Allow a 15-second grace window for mobile background reconnection
+        if (!disconnectTimerRef.current) {
+          disconnectTimerRef.current = setTimeout(() => {
+            if (pcRef.current && (pcRef.current.connectionState === 'disconnected' || pcRef.current.connectionState === 'failed')) {
+              endCall();
+            }
+            disconnectTimerRef.current = null;
+          }, 15000);
+        }
+      } else if (pc.connectionState === 'failed') {
+        if (disconnectTimerRef.current) {
+          clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = null;
+        }
         endCall();
       }
     };
@@ -383,6 +429,7 @@ export function useWebRtcVoiceCall({
    * INCOMING: Reject / Decline the call immediately
    */
   const rejectCall = useCallback((reason = 'declined') => {
+    const finalReason = typeof reason === 'string' && reason ? reason : 'declined';
     stopIncomingRingtone();
     playEndCallTone();
 
@@ -392,11 +439,11 @@ export function useWebRtcVoiceCall({
         type: 'reject_call',
         caller_id: activeCall.partnerId,
         call_id: activeCall.callId,
-        reason
+        reason: finalReason
       });
     }
 
-    // Dismiss immediately - no delay for recipient!
+    // Dismiss immediately for recipient
     cleanUpCall();
     setCallState('idle');
     setCallData(null);
@@ -428,12 +475,29 @@ export function useWebRtcVoiceCall({
         } catch (_) {}
       }
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.volume = next ? 1.0 : 0.4;
+        remoteAudioRef.current.volume = next ? 1.0 : 0.8;
       }
       setCallData(cd => cd ? { ...cd, isSpeaker: next } : cd);
       return next;
     });
   }, []);
+
+  // Listen for actions dispatched from system notification clicks (Answer / Decline)
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    const handleSwMessage = (event) => {
+      if (!event.data) return;
+      if (event.data.type === 'REJECT_CALL_ACTION') {
+        rejectCall('declined');
+      } else if (event.data.type === 'ANSWER_CALL_ACTION') {
+        answerCall();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    };
+  }, [rejectCall, answerCall]);
 
   /**
    * Invite another member to join current call (group voice call)
@@ -488,6 +552,10 @@ export function useWebRtcVoiceCall({
                 requireInteraction: true,
                 renotify: true,
                 vibrate: [500, 250, 500, 250, 500, 250, 500],
+                actions: [
+                  { action: 'answer', title: '📞 Answer' },
+                  { action: 'decline', title: '❌ Decline' }
+                ],
                 data: {
                   url: window.location.href,
                   call_id: data.call_id
@@ -551,13 +619,28 @@ export function useWebRtcVoiceCall({
       case 'call_rejected': {
         // Recipient declined or timed out
         stopRingbackTone();
-        playEndCallTone();
+        playDeclinedTone();
+
+        const activeCall = callDataRef.current;
+        const partner = activeCall?.partnerName || 'User';
+        const isDecline = !data.reason || data.reason === 'declined';
+        const endReason = isDecline
+          ? `${partner} declined the call`
+          : (data.reason === 'busy' ? `${partner} is on another call` : 'Call timed out');
+
+        setCallData(prev => prev ? { ...prev, endReason, isDeclined: true } : prev);
         setCallState('ended');
+
+        if (activeCall && onLogCallDeclined && isDecline) {
+          onLogCallDeclined(activeCall.partnerId);
+        }
+
+        // Keep modal visible for 2.5s so caller clearly hears tone and sees "Call Declined"
         setTimeout(() => {
           cleanUpCall();
           setCallState('idle');
           setCallData(null);
-        }, 800);
+        }, 2500);
         break;
       }
 
@@ -611,7 +694,7 @@ export function useWebRtcVoiceCall({
       default:
         break;
     }
-  }, [cleanUpCall, playConnectedTone, playEndCallTone, startCall, onLogCallEnded]);
+  }, [cleanUpCall, playConnectedTone, playEndCallTone, startCall, onLogCallEnded, onLogCallDeclined]);
 
   return {
     callState,

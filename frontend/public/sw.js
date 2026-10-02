@@ -1,5 +1,5 @@
 // CampusLink Service Worker (PWA Offline & SPA Shell Caching)
-const CACHE_NAME = 'campuslink-v1.1.0';
+const CACHE_NAME = 'campuslink-v1.1.1';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -170,7 +170,13 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = data.title || 'CampusLink';
+  const isCall = Boolean(
+    (data.tag && data.tag.startsWith('campuslink-call-')) ||
+    data.type === 'incoming_call' ||
+    (data.data && data.data.type === 'incoming_call')
+  );
+
+  const title = data.title || (isCall ? '📞 Incoming CampusLink Call' : 'CampusLink');
 
   const options = {
     body: data.body,
@@ -180,15 +186,19 @@ self.addEventListener('push', (event) => {
     data: {
       url: data.url || '/',
       timestamp: Date.now(),
+      isCall,
       ...(data.data || {})
     },
-    tag: data.tag || `campuslink-${Date.now()}`,
+    tag: data.tag || (isCall ? `campuslink-call-${Date.now()}` : `campuslink-${Date.now()}`),
     renotify: true,
-    vibrate: [150, 50, 150],
-    requireInteraction: false,
-    actions: data.actions || [
+    vibrate: isCall ? [500, 250, 500, 250, 500, 250, 500] : [150, 50, 150],
+    requireInteraction: isCall ? true : false,
+    actions: data.actions || (isCall ? [
+      { action: 'answer', title: '📞 Answer' },
+      { action: 'decline', title: '❌ Decline' }
+    ] : [
       { action: 'open', title: 'Open' }
-    ]
+    ])
   };
 
   event.waitUntil(
@@ -198,20 +208,41 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/';
+  const action = event.action;
+  const notifData = event.notification.data || {};
+  const targetUrl = notifData.url || '/';
 
+  // Decline action: notify existing tabs to decline call
+  if (action === 'decline') {
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        for (const client of windowClients) {
+          client.postMessage({
+            type: 'REJECT_CALL_ACTION',
+            call_id: notifData.call_id
+          });
+        }
+      })
+    );
+    return;
+  }
+
+  // Answer action or clicking the notification banner: focus tab and navigate to call
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // If there's an existing open tab for CampusLink on the same origin, focus and navigate it
       for (const client of windowClients) {
         if (client.url && 'focus' in client) {
+          client.postMessage({
+            type: 'ANSWER_CALL_ACTION',
+            call_id: notifData.call_id,
+            action: action || 'open'
+          });
           if (targetUrl && targetUrl !== '/') {
             client.navigate(targetUrl).catch(() => {});
           }
           return client.focus();
         }
       }
-      // Otherwise open a new window directly to the target URL
       if (clients.openWindow) {
         return clients.openWindow(targetUrl);
       }

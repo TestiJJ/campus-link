@@ -244,9 +244,19 @@ export default function VoiceCallModal({
               )}
 
               {isEnded && (
-                <span className="text-xs font-semibold text-rose-400">
-                  Call Terminated
-                </span>
+                <div className="flex flex-col items-center space-y-1.5 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-400 shadow-md">
+                    <PhoneOff className="w-4 h-4 text-rose-400 animate-pulse" />
+                    <span className="text-xs font-bold tracking-wide">
+                      {callData.isDeclined ? 'Call Declined' : 'Call Ended'}
+                    </span>
+                  </div>
+                  {callData.endReason && (
+                    <span className="text-xs text-rose-300 font-medium text-center">
+                      {callData.endReason}
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -259,7 +269,7 @@ export default function VoiceCallModal({
                 {/* Decline Button (Red) */}
                 <button
                   type="button"
-                  onClick={onReject}
+                  onClick={() => onReject('declined')}
                   className="flex flex-col items-center space-y-1.5 group cursor-pointer"
                 >
                   <div className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-rose-600/30 transition-all">
@@ -355,8 +365,9 @@ export default function VoiceCallModal({
 
             {/* ENDED STATE */}
             {isEnded && (
-              <div className="py-2 text-center text-xs font-semibold text-slate-400">
-                <span>Call ended</span>
+              <div className="py-2 text-center text-xs font-bold text-rose-400 flex items-center justify-center space-x-1.5 animate-in fade-in duration-150">
+                <PhoneOff className="w-4 h-4 shrink-0" />
+                <span>{callData.endReason || (callData.isDeclined ? 'Call Declined' : 'Call ended')}</span>
               </div>
             )}
           </div>

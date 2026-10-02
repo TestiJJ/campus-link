@@ -20,49 +20,74 @@ function getAudioContext() {
 }
 
 /**
+ * Plays a warm, percussive chime note with realistic acoustic decay and subtle harmonic overtone
+ */
+function playChimeNote(ctx, freq, startTime, duration = 0.38, peakGain = 0.22) {
+  try {
+    const now = startTime;
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const noteGain = ctx.createGain();
+
+    // Fundamental tone (pure sine)
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(freq, now);
+
+    // Subtle 2nd harmonic (warm triangle wave at octave)
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(freq * 2, now);
+
+    const overtoneGain = ctx.createGain();
+    overtoneGain.gain.setValueAtTime(0.08, now);
+    osc2.connect(overtoneGain);
+    overtoneGain.connect(noteGain);
+
+    osc1.connect(noteGain);
+    noteGain.connect(ctx.destination);
+
+    // Bell / Marimba percussive envelope: immediate crisp attack, natural exponential ring-out
+    noteGain.gain.setValueAtTime(0.0001, now);
+    noteGain.gain.linearRampToValueAtTime(peakGain, now + 0.012);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + duration + 0.05);
+    osc2.stop(now + duration + 0.05);
+  } catch (_) {}
+}
+
+/**
  * Incoming call ringtone (plays for recipient until answered or cut)
+ * Beautiful, melodic 6-note smartphone chime arpeggio (C5 -> E5 -> G5 -> C6 -> G5 -> C6 -> E6)
  */
 export function startIncomingRingtone() {
   stopIncomingRingtone();
   const ctx = getAudioContext();
   if (!ctx) return;
 
-  const playRingBurst = () => {
+  const playMelodicChime = () => {
     try {
-      const now = ctx.currentTime;
-      // Dual-tone frequency (pleasant chime: 520Hz & 660Hz)
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const now = ctx.currentTime + 0.02;
 
-      osc1.type = 'sine';
-      osc2.type = 'sine';
-      osc1.frequency.setValueAtTime(520, now);
-      osc2.frequency.setValueAtTime(660, now);
+      // Sparkling musical arpeggio melody
+      playChimeNote(ctx, 523.25, now + 0.00, 0.32, 0.20); // C5
+      playChimeNote(ctx, 659.25, now + 0.12, 0.32, 0.22); // E5
+      playChimeNote(ctx, 783.99, now + 0.24, 0.35, 0.24); // G5
+      playChimeNote(ctx, 1046.50, now + 0.36, 0.42, 0.26); // C6
+      playChimeNote(ctx, 783.99, now + 0.54, 0.32, 0.20); // G5
+      playChimeNote(ctx, 1046.50, now + 0.68, 0.45, 0.26); // C6
+      playChimeNote(ctx, 1318.51, now + 0.90, 0.55, 0.18); // High E6 resonant finish
 
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.28, now + 0.05);
-      gain.gain.setValueAtTime(0.28, now + 0.85);
-      gain.gain.linearRampToValueAtTime(0.001, now + 1.1);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 1.15);
-      osc2.stop(now + 1.15);
-
-      // Trigger mobile vibration if supported
+      // Realistic incoming call mobile vibration rhythm
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate([400, 200, 400]); } catch (_) {}
+        try { navigator.vibrate([350, 150, 350, 600]); } catch (_) {}
       }
     } catch (_) {}
   };
 
-  playRingBurst();
-  ringtoneInterval = setInterval(playRingBurst, 2500);
+  playMelodicChime();
+  ringtoneInterval = setInterval(playMelodicChime, 2400);
 }
 
 export function stopIncomingRingtone() {
@@ -128,7 +153,51 @@ export function stopRingbackTone() {
 export function playConnectedTone() {
   stopIncomingRingtone();
   stopRingbackTone();
-  // Silently transition into call without jarring oscillator bursts
+}
+
+/**
+ * Call declined / Line busy tone (3 short standard telecom busy pulses)
+ * Universally signals to caller that the recipient pressed Decline
+ */
+export function playDeclinedTone() {
+  stopIncomingRingtone();
+  stopRingbackTone();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const beeps = [0, 0.22, 0.44];
+
+    beeps.forEach((startOffset) => {
+      const t = now + startOffset;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = 'sine';
+      osc2.type = 'sine';
+      osc1.frequency.setValueAtTime(480, t);
+      osc2.frequency.setValueAtTime(620, t);
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.015);
+      gain.gain.setValueAtTime(0.18, t + 0.12);
+      gain.gain.linearRampToValueAtTime(0.0001, t + 0.15);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + 0.16);
+      osc2.stop(t + 0.16);
+    });
+
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([120, 80, 120, 80, 120]); } catch (_) {}
+    }
+  } catch (_) {}
 }
 
 /**
@@ -158,3 +227,4 @@ export function playEndCallTone() {
     osc.stop(now + 0.18);
   } catch (_) {}
 }
+

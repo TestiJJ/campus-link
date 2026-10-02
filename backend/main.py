@@ -1681,7 +1681,8 @@ def dispatch_push_notification_to_user(
     icon: str = "/pwa-192x192.png",
     badge: str = "/pwa-icon.svg",
     tag: str = "campuslink-alert",
-    data: Optional[dict] = None
+    data: Optional[dict] = None,
+    actions: Optional[list] = None
 ):
     """
     Background worker that retrieves all registered push devices for a user and dispatches native push notifications.
@@ -1707,6 +1708,8 @@ def dispatch_push_notification_to_user(
                     **(data or {})
                 }
             }
+            if actions:
+                payload["actions"] = actions
 
             expired_ids = []
             for s in subs:
@@ -4015,7 +4018,16 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Opt
                     offer = msg.get("offer")
 
                     is_target_online = bool(target_id in ws_manager.active_connections and ws_manager.active_connections[target_id])
-                    if not is_target_online:
+                    has_push_subscription = False
+                    try:
+                        with database.SessionLocal() as _db:
+                            has_push_subscription = bool(_db.query(models.PushSubscription.id).filter(
+                                models.PushSubscription.user_id == target_id
+                            ).first())
+                    except Exception:
+                        pass
+
+                    if not is_target_online and not has_push_subscription:
                         await websocket.send_json({
                             "type": "call_target_offline",
                             "target_user_id": target_id,
@@ -4047,14 +4059,43 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Opt
                         except Exception:
                             pass
                     else:
-                        await ws_manager.broadcast_to_user(target_id, {
-                            "type": "incoming_call",
-                            "call_id": call_id,
-                            "caller_id": str(user_id),
-                            "caller_name": caller_name,
-                            "caller_avatar": caller_avatar,
-                            "offer": offer
-                        })
+                        if is_target_online:
+                            await ws_manager.broadcast_to_user(target_id, {
+                                "type": "incoming_call",
+                                "call_id": call_id,
+                                "caller_id": str(user_id),
+                                "caller_name": caller_name,
+                                "caller_avatar": caller_avatar,
+                                "offer": offer
+                            })
+
+                        # Always dispatch native push notification in background thread so recipient's device rings & pops up even outside the app
+                        threading.Thread(
+                            target=dispatch_push_notification_to_user,
+                            kwargs={
+                                "user_id": target_id,
+                                "title": f"📞 Incoming Voice Call from {caller_name}",
+                                "body": f"{caller_name} is calling you on CampusLink · Tap to answer",
+                                "url": f"/?tab=messages&chat={user_id}&call={call_id}",
+                                "icon": caller_avatar or "/pwa-192x192.png",
+                                "badge": "/pwa-icon.svg",
+                                "tag": f"campuslink-call-{call_id}",
+                                "data": {
+                                    "type": "incoming_call",
+                                    "call_id": call_id,
+                                    "caller_id": str(user_id),
+                                    "caller_name": caller_name,
+                                    "caller_avatar": caller_avatar,
+                                    "offer": offer
+                                },
+                                "actions": [
+                                    {"action": "answer", "title": "📞 Answer"},
+                                    {"action": "decline", "title": "❌ Decline"}
+                                ]
+                            },
+                            daemon=True
+                        ).start()
+
                         await websocket.send_json({
                             "type": "call_ringing",
                             "target_user_id": target_id,
@@ -4073,39 +4114,41 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Opt
 
                 elif mtype == "reject_call":
                     caller_id = str(msg.get("caller_id"))
-                    reason = msg.get("reason", "declined")
+                    raw_reason = msg.get("reason")
+                    reason = raw_reason if isinstance(raw_reason, str) and raw_reason else "declined"
                     await ws_manager.broadcast_to_user(caller_id, {
                         "type": "call_rejected",
                         "call_id": msg.get("call_id"),
                         "reason": reason,
                         "responder_id": str(user_id)
                     })
-                    if reason in ("timeout", "busy", "declined"):
-                        try:
-                            with database.SessionLocal() as _db:
-                                missed_msg = models.Message(
-                                    sender_id=caller_id,
-                                    recipient_id=str(user_id),
-                                    content="📞 Missed voice call",
-                                    message_type="call_missed",
-                                    is_read=False
-                                )
-                                _db.add(missed_msg)
-                                _db.commit()
-                                _db.refresh(missed_msg)
-                                m_dict = {
-                                    "id": missed_msg.id,
-                                    "sender_id": missed_msg.sender_id,
-                                    "recipient_id": missed_msg.recipient_id,
-                                    "content": missed_msg.content,
-                                    "message_type": missed_msg.message_type,
-                                    "created_at": missed_msg.created_at.isoformat() if missed_msg.created_at else now_utc.isoformat(),
-                                    "is_read": False
-                                }
-                                await ws_manager.broadcast_to_user(caller_id, {"type": "new_message", "message": m_dict})
-                                await ws_manager.broadcast_to_user(str(user_id), {"type": "new_message", "message": m_dict})
-                        except Exception:
-                            pass
+                    content_text = "📞 Call declined" if reason == "declined" else ("📞 Line busy" if reason == "busy" else "📞 Missed voice call")
+                    msg_type = "call_declined" if reason == "declined" else ("call_busy" if reason == "busy" else "call_missed")
+                    try:
+                        with database.SessionLocal() as _db:
+                            missed_msg = models.Message(
+                                sender_id=caller_id,
+                                recipient_id=str(user_id),
+                                content=content_text,
+                                message_type=msg_type,
+                                is_read=False
+                            )
+                            _db.add(missed_msg)
+                            _db.commit()
+                            _db.refresh(missed_msg)
+                            m_dict = {
+                                "id": missed_msg.id,
+                                "sender_id": missed_msg.sender_id,
+                                "recipient_id": missed_msg.recipient_id,
+                                "content": missed_msg.content,
+                                "message_type": missed_msg.message_type,
+                                "created_at": missed_msg.created_at.isoformat() if missed_msg.created_at else now_utc.isoformat(),
+                                "is_read": False
+                            }
+                            await ws_manager.broadcast_to_user(caller_id, {"type": "new_message", "message": m_dict})
+                            await ws_manager.broadcast_to_user(str(user_id), {"type": "new_message", "message": m_dict})
+                    except Exception:
+                        pass
 
                 elif mtype == "ice_candidate":
                     target_id = str(msg.get("target_user_id"))

@@ -593,8 +593,23 @@ export default function StudentDashboard() {
         is_read: false
       };
       setChatMessages(prev => [...prev, endedMsg]);
+    },
+    onLogCallDeclined: (targetId) => {
+      const declinedMsg = {
+        id: `temp_call_declined_${Date.now()}`,
+        sender_id: currentUser?.user_id || currentUser?.id,
+        recipient_id: targetId,
+        content: "📞 Call declined",
+        message_type: "call_declined",
+        created_at: new Date().toISOString(),
+        is_read: false
+      };
+      setChatMessages(prev => [...prev, declinedMsg]);
     }
   });
+  const callStateRef = useRef(callState);
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+
   const [inAppBanner, setInAppBanner] = useState(null);
   const selectedPartnerRef = useRef(null);
   const activeTabRef = useRef(activeTab);
@@ -1052,6 +1067,8 @@ export default function StudentDashboard() {
       });
     };
     const sendOffline = () => {
+      // Do not mark offline if user is currently engaged in a voice call!
+      if (callStateRef.current && callStateRef.current !== 'idle') return;
       const activeToken = getAuthToken();
       if (!activeToken) return;
       const baseUrl = (API.defaults.baseURL || '').replace(/\/api$/, '');
@@ -1067,6 +1084,11 @@ export default function StudentDashboard() {
       }).catch(() => {});
     };
     const handleVisibility = () => {
+      // Keep user online and keep heartbeats going during active calls even if minimized
+      if (callStateRef.current && callStateRef.current !== 'idle') {
+        sendHeartbeat();
+        return;
+      }
       if (document.visibilityState === 'hidden') sendOffline();
       else sendHeartbeat();
     };
@@ -8195,7 +8217,34 @@ export default function StudentDashboard() {
                                               <span>Call Again</span>
                                             </button>
                                           </div>
-                                        ) : msg.message_type === 'call_missed' || (typeof msg.content === 'string' && msg.content.includes('Missed voice call')) ? (
+                                                                                 ) : msg.message_type === 'call_declined' || (typeof msg.content === 'string' && (msg.content.includes('Call declined') || msg.content.includes('declined'))) ? (
+                                           <div className="flex items-center space-x-3 py-1">
+                                             <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                                               <PhoneOff className="w-4 h-4" />
+                                             </div>
+                                             <div className="flex-1 min-w-0">
+                                               <p className="text-xs font-bold leading-tight">Call Declined</p>
+                                               <p className={`text-[10px] ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                 {isMine ? 'Call was declined' : 'You declined this call'}
+                                               </p>
+                                             </div>
+                                             <button
+                                               type="button"
+                                               onClick={(e) => {
+                                                 e.stopPropagation();
+                                                 startVoiceCall(selectedPartner);
+                                               }}
+                                               className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs ${
+                                                 isMine
+                                                   ? 'bg-white text-blue-700 hover:bg-blue-50'
+                                                   : 'bg-blue-600 text-white hover:bg-blue-700'
+                                               }`}
+                                             >
+                                               <Phone className="w-3 h-3" />
+                                               <span>Call Back</span>
+                                             </button>
+                                           </div>
+) : msg.message_type === 'call_missed' || (typeof msg.content === 'string' && msg.content.includes('Missed voice call')) ? (
                                           <div className="flex items-center space-x-3 py-1">
                                             <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                                               <PhoneOff className="w-4 h-4" />
