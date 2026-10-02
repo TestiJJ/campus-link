@@ -13,21 +13,80 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
-export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, onLogMissedCall }) {
+export function useWebRtcVoiceCall({
+  currentUser,
+  socketRef,
+  onSendWsMessage,
+  onLogMissedCall,
+  onLogCallEnded
+}) {
   const [callState, setCallState] = useState('idle'); // 'idle' | 'calling' | 'ringing' | 'incoming' | 'connected' | 'ended'
   const [callData, setCallData] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeaker, setIsSpeaker] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
 
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
   const callTimeoutRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
+
+  // Stale closure guards
+  const callDataRef = useRef(callData);
+  useEffect(() => { callDataRef.current = callData; }, [callData]);
+  const callStateRef = useRef(callState);
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+  const callDurationRef = useRef(callDuration);
+  useEffect(() => { callDurationRef.current = callDuration; }, [callDuration]);
+
+  // Web Audio booster pipeline for physical loudspeaker extra volume
+  const audioContextRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+
+  const setupAudioBooster = useCallback((mediaStream) => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new AudioCtx();
+      }
+      const ctx = audioContextRef.current;
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      if (sourceNodeRef.current) {
+        try { sourceNodeRef.current.disconnect(); } catch (_) {}
+      }
+      sourceNodeRef.current = ctx.createMediaStreamSource(mediaStream);
+
+      // Limiter / Compressor to avoid distortion when boosting volume
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-22, ctx.currentTime);
+      compressor.knee.setValueAtTime(30, ctx.currentTime);
+      compressor.ratio.setValueAtTime(12, ctx.currentTime);
+      compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+      compressor.release.setValueAtTime(0.25, ctx.currentTime);
+
+      const gain = ctx.createGain();
+      // Loudspeaker default: 2.8x extra boost!
+      gain.gain.setValueAtTime(isSpeaker ? 2.8 : 0.95, ctx.currentTime);
+      gainNodeRef.current = gain;
+
+      sourceNodeRef.current.connect(compressor);
+      compressor.connect(gain);
+      gain.connect(ctx.destination);
+    } catch (e) {
+      console.warn('[WebAudio Booster] Fallback to standard audio element:', e);
+    }
+  }, [isSpeaker]);
 
   // Create or retrieve hidden audio element for remote audio playback
   useEffect(() => {
@@ -46,6 +105,25 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
     };
   }, []);
 
+  // In-call duration timer
+  useEffect(() => {
+    let interval = null;
+    if (callState === 'connected') {
+      callDurationRef.current = 0;
+      setCallDuration(0);
+      interval = setInterval(() => {
+        callDurationRef.current += 1;
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    } else if (callState === 'idle') {
+      callDurationRef.current = 0;
+      setCallDuration(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [callState]);
+
   // Cleanup helper
   const cleanUpCall = useCallback(() => {
     stopIncomingRingtone();
@@ -63,6 +141,11 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
       localStreamRef.current = null;
     }
 
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.disconnect(); } catch (_) {}
+      sourceNodeRef.current = null;
+    }
+
     if (pcRef.current) {
       try { pcRef.current.close(); } catch (_) {}
       pcRef.current = null;
@@ -75,6 +158,36 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
     pendingCandidatesRef.current = [];
     setIsMuted(false);
   }, []);
+
+  /**
+   * End an ongoing or pending call
+   */
+  const endCall = useCallback(() => {
+    playEndCallTone();
+
+    const activeCall = callDataRef.current;
+    const dur = callDurationRef.current;
+
+    if (activeCall && onSendWsMessage) {
+      onSendWsMessage({
+        type: 'end_call',
+        target_user_id: activeCall.partnerId,
+        call_id: activeCall.callId,
+        duration: dur
+      });
+    }
+
+    if (activeCall && dur > 0 && onLogCallEnded) {
+      onLogCallEnded(activeCall.partnerId, dur);
+    }
+
+    cleanUpCall();
+    setCallState('ended');
+    setTimeout(() => {
+      setCallState('idle');
+      setCallData(null);
+    }, 700);
+  }, [cleanUpCall, onSendWsMessage, onLogCallEnded]);
 
   /**
    * Initialize a new RTCPeerConnection with audio tracks
@@ -95,12 +208,12 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
     };
 
     pc.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = event.streams[0];
-          remoteAudioRef.current.play().catch(() => {});
-        }
+      const remoteStream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        remoteAudioRef.current.play().catch(() => {});
       }
+      setupAudioBooster(remoteStream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -117,7 +230,7 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
     };
 
     return pc;
-  }, [onSendWsMessage]);
+  }, [onSendWsMessage, setupAudioBooster, endCall]);
 
   /**
    * OUTGOING: Start a voice call to a partner
@@ -146,8 +259,17 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
     startRingbackTone();
 
     try {
-      // 1. Get microphone audio
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // 1. Get microphone audio with echo cancellation & noise suppression
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: 1,
+          sampleRate: 48000
+        },
+        video: false
+      });
       localStreamRef.current = stream;
 
       // 2. Create peer connection & attach audio tracks
@@ -172,7 +294,7 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
 
       // 5. 35s Ringing timeout (auto-cancels and logs missed call if no answer)
       callTimeoutRef.current = setTimeout(() => {
-        if (callState !== 'connected') {
+        if (callStateRef.current !== 'connected') {
           playEndCallTone();
           setCallState('ended');
           if (onSendWsMessage) {
@@ -188,7 +310,7 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
             cleanUpCall();
             setCallState('idle');
             setCallData(null);
-          }, 1500);
+          }, 1200);
         }
       }, 35000);
     } catch (err) {
@@ -198,26 +320,36 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
       setCallState('idle');
       setCallData(null);
     }
-  }, [cleanUpCall, createPeerConnection, currentUser, onSendWsMessage, onLogMissedCall, callState]);
+  }, [cleanUpCall, createPeerConnection, currentUser, onSendWsMessage, onLogMissedCall]);
 
   /**
    * INCOMING: Answer the call
    */
   const answerCall = useCallback(async () => {
-    if (!callData || !callData.offer) return;
+    const activeCall = callDataRef.current;
+    if (!activeCall || !activeCall.offer) return;
     stopIncomingRingtone();
 
     try {
-      // 1. Request microphone audio
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // 1. Request microphone audio with high-quality echo cancellation
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          channelCount: 1,
+          sampleRate: 48000
+        },
+        video: false
+      });
       localStreamRef.current = stream;
 
       // 2. Create peer connection
-      const pc = createPeerConnection(callData.partnerId, callData.callId);
+      const pc = createPeerConnection(activeCall.partnerId, activeCall.callId);
       stream.getAudioTracks().forEach(track => pc.addTrack(track, stream));
 
       // 3. Set remote offer & local answer
-      await pc.setRemoteDescription(new RTCSessionDescription(callData.offer));
+      await pc.setRemoteDescription(new RTCSessionDescription(activeCall.offer));
 
       // Add any queued ICE candidates received while ringing
       while (pendingCandidatesRef.current.length > 0) {
@@ -232,8 +364,8 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
       if (onSendWsMessage) {
         onSendWsMessage({
           type: 'accept_call',
-          caller_id: callData.partnerId,
-          call_id: callData.callId,
+          caller_id: activeCall.partnerId,
+          call_id: activeCall.callId,
           answer,
           responder_name: currentUser?.full_name || 'Campus Peer'
         });
@@ -245,53 +377,30 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
       console.error('[WebRTC] Failed to answer call:', err);
       rejectCall('error');
     }
-  }, [callData, createPeerConnection, currentUser, onSendWsMessage]);
+  }, [createPeerConnection, currentUser, onSendWsMessage]);
 
   /**
-   * INCOMING: Reject / Decline the call
+   * INCOMING: Reject / Decline the call immediately
    */
   const rejectCall = useCallback((reason = 'declined') => {
     stopIncomingRingtone();
     playEndCallTone();
 
-    if (callData && onSendWsMessage) {
+    const activeCall = callDataRef.current;
+    if (activeCall && onSendWsMessage) {
       onSendWsMessage({
         type: 'reject_call',
-        caller_id: callData.partnerId,
-        call_id: callData.callId,
+        caller_id: activeCall.partnerId,
+        call_id: activeCall.callId,
         reason
       });
     }
 
-    setCallState('ended');
-    setTimeout(() => {
-      cleanUpCall();
-      setCallState('idle');
-      setCallData(null);
-    }, 1200);
-  }, [callData, cleanUpCall, onSendWsMessage]);
-
-  /**
-   * End an ongoing or pending call
-   */
-  const endCall = useCallback(() => {
-    playEndCallTone();
-
-    if (callData && onSendWsMessage) {
-      onSendWsMessage({
-        type: 'end_call',
-        target_user_id: callData.partnerId,
-        call_id: callData.callId
-      });
-    }
-
-    setCallState('ended');
-    setTimeout(() => {
-      cleanUpCall();
-      setCallState('idle');
-      setCallData(null);
-    }, 1200);
-  }, [callData, cleanUpCall, onSendWsMessage]);
+    // Dismiss immediately - no delay for recipient!
+    cleanUpCall();
+    setCallState('idle');
+    setCallData(null);
+  }, [cleanUpCall, onSendWsMessage]);
 
   /**
    * Toggle local microphone mute
@@ -308,11 +417,16 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
   }, []);
 
   /**
-   * Toggle speaker
+   * Toggle speakerphone extra volume
    */
   const toggleSpeaker = useCallback(() => {
     setIsSpeaker(prev => {
       const next = !prev;
+      if (gainNodeRef.current && audioContextRef.current) {
+        try {
+          gainNodeRef.current.gain.setTargetAtTime(next ? 2.8 : 0.95, audioContextRef.current.currentTime, 0.05);
+        } catch (_) {}
+      }
       if (remoteAudioRef.current) {
         remoteAudioRef.current.volume = next ? 1.0 : 0.4;
       }
@@ -325,18 +439,19 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
    * Invite another member to join current call (group voice call)
    */
   const inviteMember = useCallback((targetUser) => {
-    if (!callData || !onSendWsMessage) return;
+    const activeCall = callDataRef.current;
+    if (!activeCall || !onSendWsMessage) return;
     const tid = String(targetUser.user_id || targetUser.partner_id || targetUser.id || '');
     if (!tid) return;
 
     onSendWsMessage({
       type: 'add_call_participant',
       target_user_id: tid,
-      call_id: callData.callId,
+      call_id: activeCall.callId,
       inviter_name: currentUser?.full_name || 'Campus Student',
       inviter_avatar: currentUser?.avatar_url || currentUser?.profile_picture_url || null
     });
-  }, [callData, currentUser, onSendWsMessage]);
+  }, [currentUser, onSendWsMessage]);
 
   /**
    * Main WebSocket Event Dispatcher for Incoming Signaling Messages
@@ -360,6 +475,36 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
         });
         setCallState('incoming');
         startIncomingRingtone();
+
+        // System notification if browser is minimized or in background
+        if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
+          if ('serviceWorker' in navigator && 'Notification' in window && Notification.permission === 'granted') {
+            navigator.serviceWorker.ready.then(reg => {
+              reg.showNotification(`📞 Incoming Call from ${data.caller_name || 'CampusLink Peer'}`, {
+                body: 'CampusLink Voice Call · Tap to answer or open call',
+                icon: data.caller_avatar || '/pwa-192x192.png',
+                badge: '/pwa-icon.svg',
+                tag: `campuslink-call-${data.call_id}`,
+                requireInteraction: true,
+                renotify: true,
+                vibrate: [500, 250, 500, 250, 500, 250, 500],
+                data: {
+                  url: window.location.href,
+                  call_id: data.call_id
+                }
+              });
+            }).catch(() => {});
+          } else if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(`📞 Incoming Call from ${data.caller_name || 'CampusLink Peer'}`, {
+                body: 'CampusLink Voice Call · Tap to answer',
+                icon: data.caller_avatar || '/pwa-192x192.png',
+                requireInteraction: true,
+                tag: `campuslink-call-${data.call_id}`
+              });
+            } catch (_) {}
+          }
+        }
         break;
       }
 
@@ -393,13 +538,13 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
         // Target is not online
         stopRingbackTone();
         playEndCallTone();
-        alert(`${callData?.partnerName || 'User'} is currently offline.`);
+        alert(`${callDataRef.current?.partnerName || 'User'} is currently offline.`);
         setCallState('ended');
         setTimeout(() => {
           cleanUpCall();
           setCallState('idle');
           setCallData(null);
-        }, 1200);
+        }, 800);
         break;
       }
 
@@ -412,7 +557,7 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
           cleanUpCall();
           setCallState('idle');
           setCallData(null);
-        }, 1200);
+        }, 800);
         break;
       }
 
@@ -437,19 +582,23 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
         stopIncomingRingtone();
         stopRingbackTone();
         playEndCallTone();
+        const finalDur = Number(data.duration) || callDurationRef.current;
+        const activeCall = callDataRef.current;
+        if (activeCall && finalDur > 0 && onLogCallEnded) {
+          onLogCallEnded(activeCall.partnerId, finalDur);
+        }
+        cleanUpCall();
         setCallState('ended');
         setTimeout(() => {
-          cleanUpCall();
           setCallState('idle');
           setCallData(null);
-        }, 1200);
+        }, 800);
         break;
       }
 
       case 'incoming_group_call_invite': {
         // Group invite received
         if (window.confirm(`${data.inviter_name || 'A friend'} invited you to join a voice call. Join now?`)) {
-          // If already in call, switch or connect
           startCall({
             partner_id: data.inviter_id,
             partner_name: data.inviter_name,
@@ -462,11 +611,14 @@ export function useWebRtcVoiceCall({ currentUser, socketRef, onSendWsMessage, on
       default:
         break;
     }
-  }, [cleanUpCall, playConnectedTone, playEndCallTone, startCall, callData]);
+  }, [cleanUpCall, playConnectedTone, playEndCallTone, startCall, onLogCallEnded]);
 
   return {
     callState,
     callData,
+    callDuration,
+    isMuted,
+    isSpeaker,
     startCall,
     answerCall,
     rejectCall,

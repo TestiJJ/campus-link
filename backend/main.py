@@ -4118,11 +4118,43 @@ async def websocket_chat_endpoint(websocket: WebSocket, user_id: str, token: Opt
 
                 elif mtype == "end_call":
                     target_id = str(msg.get("target_user_id"))
+                    duration = int(msg.get("duration") or 0)
                     await ws_manager.broadcast_to_user(target_id, {
                         "type": "call_ended",
                         "call_id": msg.get("call_id"),
-                        "from_user_id": str(user_id)
+                        "from_user_id": str(user_id),
+                        "duration": duration
                     })
+                    if duration > 0:
+                        mins = duration // 60
+                        secs = duration % 60
+                        dur_text = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+                        content_text = f"📞 Voice call · {dur_text}"
+                        try:
+                            with database.SessionLocal() as _db:
+                                call_msg = models.Message(
+                                    sender_id=str(user_id),
+                                    recipient_id=target_id,
+                                    content=content_text,
+                                    message_type="call_ended",
+                                    is_read=False
+                                )
+                                _db.add(call_msg)
+                                _db.commit()
+                                _db.refresh(call_msg)
+                                m_dict = {
+                                    "id": call_msg.id,
+                                    "sender_id": call_msg.sender_id,
+                                    "recipient_id": call_msg.recipient_id,
+                                    "content": call_msg.content,
+                                    "message_type": call_msg.message_type,
+                                    "created_at": call_msg.created_at.isoformat() if call_msg.created_at else now_utc.isoformat(),
+                                    "is_read": False
+                                }
+                                await ws_manager.broadcast_to_user(str(user_id), {"type": "new_message", "message": m_dict})
+                                await ws_manager.broadcast_to_user(target_id, {"type": "new_message", "message": m_dict})
+                        except Exception:
+                            pass
 
                 elif mtype == "add_call_participant":
                     target_id = str(msg.get("target_user_id"))

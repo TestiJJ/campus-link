@@ -123,35 +123,16 @@ export function stopRingbackTone() {
 }
 
 /**
- * Connected chime (played when call is picked up)
+ * Connected chime (silent/clean connection to avoid any feedback or funny sounds)
  */
 export function playConnectedTone() {
   stopIncomingRingtone();
   stopRingbackTone();
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  try {
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(440, now);
-    osc.frequency.exponentialRampToValueAtTime(880, now + 0.25);
-
-    gain.gain.setValueAtTime(0.2, now);
-    gain.gain.linearRampToValueAtTime(0.001, now + 0.35);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.35);
-  } catch (_) {}
+  // Silently transition into call without jarring oscillator bursts
 }
 
 /**
- * End call tone (played when call terminates)
+ * End call tone (played softly when call terminates)
  */
 export function playEndCallTone() {
   stopIncomingRingtone();
@@ -164,16 +145,16 @@ export function playEndCallTone() {
     const gain = ctx.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(600, now);
-    osc.frequency.exponentialRampToValueAtTime(250, now + 0.35);
+    osc.frequency.setValueAtTime(480, now);
+    osc.frequency.exponentialRampToValueAtTime(320, now + 0.15);
 
-    gain.gain.setValueAtTime(0.2, now);
-    gain.gain.linearRampToValueAtTime(0.001, now + 0.4);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.linearRampToValueAtTime(0.001, now + 0.18);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
 
     osc.start(now);
-    osc.stop(now + 0.4);
+    osc.stop(now + 0.18);
   } catch (_) {}
 }
