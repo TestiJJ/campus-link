@@ -13,7 +13,8 @@ import {
   Lock, Edit3, ShieldAlert, Bot, RotateCcw, Download, Smartphone, Reply,
   Film, Mic, Navigation, MoreVertical, EyeOff, Flag, Volume2, Sliders, CreditCard,
   User, Play, Pause, ShoppingBag, Compass, Award, Utensils, Laptop, BookOpen, Scissors, CheckSquare, Globe,
-  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore, ArrowLeft
+  Image as ImageIcon, Loader2, GraduationCap, Archive, ArchiveRestore, ArrowLeft,
+  Paperclip, AtSign
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
 import SafeImage from './components/SafeImage';
@@ -87,6 +88,55 @@ export function getDisplayContent(content) {
     return data.reply_text || data.text || data.caption || data.message || "";
   }
   return content;
+}
+
+// Render message content with bold/pill highlighted @mentions in groups
+export function renderMessageTextWithMentions(rawContent, isMine, isGroup, onMentionClick) {
+  const text = getDisplayContent(rawContent);
+  if (!text || typeof text !== 'string') return text;
+  if (!isGroup || !text.includes('@')) return text;
+
+  // Non-greedy mention tokenizer: matches @everyone, @all, or @Username / @First Last (up to 2 words without trailing punctuation)
+  const mentionRegex = /(@(?:everyone|all|[A-Za-z0-9_]+(?:\s[A-Za-z0-9_]+)?))(?=\s|[.,!?:;]|$)/gi;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push({ isMention: true, text: match[1] });
+    lastIndex = match.index + match[1].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.map((part, i) => {
+    if (typeof part === 'object' && part.isMention) {
+      const lower = part.text.toLowerCase();
+      const isEveryone = lower === '@everyone' || lower === '@all';
+      return (
+        <span
+          key={i}
+          onClick={onMentionClick ? (e) => { e.stopPropagation(); onMentionClick(part.text); } : undefined}
+          className={`font-semibold px-1.5 py-0.5 rounded-md inline-block my-0.5 text-[11px] sm:text-xs transition-colors select-text ${
+            onMentionClick ? 'cursor-pointer hover:underline' : ''
+          } ${
+            isMine
+              ? 'bg-blue-500/40 text-white border border-blue-400/40'
+              : isEveryone
+                ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-bold'
+                : 'bg-sky-100 text-sky-800 dark:bg-sky-900/60 dark:text-sky-200 border border-sky-200 dark:border-sky-700'
+          }`}
+        >
+          {part.text}
+        </span>
+      );
+    }
+    return part;
+  });
 }
 
 
@@ -395,7 +445,8 @@ export default function VendorDashboard() {
   const [archivedChatIds, setArchivedChatIds] = useState(() => {
     try {
       const userRaw = localStorage.getItem('user');
-      const uId = userRaw ? JSON.parse(userRaw).user_id : 'guest';
+      const parsed = userRaw ? JSON.parse(userRaw) : null;
+      const uId = parsed ? (parsed.user_id || parsed.id || 'guest') : 'guest';
       const saved = localStorage.getItem(`campuslink_archived_chats_${uId}`);
       return saved ? JSON.parse(saved) : [];
     } catch {
@@ -639,7 +690,13 @@ export default function VendorDashboard() {
       const exists = prev.includes(idStr);
       const next = exists ? prev.filter(id => id !== idStr) : [...prev, idStr];
       try {
-        const uId = user?.user_id || user?.id || 'guest';
+        let uId = user?.user_id || user?.id;
+        if (!uId) {
+          const raw = localStorage.getItem('user');
+          const p = raw ? JSON.parse(raw) : null;
+          uId = p?.user_id || p?.id;
+        }
+        uId = uId || 'guest';
         localStorage.setItem(`campuslink_archived_chats_${uId}`, JSON.stringify(next));
       } catch {}
       setToast({
@@ -1247,11 +1304,6 @@ export default function VendorDashboard() {
     scrollToBottom(instant ? "auto" : "smooth");
   };
 
-  // Trigger on active conversation switch or messages length change
-  useEffect(() => {
-    scrollToBottom("auto");
-  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, activeTab, messageSubtab, chatMessages?.length]);
-
   // Trigger on AI tab switch or aiMessages length change
   useEffect(() => {
     scrollAiToBottom("auto");
@@ -1271,11 +1323,11 @@ export default function VendorDashboard() {
       const t1 = setTimeout(snap, 30);
       const t2 = setTimeout(snap, 100);
       const t3 = setTimeout(snap, 250);
-      const t4 = setTimeout(snap, 600);
+      const t4 = setTimeout(snap, 500);
       const t5 = setTimeout(() => {
         snap();
         isSwitchingPartnerRef.current = false;
-      }, 1000);
+      }, 900);
       return () => {
         cancelAnimationFrame(r1);
         clearTimeout(t1);
@@ -1285,25 +1337,7 @@ export default function VendorDashboard() {
         clearTimeout(t5);
       };
     }
-  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, chatMessages?.length]);
-
-  // DOM observer to keep chat pinned to recent messages as media elements load
-  useEffect(() => {
-    const el = chatContainerRef.current;
-    if (!el) return;
-
-    const observer = new MutationObserver(() => {
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 250;
-      if (isNearBottom || isSwitchingPartnerRef.current) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-
-    observer.observe(el, { childList: true, subtree: true, attributes: true });
-    return () => {
-      observer.disconnect();
-    };
-  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id]);
+  }, [selectedPartner?.partner_id, selectedPartner?.user_id, selectedPartner?.id, activeTab, messageSubtab, chatMessages?.length]);
 
   // Real-time WebSocket connection for vendor instant chat delivery & floating banner alerts
   useEffect(() => {
@@ -1480,7 +1514,9 @@ export default function VendorDashboard() {
                     return [...prev, newM];
                   });
                   API.post(`/messages/${newM.sender_id}/read`).catch(() => { });
-                  setTimeout(() => scrollToChatBottom(false), 50);
+                  if (isUserNearBottom(chatContainerRef.current)) {
+                    smartScrollToBottom(chatContainerRef.current, true);
+                  }
                 } else {
                   // Pop up in-app notification banner across Reels, Store, etc.
                   setInAppBanner({
@@ -2464,6 +2500,16 @@ export default function VendorDashboard() {
     }
   };
 
+  // Cleanly close active chat and remove from URL
+  const handleCloseChat = () => {
+    setSelectedPartner(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('chat');
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  };
+
   const handleSelectPartner = (partner) => {
     if (!partner) return;
     const newPid = String(partner.partner_id || partner.user_id || partner.id || '');
@@ -2480,6 +2526,7 @@ export default function VendorDashboard() {
       ...partner,
       partner_id: newPid,
       partner_name: partner.partner_name || partner.full_name || partner.name || partner.business_name || 'Customer',
+      partner_role: partner.partner_role || partner.role || 'Student',
       role: partner.role || 'student',
       partner_avatar: partner.partner_avatar || partner.avatar_url || partner.profile_picture_url || null
     };
@@ -2500,7 +2547,7 @@ export default function VendorDashboard() {
 
     // Multi-tier scroll to bottom to ensure user is taken to the last chat message
     const triggerBottomScroll = () => {
-      scrollToChatBottom(true);
+      scrollToBottom("auto");
       if (chatContainerRef.current) {
         chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
       }
@@ -5062,960 +5109,1095 @@ export default function VendorDashboard() {
           {/* ========================================================================= */}
           {activeTab === 'messages' && (
             <div className="flex-1 flex flex-col overflow-hidden min-h-0 h-full">
+              {/* Chat Box Container */}
+              <div className={`flex flex-col overflow-hidden flex-1 min-h-0 bg-white ${selectedPartner ? 'rounded-none md:rounded-3xl border-0 md:border border-slate-200 shadow-none md:shadow-xs' : 'rounded-3xl border border-slate-200 shadow-xs'}`}>
 
-              {/* Header */}
-              <div className={`p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0 ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
-                <div className="flex items-center space-x-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold shrink-0">
-                    <MessageSquare className="w-4 h-4" />
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Campus Chats</h2>
-                    {conversations.length > 0 && (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
-                        {conversations.length}
-                      </span>
-                    )}
-                    {totalUnreadChatCount > 0 && (
-                      <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
-                        {totalUnreadChatCount} new
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {selectedPartner && (
-                  <div className="flex items-center space-x-2 text-xs">
-                    {selectedPartner.is_ai ? (
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-slate-800">CampusLink AI Copilot</span>
-                        <button
-                          type="button"
-                          onClick={handleClearAiChat}
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-semibold rounded-xl text-[11px] cursor-pointer transition-colors"
-                          title="Clear conversation"
-                        >
-                          Clear Chat
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-1.5">
-                        <span className="font-bold text-slate-800">{selectedPartner.partner_name}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
-                          {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
+                {/* Header: Active Chats & Active Partner Controls */}
+                <div className={`p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between gap-3 ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+                  <div className="flex items-center space-x-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">Active Chats</h2>
+                      {conversations.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
+                          {conversations.length}
                         </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Active Inquiries & Chat Interface */}
-              <div className={`flex flex-col md:flex-row bg-white overflow-hidden shadow-xs flex-1 min-h-0 h-full ${selectedPartner ? 'rounded-none md:rounded-3xl border-0 md:border md:border-slate-200' : 'rounded-3xl border border-slate-200'}`}>
-
-                {/* Conversations List */}
-                <div className={`w-full md:w-80 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col justify-between shrink-0 bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
-                  {/* Universal Chat & Directory Search */}
-                  <div className="p-2.5 border-b border-slate-100 bg-white">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search chats or friends..."
-                        value={chatSearchQuery}
-                        onChange={(e) => setChatSearchQuery(e.target.value)}
-                        className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100/90 focus:bg-white border border-transparent focus:border-sky-400 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
-                      />
-                      {chatSearchQuery && (
-                        <button
-                          type="button"
-                          onClick={() => setChatSearchQuery('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                      )}
+                      {totalUnreadChatCount > 0 && (
+                        <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse">
+                          {totalUnreadChatCount} new
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
-                    {/* PINNED: CampusLink AI Copilot */}
-                    <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/50 to-white">
-                      <button
-                        type="button"
-                        onClick={handleSelectAiCopilot}
-                        className={`w-full p-2.5 rounded-2xl text-left flex items-start space-x-3 transition-all cursor-pointer ${(selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
-                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                            : 'hover:bg-blue-50/80 border border-blue-100/80'
-                          }`}
-                      >
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${(selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
-                            ? 'bg-white/20 text-white'
-                            : 'bg-blue-600 text-white shadow-xs'
-                          }`}>
-                          <Sparkles className="w-4 h-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className={`text-xs font-black truncate ${(selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-white' : 'text-slate-900'
-                              }`}>
-                              AI Business Copilot
-                            </span>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${(selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
-                                ? 'bg-white/25 text-white'
-                                : 'bg-blue-100 text-blue-700'
-                              }`}>
-                              24/7 AI
-                            </span>
-                          </div>
-                          <p className={`text-[11px] truncate mt-0.5 ${(selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-slate-500'
-                            }`}>
-                            {aiMessages.length > 0
-                              ? (aiMessages[aiMessages.length - 1].content || 'Chat with your AI copilot')
-                              : 'Draft replies, promos, grammar & math'}
-                          </p>
-                        </div>
-                      </button>
-                    </div>
-
-                    {isViewingArchivedChats ? (
-                      <div>
-                        {/* WhatsApp-Style In-Place Archived Folder Header */}
-                        <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10">
-                          <div className="flex items-center space-x-2.5">
-                            <button
-                              type="button"
-                              onClick={() => setIsViewingArchivedChats(false)}
-                              className="p-1.5 hover:bg-slate-200/80 rounded-xl transition-colors cursor-pointer text-slate-700"
-                              title="Back to all chats"
-                            >
-                              <ArrowLeft className="w-5 h-5" />
-                            </button>
-                            <div className="flex items-center space-x-2">
-                              <Archive className="w-4 h-4 text-sky-600" />
-                              <h3 className="font-extrabold text-sm text-slate-800">Archived Chats</h3>
-                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
-                                {archivedConversations.length}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {archivedConversations.length > 0 ? (
-                          <div>
-                            <div className="px-3 py-1.5 bg-slate-50/60 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                              <span>Archived Conversations</span>
-                              <span className="font-bold text-sky-600">({archivedConversations.length})</span>
-                            </div>
-                            {archivedConversations
-                              .filter(c => {
-                                if (!chatSearchQuery.trim()) return true;
-                                const q = chatSearchQuery.toLowerCase().trim();
-                                return (c.partner_name || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q);
-                              })
-                              .map((c) => {
-                                const pid = c.partner_id || c.user_id || c.id;
-                                const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
-
-                                return (
-                                  <div
-                                    key={pid}
-                                    className={`w-full text-left flex items-start justify-between transition-all group ${
-                                      isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSelectPartner(c)}
-                                      className="flex-1 min-w-0 p-3.5 flex items-start space-x-3 cursor-pointer text-left"
-                                    >
-                                      <div className="relative shrink-0 rounded-2xl">
-                                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                          {c.partner_avatar ? (
-                                            <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                          ) : (
-                                            <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
-                                              {c.partner_name?.charAt(0) || 'S'}
-                                            </div>
-                                          )}
-                                        </div>
-                                        {c.unread_count > 0 && (
-                                          <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-xs">
-                                            {c.unread_count}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex-1 overflow-hidden">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                          <span className="text-[10px] text-slate-400">
-                                            {c.role === 'vendor' ? 'Vendor' : 'Student'}
-                                          </span>
-                                        </div>
-                                        <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                          {c.last_message || 'Start conversation'}
-                                        </p>
-                                      </div>
-                                    </button>
-                                    {/* Quick Unarchive Action Button */}
-                                    <div className="p-3.5 pl-0 self-center">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          toggleArchiveChat(String(pid));
-                                        }}
-                                        className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
-                                        title="Unarchive chat"
-                                        aria-label="Unarchive chat"
-                                      >
-                                        <ArchiveRestore className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                          </div>
-                        ) : (
-                          <div className="p-8 text-center text-xs text-slate-400">
-                            <Archive className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                            <p className="font-bold text-slate-600">No archived chats</p>
-                            <p className="mt-1">
-                              Chats you archive will remain here until unarchived.
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => setIsViewingArchivedChats(false)}
-                              className="mt-4 px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
-                            >
-                              Back to Chats
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
-                        {archivedChatIds.length > 0 && (
+                  {selectedPartner && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      {selectedPartner.is_ai ? (
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-slate-800">CampusLink AI Copilot</span>
                           <button
                             type="button"
-                            onClick={() => setIsViewingArchivedChats(true)}
-                            className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                            onClick={handleClearAiChat}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 font-semibold rounded-xl text-[11px] cursor-pointer transition-colors"
+                            title="Clear conversation"
                           >
-                            <div className="flex items-center space-x-3">
-                              <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
-                                <Archive className="w-4 h-4" />
-                              </div>
-                              <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
-                            </div>
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
-                              {archivedChatIds.length}
+                            Clear Chat
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="font-bold text-slate-800">{selectedPartner.partner_name}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 font-semibold text-slate-600">
+                              {selectedPartner.partner_role || (selectedPartner.role === 'vendor' ? 'Vendor' : 'Student')}
                             </span>
-                          </button>
-                        )}
-
-                        {/* Section: Active Conversations */}
-                        {filteredConversations.length > 0 && (
-                          <div>
-                            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                              <span>Recent Chats</span>
-                              <span className="font-bold text-sky-600">({filteredConversations.length})</span>
-                            </div>
-                            {filteredConversations.map((c) => {
-                              const pid = c.partner_id || c.user_id || c.id;
-                              const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
-                              const hasStory = partnerStoryIdx !== -1;
-                              const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                              const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
-                              const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
-
-                              return (
-                                <button
-                                  key={pid}
-                                  type="button"
-                                  onClick={() => handleSelectPartner(c)}
-                                  className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                    }`}
-                                >
-                                  {/* WhatsApp-Style Clickable Story Avatar */}
-                                  <div
-                                    onClick={(e) => {
-                                      if (hasStory) {
-                                        e.stopPropagation();
-                                        const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
-                                        setActiveStatusViewer({
-                                          userIdx: partnerStoryIdx,
-                                          itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
-                                        });
-                                      }
-                                    }}
-                                    title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
-                                    className={`relative shrink-0 rounded-2xl transition-all ${hasStory
-                                        ? `p-0.5 cursor-pointer ${hasUnviewedStory
-                                          ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
-                                          : 'bg-slate-200 border border-slate-300 opacity-70'
-                                        }`
-                                        : ''
-                                      }`}
-                                  >
-                                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                      {c.partner_avatar ? (
-                                        <SafeImage src={c.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                      ) : (
-                                        <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
-                                          {c.partner_name?.charAt(0) || 'S'}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  <div className="flex-1 overflow-hidden">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-xs font-bold text-slate-900 truncate">{c.partner_name}</span>
-                                      <div className="flex items-center space-x-1.5 shrink-0">
-                                        {c.unread_count > 0 && (
-                                          <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full shadow-xs animate-pulse">
-                                            {c.unread_count}
-                                          </span>
-                                        )}
-                                        <span className="text-[10px] text-slate-400">
-                                          {c.role === 'vendor' ? 'Vendor' : 'Student'}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                      {(() => {
-                                        if (!c.last_message) return 'Say hello...';
-                                        if (c.last_message.includes('"type":"status_reply"') || c.message_type === 'status_reply') {
-                                          const parsed = parseStatusReply(c.last_message);
-                                          return parsed.reaction ? `Reacted ${parsed.reaction} to story` : `Replied to story: "${parsed.replyText}"`;
-                                        }
-                                        return c.last_message;
-                                      })()}
-                                    </p>
-                                  </div>
-                                </button>
-                              );
-                            })}
                           </div>
-                        )}
-                      </>
-                    )}
-
-                    {/* Section: Connected Friends to Message */}
-                    {availableCommunityToChat.length > 0 && (
-                      <div>
-                        <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                          <span>{chatSearchQuery ? 'Matching Friends' : 'Connected Friends'}</span>
-                          <span className="font-bold text-sky-600">({availableCommunityToChat.length})</span>
-                        </div>
-                        {availableCommunityToChat.map((s) => {
-                          const sid = s.user_id || s.id;
-                          const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(sid);
-                          return (
-                            <button
-                              key={sid}
-                              onClick={() => handleSelectPartner({
-                                partner_id: sid,
-                                partner_name: s.full_name || s.name || 'Friend',
-                                partner_avatar: s.profile_picture_url || s.avatar_url,
-                                role: s.role || (s.is_vendor ? 'vendor' : 'student'),
-                                partner_phone: s.phone_number,
-                                department: s.department,
-                                university_name: s.university_name,
-                                is_friend: true
-                              })}
-                              className={`w-full p-3 sm:p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
-                                }`}
-                            >
-                              <div className="relative shrink-0">
-                                <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                  {s.profile_picture_url ? (
-                                    <SafeImage src={s.profile_picture_url} alt={s.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center">
-                                      {s.full_name?.charAt(0) || 'U'}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-bold text-slate-900 truncate">{s.full_name}</span>
-                                  <span className="text-[10px] font-medium text-slate-400 shrink-0">
-                                    {s.role || (s.is_vendor ? 'Vendor' : 'Student')}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                  {s.department || s.university_name || 'Tap to message friend'}
-                                </p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {filteredConversations.length === 0 && availableCommunityToChat.length === 0 && (
-                      <div className="p-6 text-center text-slate-400">
-                        <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-xs font-semibold text-slate-500">No matching chats</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Try searching with a different term.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Chat Panel */}
-                <div
-                  style={mobileChatContainerStyle}
-                  className={`flex flex-col bg-white overflow-hidden ${selectedPartner ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex' : 'hidden md:flex md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50'}`}
-                >
-                  {selectedPartner ? (
-                    (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
-                      <>
-                        {/* AI Chat Header */}
-                        <div className="p-3 sm:p-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 sticky top-0 z-20">
-                          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPartner(null)}
-                              className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg shrink-0 cursor-pointer"
-                              title="Back to conversation list"
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                            </button>
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-                              <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center space-x-1.5 sm:space-x-2">
-                                <h4 className="text-xs font-bold text-slate-900 truncate">CampusLink AI Copilot</h4>
-                                <span className="text-[9px] sm:text-[10px] bg-blue-50 text-blue-700 px-1.5 sm:px-2 py-0.5 rounded-full font-bold shrink-0">
-                                  Online • 24/7
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-slate-400 truncate max-w-[170px] sm:max-w-none">Merchant business copilot & universal intelligence</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={handleClearAiChat}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors flex items-center space-x-1"
-                              title="Start new conversation"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>New Chat</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* AI Chat Messages Stream */}
-                        <div ref={aiChatContainerRef} className="flex-1 p-3.5 sm:p-5 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container overscroll-contain">
-                          {aiMessages.length > 0 ? (
-                            aiMessages.map((msg, idx) => (
-                              <div
-                                key={msg.id || idx}
-                                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                              >
-                                {msg.sender === 'ai' && (
-                                  <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 mr-2 shadow-xs mt-0.5">
-                                    <Bot className="w-4 h-4" />
-                                  </div>
-                                )}
-                                <div
-                                  className={`chat-bubble-tactile max-w-[85%] sm:max-w-[75%] p-3 sm:p-3.5 rounded-2xl text-xs sm:text-[13px] leading-relaxed shadow-xs ${msg.sender === 'user'
-                                      ? 'bg-blue-600 text-white rounded-br-xs'
-                                      : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs'
-                                    }`}
-                                >
-                                  {msg.sender === 'user' ? (
-                                    <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
-                                  ) : (
-                                    <MarkdownRenderer content={msg.content} />
-                                  )}
-                                  <span className={`float-right mt-1 ml-2 text-[10px] leading-none select-none font-medium ${msg.sender === 'user' ? 'text-blue-200' : 'text-slate-400'
-                                    }`}>
-                                    {safeTime(msg.created_at, 'Now')}
-                                  </span>
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <div className="py-10 px-4 text-center max-w-md mx-auto">
-                              <div className="w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-3 shadow-md">
-                                <Sparkles className="w-7 h-7" />
-                              </div>
-                              <h3 className="text-base font-black text-slate-800">CampusLink AI Copilot for Merchants</h3>
-                              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                Ask me to draft persuasive customer replies, write promotional WhatsApp drops, calculate discounts, or answer any general question (grammar, math, coding, science, and life on campus)!
-                              </p>
-
-                              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
-                                {[
-                                  { text: "How do I reply to this customer asking for a discount?", icon: "💬" },
-                                  { text: "Write a catchy WhatsApp promo for my new products", icon: "📢" },
-                                  { text: "What is a noun?", icon: "📚" },
-                                  { text: "What is 20% of ₦45,000?", icon: "🔢" }
-                                ].map((promptItem, i) => (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    onClick={() => handleSendAiMessage(promptItem.text)}
-                                    className="p-2.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl text-left text-[11px] text-slate-700 transition-all cursor-pointer shadow-2xs flex items-start space-x-2"
-                                  >
-                                    <span className="text-sm">{promptItem.icon}</span>
-                                    <span className="font-medium line-clamp-2">{promptItem.text}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {isAiTyping && (
-                            <div className="flex items-center space-x-2 text-slate-400 text-xs py-2">
-                              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                                <Sparkles className="w-4 h-4 animate-pulse text-amber-300" />
-                              </div>
-                              <div className="p-3 bg-white border border-slate-200/80 rounded-2xl rounded-bl-xs text-slate-600 text-xs shadow-xs flex items-center space-x-2">
-                                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-                                <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse delay-75" />
-                                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150" />
-                                <span className="font-medium text-slate-600 ml-1">CampusLink AI is formulating a response...</span>
-                              </div>
-                            </div>
-                          )}
-                          <div ref={aiMessagesEndRef} />
-                        </div>
-
-                        {/* AI Input Form */}
-                        <form
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            handleSendAiMessage();
-                          }}
-                          className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-end space-x-2"
-                        >
-                          <textarea
-                            rows={1}
-                            placeholder="Ask CampusLink AI anything (code, grammar, customer replies, math, concepts)..."
-                            value={newMsgText}
-                            onFocus={() => {
-                              if (typeof window !== 'undefined' && window.innerWidth < 768) {
-                                window.scrollTo(0, 0);
-                                setTimeout(() => {
-                                  window.scrollTo(0, 0);
-                                  if (aiChatContainerRef.current) {
-                                    aiChatContainerRef.current.scrollTop = aiChatContainerRef.current.scrollHeight;
-                                  }
-                                }, 60);
-                              }
-                            }}
-                            onChange={(e) => {
-                              setNewMsgText(e.target.value);
-                              e.target.style.height = 'auto';
-                              e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-                            }}
-                            onKeyDown={(e) => {
-                              const isMobileDevice = typeof navigator !== 'undefined' && (/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 768));
-                              if (e.key === 'Enter') {
-                                if (isMobileDevice) return;
-                                if (e.shiftKey || e.altKey) return;
-                                e.preventDefault();
-                                if (newMsgText.trim() && !isAiTyping) {
-                                  handleSendAiMessage();
-                                }
-                              }
-                            }}
-                            disabled={isAiTyping}
-                            className="flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white resize-none leading-relaxed transition-colors"
-                          />
-                          <button
-                            type="submit"
-                            disabled={!newMsgText.trim() || isAiTyping}
-                            className="min-h-[44px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl cursor-pointer disabled:opacity-50 transition-colors flex items-center justify-center shrink-0 mb-0.5 active:scale-95"
-                          >
-                            <Send className="w-4 h-4" />
-                          </button>
-                        </form>
-                      </>
-                    ) : (
-                      <>
-                        {/* Chat Header */}
-                        <div className="p-2.5 sm:p-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 sticky top-0 z-20 shadow-2xs">
-                          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1 mr-2">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedPartner(null)}
-                              className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg shrink-0 cursor-pointer relative"
-                              title="Back to conversation list"
-                            >
-                              <ChevronLeft className="w-5 h-5" />
-                              {otherUnreadChatCount > 0 && (
-                                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
-                                  {otherUnreadChatCount}
-                                </span>
-                              )}
-                            </button>
-
-                            {/* WhatsApp-Style Clickable Avatar with Story Ring */}
-                            {(() => {
-                              const pid = selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id;
-                              const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
-                              const hasStory = partnerStoryIdx !== -1;
-                              const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
-                              const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
-
-                              return (
-                                <div
-                                  onClick={() => {
-                                    handleOpenProfile(pid);
-                                  }}
-                                  title="Click to view profile"
-                                  className="relative shrink-0 rounded-2xl transition-all cursor-pointer hover:opacity-90 p-0.5"
-                                >
-                                  <div className="w-9 h-9 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
-                                    {selectedPartner.partner_avatar ? (
-                                      <SafeImage src={selectedPartner.partner_avatar} alt="Avatar" fallbackType="avatar" className="w-full h-full object-cover" />
-                                    ) : (
-                                      <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-xs">
-                                        {selectedPartner.partner_name?.charAt(0) || 'U'}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })()}
-
-                            <div
-                              onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                              className="min-w-0 cursor-pointer group"
-                            >
-                              <div className="flex items-center space-x-1.5">
-                                <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-[110px] sm:max-w-[200px]">
-                                  {selectedPartner.partner_name}
-                                </h4>
-                                <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded-full font-bold shrink-0">
-                                  {selectedPartner.role === 'vendor' ? 'Vendor' : 'Student'}
-                                </span>
-                                {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) && (
-                                  <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 bg-amber-100 text-amber-800 flex items-center space-x-0.5">
-                                    <Archive className="w-2.5 h-2.5" />
-                                    <span>Archived</span>
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
-                                {(() => {
-                                  const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
-                                  return (
-                                    <>
-                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 inline-block ${presence.online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                                      <span>{presence.label}</span>
-                                    </>
-                                  );
-                                })()}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-                            <button
-                              onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
-                              className="px-2 sm:px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
-                            >
-                              Profile
-                            </button>
-                            <button
-                              onClick={() => {
-                                const text = `Hi! You can also reach our stall line directly on WhatsApp: ${vendorStore?.phone || user?.phone_number || '08012345678'}`;
-                                handleSendChatMessage(text);
-                              }}
-                              className="px-2 sm:px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                          {selectedPartner.partner_phone && (
+                            <a
+                              href={`https://wa.me/${String(selectedPartner.partner_phone).replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
                             >
                               WhatsApp
-                            </button>
-                            {/* Archive / Unarchive Chat Action */}
-                            {selectedPartner && !selectedPartner.is_ai && selectedPartner.partner_id !== 'campus_ai' && (
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                            className="px-2.5 py-1 bg-sky-50 text-sky-700 font-bold rounded-lg hover:bg-sky-100 text-[11px] cursor-pointer"
+                          >
+                            View Profile
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Active Chats (2-Column Split View) */}
+                <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 h-full">
+                  {/* Left Column: Conversations List */}
+                  <div className={`w-full md:w-84 h-full flex-1 md:flex-none border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0 overflow-hidden bg-white ${selectedPartner ? 'hidden md:flex' : 'flex'}`}>
+                    {/* Universal Chat & Directory Search */}
+                    <div className="p-2.5 border-b border-slate-100 bg-white shrink-0 flex items-center space-x-2">
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search chats..."
+                          value={chatSearchQuery}
+                          onChange={(e) => setChatSearchQuery(e.target.value)}
+                          className="w-full pl-8.5 pr-7 py-1.5 bg-slate-100/90 focus:bg-white border border-transparent focus:border-sky-400 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
+                        />
+                        {chatSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setChatSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 overscroll-contain touch-pan-y pb-28 md:pb-6" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      {/* PINNED: CampusLink AI Copilot */}
+                      <div className="p-2 border-b border-slate-100 bg-gradient-to-b from-blue-50/40 to-white">
+                        <button
+                          type="button"
+                          onClick={handleSelectAiCopilot}
+                          className={`w-full p-2.5 rounded-2xl text-left flex items-center space-x-3 transition-all cursor-pointer border ${
+                            (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
+                              ? 'bg-blue-600 text-white shadow-md border-transparent'
+                              : 'bg-white hover:bg-blue-50/60 border-blue-100/80 shadow-xs'
+                          }`}
+                        >
+                          <div className="relative shrink-0">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shadow-xs ${
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai')
+                                ? 'bg-white/20 text-white'
+                                : 'bg-blue-600 text-white'
+                            }`}>
+                              <Sparkles className="w-5 h-5" />
+                            </div>
+                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-black truncate flex items-center space-x-1.5 ${
+                                (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-white' : 'text-slate-900'
+                              }`}>
+                                <span>AI Business Copilot</span>
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                                  (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  AI
+                                </span>
+                              </span>
+                              <span className={`text-[10px] font-semibold flex items-center space-x-1 ${
+                                (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-blue-600'
+                              }`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                                <span>Online 24/7</span>
+                              </span>
+                            </div>
+                            <p className={`text-[11px] truncate mt-0.5 ${
+                              (selectedPartner?.is_ai || selectedPartner?.partner_id === 'campus_ai') ? 'text-blue-100' : 'text-slate-500'
+                            }`}>
+                              {aiMessages.length > 0
+                                ? (aiMessages[aiMessages.length - 1].content || 'Chat with your AI business copilot')
+                                : 'Draft replies, promos, grammar & math'}
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+
+                      {isViewingArchivedChats ? (
+                        <div>
+                          {/* WhatsApp-Style In-Place Archived Folder Header */}
+                          <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10">
+                            <div className="flex items-center space-x-2.5">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
-                                  toggleArchiveChat(pId);
-                                }}
-                                className={`p-1 sm:p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
-                                  archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
-                                    ? 'bg-amber-100/80 text-amber-700 hover:bg-amber-200'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                                title={
-                                  archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
-                                    ? "Unarchive chat"
-                                    : "Archive chat (keep archived until unarchived)"
-                                }
+                                onClick={() => setIsViewingArchivedChats(false)}
+                                className="p-1.5 hover:bg-slate-200/80 rounded-xl transition-colors cursor-pointer text-slate-700"
+                                title="Back to all chats"
                               >
-                                {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) ? (
-                                  <ArchiveRestore className="w-3.5 h-3.5 text-amber-700" />
-                                ) : (
-                                  <Archive className="w-3.5 h-3.5 text-slate-600" />
-                                )}
+                                <ArrowLeft className="w-5 h-5" />
                               </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Cross-Profile Unread Indicator */}
-                        {otherUnreadChatCount > 0 && (
-                          <div
-                            onClick={() => setSelectedPartner(null)}
-                            className="bg-blue-50 hover:bg-blue-100 border-b border-blue-200 px-3 py-1.5 text-xs text-blue-800 flex items-center justify-between cursor-pointer transition-colors"
-                          >
-                            <span className="font-semibold flex items-center space-x-1.5">
-                              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-                              <span>You have <strong>{otherUnreadChatCount}</strong> unread message{otherUnreadChatCount > 1 ? 's' : ''} in other chats</span>
-                            </span>
-                            <span className="text-[11px] font-bold text-blue-600 underline">View all</span>
-                          </div>
-                        )}
-
-                        {/* Chat Messages */}
-                        <div ref={chatContainerRef} className="flex-1 min-h-0 p-3 sm:p-4 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-2.5 chat-thread-container overscroll-contain">
-                          {isLoadingChatMessages && chatMessages.length === 0 ? (
-                            <div className="space-y-4 py-3 animate-pulse">
-                              <div className="flex justify-start">
-                                <div className="h-10 bg-slate-200/80 rounded-2xl rounded-bl-none w-48 shadow-2xs" />
-                              </div>
-                              <div className="flex justify-end">
-                                <div className="h-14 bg-sky-200/70 rounded-2xl rounded-br-none w-56 shadow-2xs" />
-                              </div>
-                              <div className="flex justify-start">
-                                <div className="h-8 bg-slate-200/80 rounded-2xl rounded-bl-none w-36 shadow-2xs" />
-                              </div>
-                              <div className="flex justify-end">
-                                <div className="h-12 bg-sky-200/70 rounded-2xl rounded-br-none w-44 shadow-2xs" />
-                              </div>
-                              <div className="flex justify-center my-3">
-                                <div className="flex items-center space-x-2 text-[11px] text-slate-500 bg-white/90 px-3.5 py-1.5 rounded-full border border-slate-200/80 shadow-xs">
-                                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
-                                  <span className="font-semibold">Loading messages...</span>
-                                </div>
+                              <div className="flex items-center space-x-2">
+                                <Archive className="w-4 h-4 text-sky-600" />
+                                <h3 className="font-extrabold text-sm text-slate-800">Archived Chats</h3>
+                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
+                                  {archivedConversations.length}
+                                </span>
                               </div>
                             </div>
-                          ) : chatMessages.length > 0 ? (
-                            chatMessages.map((msg, idx) => {
-                              const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
-                              const isMine = Boolean(currentUserIdStr && msg.sender_id && (
-                                String(msg.sender_id) === currentUserIdStr ||
-                                (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
-                              ));
-                              const isStatusReply = msg.message_type === 'status_reply' || (typeof msg.content === 'string' && (msg.content.includes('"type":"status_reply"') || msg.content.startsWith('Replying to') || msg.content.startsWith('Reacted ')));
-                              const statusData = isStatusReply ? parseStatusReply(msg.content) : null;
-                              const chatReply = parseChatReply(msg);
-                              const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
-                              const rawMsgText = msg.content || msg.text || '';
-                              const isPopoverOpen = Boolean(activePopoverMsgId && String(activePopoverMsgId) === String(msg.id));
+                          </div>
 
-                              return (
-                                <div
-                                  key={msg.id || idx}
-                                  id={`chat-msg-${msg.id}`}
-                                  data-msg-id={msg.id}
-                                  className="w-full"
-                                >
-                                  <SwipeableMessageBubble
-                                    message={msg}
-                                    isMine={isMine}
-                                    onSwipeReply={() => handleStartReply(msg)}
-                                    onReply={() => handleStartReply(msg)}
-                                  >
+                          {archivedConversations.length > 0 ? (
+                            <div>
+                              <div className="px-3 py-1.5 bg-slate-50/60 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                <span>Archived Conversations</span>
+                                <span className="font-bold text-sky-600">({archivedConversations.length})</span>
+                              </div>
+                              {archivedConversations
+                                .filter(c => {
+                                  if (!chatSearchQuery.trim()) return true;
+                                  const q = chatSearchQuery.toLowerCase().trim();
+                                  return (c.partner_name || '').toLowerCase().includes(q) || (c.last_message || '').toLowerCase().includes(q);
+                                })
+                                .map((c) => {
+                                  const pid = c.partner_id || c.user_id || c.id;
+                                  const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                                  return (
                                     <div
-                                      onClick={() => setActionModalMsg(msg)}
-                                      onTouchStart={() => {
-                                        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-                                        longPressTimerRef.current = setTimeout(() => {
-                                          setActionModalMsg(msg);
-                                          try { if (navigator.vibrate) navigator.vibrate(25); } catch { }
-                                        }, 400);
-                                      }}
-                                      onTouchEnd={() => {
-                                        if (longPressTimerRef.current) {
-                                          clearTimeout(longPressTimerRef.current);
-                                          longPressTimerRef.current = null;
-                                        }
-                                      }}
-                                      onTouchCancel={() => {
-                                        if (longPressTimerRef.current) {
-                                          clearTimeout(longPressTimerRef.current);
-                                          longPressTimerRef.current = null;
-                                        }
-                                      }}
-                                      onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        setActionModalMsg(msg);
-                                      }}
-                                      className={`relative max-w-[82%] sm:max-w-[70%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer active:scale-[0.99] transition-transform select-none group/bubble`}
+                                      key={pid}
+                                      className={`w-full text-left flex items-start justify-between transition-all group ${
+                                        isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                      }`}
                                     >
-
-                                      {/* Main Message Bubble */}
-                                      <div
-                                        className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${msg.reactions ? 'mb-2.5' : ''
-                                          } ${isHighlighted ? 'ring-4 ring-blue-400 ring-offset-2 scale-[1.02] shadow-lg shadow-blue-500/25 z-20' : ''
-                                          } ${isMine
-                                            ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
-                                            : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
-                                          }`}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSelectPartner(c)}
+                                        className="flex-1 min-w-0 p-3.5 flex items-start space-x-3 cursor-pointer text-left"
                                       >
-                                        {/* Quoted Message Preview Box (if replying) */}
-                                        {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
-                                          <div
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              const targetId = msg.reply_to_id || chatReply?.replyToId;
-                                              if (targetId) {
-                                                handleScrollToQuotedMessage(targetId);
-                                              }
-                                            }}
-                                            className={`w-full p-1.5 px-2 rounded mb-1 text-xs border-l-[3px] select-none cursor-pointer transition-all hover:opacity-90 ${isMine
-                                                ? 'bg-black/15 border-white text-white'
-                                                : 'bg-slate-100 dark:bg-slate-700/60 border-blue-600 text-slate-800 dark:text-slate-200'
-                                              }`}
-                                            title="Click to jump to original message"
-                                          >
-                                            <p className="font-bold text-[11px] truncate">{msg.reply_to_sender || chatReply?.replyToSender || 'Customer'}</p>
-                                            <p className="truncate max-w-[220px] text-[11px] opacity-85">{getDisplayContent(msg.reply_to_text || chatReply?.replyToText || 'Original message')}</p>
-                                          </div>
-                                        )}
-
-                                        {/* Bubble Body Content */}
-                                        {chatReply ? (
-                                          <p className="whitespace-pre-wrap break-words">{getDisplayContent(chatReply.text)}</p>
-                                        ) : (isStatusReply && statusData) || parseStatusReply(msg) ? (
-                                          <StoryReplyBubble statusData={statusData || parseStatusReply(msg)} msg={msg} isMine={isMine} />
-                                        ) : isStatusReplyContent(msg.content) ? (
-                                          <div className="space-y-1">
-                                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${isMine ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                                              }`}>
-                                              <span>📷 Replying to status</span>
-                                            </div>
-                                            <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
-                                          </div>
-                                        ) : (msg.message_type === 'image' || msg.message_type === 'images' || msg.message_type === 'video' || (msg.media_url && !msg.message_type)) ? (
-                                          <div className="space-y-1.5">
-                                            <ChatMediaGallery
-                                              mediaUrl={msg.media_url}
-                                              messageType={msg.message_type}
-                                              onImageClick={(url) => window.open(getMediaUrl(url), '_blank')}
-                                            />
-                                            {msg.content && !['Photo', 'Video', 'image', 'images'].includes(msg.content) && (
-                                              <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                        <div className="relative shrink-0 rounded-2xl">
+                                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                            {c.partner_avatar ? (
+                                              <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                            ) : (
+                                              <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0">
+                                                {c.partner_name?.charAt(0) || 'U'}
+                                              </div>
                                             )}
                                           </div>
-                                        ) : msg.message_type === 'audio' ? (
-                                          <div className="flex items-center space-x-3 py-1" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handlePlayAudio(msg.id, msg.media_url);
-                                              }}
-                                              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
-                                                }`}
-                                            >
-                                              {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
-                                            </button>
-                                            <div>
-                                              <div className="flex items-center space-x-1 mb-1">
-                                                {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
-                                                  <span
-                                                    key={i}
-                                                    className={`w-1 rounded-full transition-all ${playingAudioId === msg.id
-                                                        ? 'animate-pulse bg-emerald-400'
-                                                        : isMine
-                                                          ? 'bg-blue-200'
-                                                          : 'bg-slate-300'
-                                                      }`}
-                                                    style={{ height: `${h}px` }}
-                                                  />
-                                                ))}
-                                              </div>
-                                              <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
-                                                🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
-                                              </span>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <p className="leading-relaxed whitespace-pre-wrap">{getDisplayContent(rawMsgText)}</p>
-                                        )}
-
-                                        {/* Inline Timestamp & Delivery Tick (WhatsApp Double Blue Ticks) */}
-                                        <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-85 ${isMine ? 'text-blue-100' : 'text-slate-400'
-                                          }`}>
-                                          <span>{safeTime(msg.created_at, 'Now')}</span>
-                                          {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
-                                          {isMine && (
-                                            <span className="inline-flex items-center ml-0.5" title={msg.is_optimistic ? 'Sending...' : msg.is_read ? 'Read / Viewed' : 'Delivered'}>
-                                              {msg.is_optimistic ? (
-                                                <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse text-white" />
-                                              ) : msg.is_read ? (
-                                                <span className="inline-flex items-center text-cyan-300 drop-shadow-[0_0_2px_rgba(103,232,249,0.9)]">
-                                                  <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
-                                                </span>
-                                              ) : (
-                                                <CheckCheck className="w-3 h-3 text-white/50" />
-                                              )}
+                                          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                          {c.unread_count > 0 && (
+                                            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-emerald-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white">
+                                              {c.unread_count > 99 ? '99+' : c.unread_count}
                                             </span>
                                           )}
                                         </div>
+                                        <div className="flex-1 overflow-hidden">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold text-slate-900 truncate">
+                                              {c.partner_name}
+                                            </span>
+                                            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                              {c.unread_count > 0 && (
+                                                <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs shrink-0">
+                                                  {c.unread_count > 99 ? '99+' : c.unread_count}
+                                                </span>
+                                              )}
+                                              <span className="text-[10px] font-medium text-slate-400">
+                                                {c.partner_role || (c.role === 'vendor' ? 'Vendor' : 'Student')}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <p className="text-[11px] text-slate-500 truncate mt-0.5">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                        </div>
+                                      </button>
+                                      {/* Quick Unarchive Action Button */}
+                                      <div className="p-3.5 pl-0 self-center">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleArchiveChat(String(pid));
+                                          }}
+                                          className="p-1.5 rounded-xl hover:bg-slate-200 text-slate-400 hover:text-sky-600 transition-colors cursor-pointer"
+                                          title="Unarchive chat"
+                                          aria-label="Unarchive chat"
+                                        >
+                                          <ArchiveRestore className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          ) : (
+                            <div className="p-8 text-center text-xs text-slate-400">
+                              <Archive className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                              <p className="font-bold text-slate-600">No archived chats</p>
+                              <p className="mt-1">
+                                Chats you archive will remain here until unarchived.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setIsViewingArchivedChats(false)}
+                                className="mt-4 px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                              >
+                                Back to Chats
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {/* Section: WhatsApp-Style Persistent Archived Chats Access */}
+                          {archivedChatIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setIsViewingArchivedChats(true)}
+                              className="w-full px-4 py-3 bg-slate-50/80 hover:bg-slate-100/90 border-b border-slate-100 flex items-center justify-between text-slate-700 transition-colors group cursor-pointer"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-200/80 group-hover:bg-sky-100 flex items-center justify-center text-slate-600 group-hover:text-sky-600 transition-colors">
+                                  <Archive className="w-4 h-4" />
+                                </div>
+                                <span className="font-semibold text-xs sm:text-sm text-slate-800">Archived Chats</span>
+                              </div>
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+                                {archivedChatIds.length}
+                              </span>
+                            </button>
+                          )}
 
-                                        {/* WhatsApp Reaction Pill Badge */}
-                                        {msg.reactions && (() => {
-                                          let rObj = {};
-                                          try {
-                                            rObj = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : (msg.reactions || {});
-                                            if (typeof rObj !== 'object' || rObj === null) rObj = {};
-                                          } catch {
-                                            if (typeof msg.reactions === 'string' && msg.reactions.length <= 4) rObj = { d: msg.reactions };
+                          {/* Section: Active Conversations */}
+                          {filteredConversations.length > 0 && (
+                            <div>
+                              <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                <span>Recent Chats</span>
+                                <span className="font-bold text-sky-600">({filteredConversations.length})</span>
+                              </div>
+                              {filteredConversations.map((c) => {
+                                const pid = c.partner_id || c.user_id || c.id;
+                                const partnerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(pid));
+                                const hasStory = partnerStoryIdx !== -1;
+                                const storyGroup = hasStory ? statusGroups[partnerStoryIdx] : null;
+                                const hasUnviewedStory = hasStory && (storyGroup.has_unviewed !== false && !storyGroup.all_viewed);
+                                const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(pid);
+
+                                return (
+                                  <button
+                                    key={pid}
+                                    type="button"
+                                    onClick={() => handleSelectPartner(c)}
+                                    className={`w-full p-3.5 text-left flex items-start space-x-3 transition-all active:scale-[0.99] cursor-pointer ${
+                                      isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {/* WhatsApp-Style Clickable Story Avatar */}
+                                    <div
+                                      onClick={(e) => {
+                                        if (hasStory) {
+                                          e.stopPropagation();
+                                          const firstUnviewed = storyGroup.items.findIndex(it => !it.is_viewed);
+                                          setActiveStatusViewer({
+                                            userIdx: partnerStoryIdx,
+                                            itemIdx: firstUnviewed !== -1 ? firstUnviewed : 0
+                                          });
+                                        }
+                                      }}
+                                      title={hasStory ? `Tap to view ${c.partner_name}'s story` : ''}
+                                      className={`relative shrink-0 rounded-2xl transition-all ${
+                                        hasStory
+                                          ? `p-0.5 cursor-pointer ${
+                                              hasUnviewedStory
+                                                ? 'bg-gradient-to-tr from-sky-400 via-blue-600 to-indigo-600 shadow-xs shadow-sky-500/25 hover:scale-105'
+                                                : 'bg-slate-200 border border-slate-300 opacity-70'
+                                            }`
+                                          : ''
+                                      }`}
+                                    >
+                                      <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                        {c.partner_avatar ? (
+                                          <SafeImage src={c.partner_avatar} alt={c.partner_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                            {c.partner_name?.charAt(0) || 'U'}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${c.is_online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                      {c.unread_count > 0 && (
+                                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-emerald-500 text-white rounded-full text-[9px] font-extrabold flex items-center justify-center shadow-xs ring-1 ring-white">
+                                          {c.unread_count > 99 ? '99+' : c.unread_count}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 overflow-hidden">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-900 truncate">
+                                          {c.partner_name}
+                                        </span>
+                                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                          {c.unread_count > 0 && (
+                                            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs shrink-0">
+                                              {c.unread_count > 99 ? '99+' : c.unread_count}
+                                            </span>
+                                          )}
+                                          <span className="text-[10px] font-medium text-slate-400">
+                                            {c.partner_role || (c.role === 'vendor' ? 'Vendor' : 'Student')}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 truncate mt-0.5">{getDisplayContent(c.last_message) || 'Start conversation'}</p>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Section: Connected Friends to Message */}
+                          {availableCommunityToChat.length > 0 && (
+                            <div>
+                              <div className="px-3 py-1.5 bg-slate-50 border-y border-slate-100 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                                <span>{chatSearchQuery ? 'Matching Friends' : 'Connected Friends'}</span>
+                                <span className="font-bold text-sky-600">({availableCommunityToChat.length})</span>
+                              </div>
+                              {availableCommunityToChat.map((s) => {
+                                const sid = s.user_id || s.id;
+                                const isSelected = !selectedPartner?.is_ai && selectedPartner?.partner_id !== 'campus_ai' && String(selectedPartner?.partner_id) === String(sid);
+                                return (
+                                  <button
+                                    key={sid}
+                                    type="button"
+                                    onClick={() => handleSelectPartner({
+                                      partner_id: sid,
+                                      partner_name: s.full_name || s.name || 'Friend',
+                                      partner_avatar: s.profile_picture_url || s.avatar_url,
+                                      role: s.role || (s.is_vendor ? 'vendor' : 'student'),
+                                      partner_role: s.is_vendor ? 'Vendor' : 'Student',
+                                      partner_phone: s.phone_number,
+                                      department: s.department,
+                                      university_name: s.university_name,
+                                      is_friend: true
+                                    })}
+                                    className={`w-full p-3.5 text-left flex items-start space-x-3 transition-colors cursor-pointer ${
+                                      isSelected ? 'bg-sky-50/80 border-l-4 border-sky-500' : 'hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <div className="relative shrink-0">
+                                      <div className="w-10 h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                        {s.profile_picture_url ? (
+                                          <SafeImage src={s.profile_picture_url} alt={s.full_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-sm">
+                                            {s.full_name?.charAt(0) || 'U'}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-bold text-slate-900 truncate">{s.full_name}</span>
+                                        <span className="text-[10px] font-medium text-slate-400 shrink-0">
+                                          {s.role || (s.is_vendor ? 'Vendor' : 'Student')}
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                        {s.department || s.university_name || 'Tap to message friend'}
+                                      </p>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {filteredConversations.length === 0 && availableCommunityToChat.length === 0 && (
+                            <div className="p-8 text-center text-xs text-slate-400">
+                              <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                              <p className="font-bold text-slate-600">
+                                {chatSearchQuery ? 'No matching conversations' : 'No active conversations'}
+                              </p>
+                              <p className="mt-1">
+                                {chatSearchQuery ? 'Try checking the name or clearing your search.' : 'Your customer chats, inquiries, and messages will appear here.'}
+                              </p>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Chat View */}
+                  <div
+                    style={mobileChatContainerStyle}
+                    className={`overflow-hidden ${
+                      selectedPartner
+                        ? 'fixed inset-0 z-50 md:relative md:inset-auto md:z-auto bg-white flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden md:flex-1 md:min-h-0 md:h-full md:bg-slate-50/50 md:flex'
+                        : 'hidden md:flex md:flex-1 md:min-h-0 md:flex-col bg-slate-50/50'
+                    }`}
+                  >
+                    {selectedPartner ? (
+                      (selectedPartner.is_ai || selectedPartner.partner_id === 'campus_ai') ? (
+                        <>
+                          {/* AI Chat Header */}
+                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={handleCloseChat}
+                                className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer"
+                                title="Back to conversation list"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                              </button>
+                              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs font-bold text-slate-900 truncate">CampusLink AI Copilot</h4>
+                                  <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-full font-bold shrink-0">24/7 AI</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
+                                  <span>Online • Always available</span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={handleClearAiChat}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 rounded-xl text-[11px] font-semibold cursor-pointer transition-colors"
+                                title="Clear conversation"
+                              >
+                                Clear Chat
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleCloseChat}
+                                className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                                title="Close chat"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* AI Chat Messages */}
+                          <div ref={aiChatContainerRef} className="flex-1 p-3.5 sm:p-6 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-4 chat-thread-container overscroll-contain">
+                            {aiMessages.length > 0 ? (
+                              aiMessages.map((msg, idx) => (
+                                <div
+                                  key={msg.id || idx}
+                                  className={`flex ${
+                                    msg.sender === 'user' ? 'justify-end' : 'justify-start'
+                                  }`}
+                                >
+                                  {msg.sender === 'ai' && (
+                                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 mr-2 shadow-xs mt-0.5">
+                                      <Bot className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                  <div
+                                    className={`max-w-[85%] sm:max-w-lg p-3 rounded-2xl text-xs leading-relaxed chat-bubble-tactile ${
+                                      msg.sender === 'user'
+                                        ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                                        : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
+                                    }`}
+                                  >
+                                    {msg.sender === 'ai' ? (
+                                      <MarkdownRenderer content={msg.content} />
+                                    ) : (
+                                      <p className="whitespace-pre-wrap font-sans">{msg.content}</p>
+                                    )}
+                                    <span className={`inline-flex items-center gap-1 float-right mt-1 ml-2 text-[10px] leading-none select-none ${
+                                      msg.sender === 'user' ? 'text-blue-100/90' : 'text-slate-400'
+                                    }`}>
+                                      <span>{safeTime(msg.created_at, 'Just now')}</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="py-12 px-4 text-center max-w-lg mx-auto">
+                                <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+                                  <Bot className="w-8 h-8" />
+                                </div>
+                                <h3 className="text-base font-black text-slate-800">CampusLink AI Copilot for Merchants</h3>
+                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                  Ask me anything: draft customer replies, write promotional WhatsApp drops, calculate discounts, or solve math & business questions!
+                                </p>
+
+                                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                                  {[
+                                    { text: "How do I reply to this customer asking for a discount?", icon: "💬" },
+                                    { text: "Write a catchy WhatsApp promo for my new products", icon: "📢" },
+                                    { text: "What is 20% of ₦45,000?", icon: "🔢" },
+                                    { text: "How do I describe fast delivery to my stall?", icon: "📍" }
+                                  ].map((promptItem, i) => (
+                                    <button
+                                      key={i}
+                                      type="button"
+                                      onClick={() => handleSendAiMessage(promptItem.text)}
+                                      className="p-2.5 bg-white hover:bg-blue-50/80 border border-slate-200 hover:border-blue-300 rounded-xl text-left text-[11px] text-slate-700 transition-all cursor-pointer shadow-2xs flex items-start space-x-2 active:scale-98"
+                                    >
+                                      <span className="text-sm">{promptItem.icon}</span>
+                                      <span className="font-medium line-clamp-2">{promptItem.text}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {isAiTyping && (
+                              <div className="flex items-center space-x-2 text-slate-400 text-xs py-2">
+                                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                  <Sparkles className="w-4 h-4 animate-pulse text-amber-300" />
+                                </div>
+                                <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-xs text-slate-600 text-xs shadow-xs flex items-center space-x-2">
+                                  <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                                  <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse delay-75" />
+                                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse delay-150" />
+                                  <span className="font-medium text-slate-600 ml-1">CampusLink AI is formulating a response...</span>
+                                </div>
+                              </div>
+                            )}
+                            <div className="h-6 sm:h-8 shrink-0 w-full" aria-hidden="true" />
+                            <div ref={aiMessagesEndRef} />
+                          </div>
+
+                          {/* AI Chat Input Bar */}
+                          <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                            <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                placeholder="Ask CampusLink AI Copilot anything (merchant tips, discounts, replies)..."
+                                value={newMsgText}
+                                onFocus={() => {
+                                  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                                    window.scrollTo(0, 0);
+                                    setTimeout(() => {
+                                      window.scrollTo(0, 0);
+                                      if (aiChatContainerRef.current) {
+                                        aiChatContainerRef.current.scrollTop = aiChatContainerRef.current.scrollHeight;
+                                      }
+                                    }, 60);
+                                  }
+                                }}
+                                onChange={(e) => setNewMsgText(e.target.value)}
+                                className="flex-1 p-2.5 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none transition-colors"
+                              />
+
+                              <button
+                                type="submit"
+                                disabled={isAiTyping || !newMsgText.trim()}
+                                className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 shadow-xs active:scale-95 flex items-center justify-center shrink-0"
+                              >
+                                <Send className="w-4 h-4" />
+                              </button>
+                            </form>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Peer Chat Mobile/Desktop WhatsApp-style Header */}
+                          <div className="p-3 bg-white border-b border-slate-200 flex items-center justify-between shrink-0 shadow-2xs z-10">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <button
+                                type="button"
+                                onClick={handleCloseChat}
+                                className="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl shrink-0 cursor-pointer relative"
+                                title="Back to conversations"
+                              >
+                                <ChevronLeft className="w-5 h-5" />
+                                {otherUnreadChatCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full text-[9px] font-black w-4 h-4 flex items-center justify-center shadow-xs">
+                                    {otherUnreadChatCount}
+                                  </span>
+                                )}
+                              </button>
+
+                              {(() => {
+                                const partnerPid = selectedPartner.partner_id || selectedPartner.id || selectedPartner.user_id;
+                                const headerStoryIdx = statusGroups.findIndex(g => String(g.user_id) === String(partnerPid));
+                                const headerHasStory = headerStoryIdx !== -1;
+                                const headerStoryGroup = headerHasStory ? statusGroups[headerStoryIdx] : null;
+                                const headerHasUnviewed = headerHasStory && (headerStoryGroup.has_unviewed !== false && !headerStoryGroup.all_viewed);
+
+                                return (
+                                  <div
+                                    onClick={() => {
+                                      handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id);
+                                    }}
+                                    title="Click to view profile"
+                                    className="relative shrink-0 rounded-2xl transition-all p-0.5 cursor-pointer hover:opacity-90"
+                                  >
+                                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-sky-100 flex items-center justify-center">
+                                      {selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar ? (
+                                        <SafeImage
+                                          src={selectedPartner.partner_avatar || selectedPartner.avatar_url || selectedPartner.avatar}
+                                          alt={selectedPartner.partner_name || selectedPartner.name || 'User'}
+                                          fallbackType="avatar"
+                                          className="w-full h-full object-cover"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center shrink-0 text-sm">
+                                          {(selectedPartner.partner_name || selectedPartner.name || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
+                                  </div>
+                                );
+                              })()}
+
+                              <div
+                                onClick={() => {
+                                  handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id);
+                                }}
+                                className="min-w-0 cursor-pointer group"
+                                title="View profile"
+                              >
+                                <div className="flex items-center space-x-1.5">
+                                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate max-w-[120px] sm:max-w-[200px]">
+                                    {selectedPartner.partner_name || selectedPartner.name || selectedPartner.full_name || 'Customer'}
+                                  </h4>
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 ${
+                                    (selectedPartner.partner_role || selectedPartner.role) === 'Vendor' || (selectedPartner.partner_role || selectedPartner.role) === 'Seller'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : (selectedPartner.partner_role || selectedPartner.role) === 'Agent'
+                                        ? 'bg-purple-100 text-purple-800'
+                                        : 'bg-sky-100 text-sky-800'
+                                  }`}>
+                                    {selectedPartner.partner_role || (selectedPartner.role === 'vendor' ? 'Vendor' : 'Student')}
+                                  </span>
+                                  {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold shrink-0 bg-amber-100 text-amber-800 flex items-center space-x-0.5">
+                                      <Archive className="w-2.5 h-2.5" />
+                                      <span>Archived</span>
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-400 truncate flex items-center space-x-1">
+                                  {(() => {
+                                    const presence = formatLastSeen(selectedPartner.last_seen, selectedPartner.is_online);
+                                    return (
+                                      <>
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 inline-block ${presence.online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                                        <span>{presence.label}</span>
+                                      </>
+                                    );
+                                  })()}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenProfile(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id)}
+                                className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                title="View profile"
+                              >
+                                <span>Profile</span>
+                              </button>
+
+                              {/* WhatsApp Contact Action */}
+                              {selectedPartner.partner_phone ? (
+                                <a
+                                  href={`https://wa.me/${String(selectedPartner.partner_phone).replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                  title="Chat on WhatsApp"
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">WhatsApp</span>
+                                </a>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const text = `Hi! You can also reach our stall directly on WhatsApp: ${vendorStore?.phone || user?.phone_number || '08012345678'}`;
+                                    handleSendChatMessage(text);
+                                  }}
+                                  className="px-2 sm:px-2.5 py-1 sm:py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-xl text-[11px] flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs"
+                                  title="Send stall WhatsApp contact"
+                                >
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">WhatsApp</span>
+                                </button>
+                              )}
+
+                              {/* Archive / Unarchive Chat Action */}
+                              {selectedPartner && !selectedPartner.is_ai && selectedPartner.partner_id !== 'campus_ai' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const pId = String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '');
+                                    toggleArchiveChat(pId);
+                                  }}
+                                  className={`p-1.5 sm:p-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center ${
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? 'bg-amber-100/80 text-amber-700 hover:bg-amber-200'
+                                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                  }`}
+                                  title={
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? "Unarchive chat"
+                                      : "Archive chat (keep archived until unarchived)"
+                                  }
+                                  aria-label={
+                                    archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || ''))
+                                      ? "Unarchive chat"
+                                      : "Archive chat"
+                                  }
+                                >
+                                  {archivedChatIds.includes(String(selectedPartner.partner_id || selectedPartner.user_id || selectedPartner.id || '')) ? (
+                                    <ArchiveRestore className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-700" />
+                                  ) : (
+                                    <Archive className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-600" />
+                                  )}
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={handleCloseChat}
+                                className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                                title="Close chat"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Cross-Profile Unread Messages Notice Banner */}
+                          {otherUnreadChatCount > 0 && (
+                            <div className="bg-sky-50/90 border-b border-sky-100 px-3 py-1.5 flex items-center justify-between text-xs text-sky-800 shrink-0">
+                              <span className="flex items-center space-x-1.5 truncate font-medium">
+                                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0" />
+                                <span className="truncate">
+                                  You have {otherUnreadChatCount} unread message{otherUnreadChatCount > 1 ? 's' : ''} in other chats
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={handleCloseChat}
+                                className="text-[11px] font-bold text-sky-700 hover:text-sky-900 bg-sky-100/80 px-2 py-0.5 rounded-lg ml-2 shrink-0 cursor-pointer transition-colors"
+                              >
+                                View chats &rarr;
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Chat Messages */}
+                          <div ref={chatContainerRef} className="flex-1 min-h-0 p-3.5 sm:p-5 pb-8 sm:pb-10 overflow-y-auto overflow-x-hidden w-full max-w-full space-y-3 chat-thread-container overscroll-contain">
+                            {isLoadingChatMessages && chatMessages.length === 0 ? (
+                              <div className="space-y-4 py-3 animate-pulse">
+                                <div className="flex justify-start">
+                                  <div className="h-10 bg-slate-200/80 rounded-2xl rounded-bl-none w-48 shadow-2xs" />
+                                </div>
+                                <div className="flex justify-end">
+                                  <div className="h-14 bg-sky-200/70 rounded-2xl rounded-br-none w-56 shadow-2xs" />
+                                </div>
+                                <div className="flex justify-start">
+                                  <div className="h-8 bg-slate-200/80 rounded-2xl rounded-bl-none w-36 shadow-2xs" />
+                                </div>
+                                <div className="flex justify-end">
+                                  <div className="h-12 bg-sky-200/70 rounded-2xl rounded-br-none w-44 shadow-2xs" />
+                                </div>
+                                <div className="flex justify-center my-3">
+                                  <div className="flex items-center space-x-2 text-[11px] text-slate-500 bg-white/90 px-3.5 py-1.5 rounded-full border border-slate-200/80 shadow-xs">
+                                    <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                                    <span className="font-semibold">Loading messages...</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : chatMessages.length > 0 ? (
+                              chatMessages.map((msg, idx) => {
+                                const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                                const isMine = Boolean(currentUserIdStr && msg.sender_id && (
+                                  String(msg.sender_id) === currentUserIdStr ||
+                                  (vendorStore?.id && String(msg.sender_id) === String(vendorStore.id))
+                                ));
+                                const chatReply = parseChatReply(msg);
+                                const isHighlighted = highlightedMessageId === msg.id || String(highlightedMessageId) === String(msg.id);
+
+                                return (
+                                  <div
+                                    key={msg.id || idx}
+                                    id={`chat-msg-${msg.id}`}
+                                    data-msg-id={msg.id}
+                                    className="w-full"
+                                  >
+                                    <SwipeableMessageBubble
+                                      onSwipeReply={() => handleStartReply(msg)}
+                                      onReply={() => handleStartReply(msg)}
+                                      message={msg}
+                                      isMine={isMine}
+                                    >
+                                      <div
+                                        onClick={() => setActionModalMsg(msg)}
+                                        onTouchStart={() => {
+                                          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                                          longPressTimerRef.current = setTimeout(() => {
+                                            setActionModalMsg(msg);
+                                            try { if (navigator.vibrate) navigator.vibrate(25); } catch {}
+                                          }, 400);
+                                        }}
+                                        onTouchEnd={() => {
+                                          if (longPressTimerRef.current) {
+                                            clearTimeout(longPressTimerRef.current);
+                                            longPressTimerRef.current = null;
                                           }
-                                          const emojis = Object.values(rObj || {});
-                                          if (!emojis.length) return null;
-                                          const uniqueEmojis = Array.from(new Set(emojis));
-                                          return (
+                                        }}
+                                        onTouchCancel={() => {
+                                          if (longPressTimerRef.current) {
+                                            clearTimeout(longPressTimerRef.current);
+                                            longPressTimerRef.current = null;
+                                          }
+                                        }}
+                                        onContextMenu={(e) => {
+                                          e.preventDefault();
+                                          setActionModalMsg(msg);
+                                        }}
+                                        className={`relative max-w-[84%] sm:max-w-[72%] w-fit flex flex-col ${isMine ? 'items-end' : 'items-start'} cursor-pointer active:scale-[0.99] transition-transform select-none group/bubble`}
+                                      >
+                                        {/* Desktop Hover Quick-Reply Button */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleStartReply(msg);
+                                          }}
+                                          className={`hidden group-hover/bubble:flex absolute -top-2 ${
+                                            isMine ? '-left-13' : '-right-13'
+                                          } w-5 h-5 rounded-full bg-white border border-slate-200 shadow-2xs text-slate-400 hover:text-sky-600 items-center justify-center transition-all cursor-pointer z-10`}
+                                          title="Reply to this message"
+                                        >
+                                          <Reply className="w-3 h-3" />
+                                        </button>
+
+                                        {/* Main Message Bubble */}
+                                        <div
+                                          className={`w-fit max-w-full px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-xs text-xs sm:text-[13px] leading-relaxed break-words relative chat-bubble-tactile ${
+                                            msg.reactions ? 'mb-2.5' : ''
+                                          } ${
+                                            isHighlighted ? 'ring-4 ring-sky-400 ring-offset-2 scale-[1.02] shadow-lg shadow-sky-500/25 z-20' : ''
+                                          } ${
+                                            isMine
+                                              ? 'bg-blue-600 text-white rounded-2xl rounded-tr-sm'
+                                              : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700 rounded-2xl rounded-tl-sm'
+                                          }`}
+                                        >
+                                          {/* Quoted Reply Header Box */}
+                                          {(msg.reply_to_text || msg.reply_to_sender || chatReply) && (
                                             <div
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                setActionModalMsg(msg);
+                                                const targetId = msg.reply_to_id || chatReply?.replyToId;
+                                                if (targetId) {
+                                                  handleScrollToQuotedMessage(targetId);
+                                                }
                                               }}
-                                              className={`absolute -bottom-3 ${isMine ? 'right-2' : 'left-2'
-                                                } z-20 flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 shadow-md rounded-full text-xs font-medium cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
-                                              title={`Reactions: ${emojis.join(' ')}`}
+                                              className={`w-full p-1.5 px-2 rounded mb-1 text-xs border-l-[3px] select-none cursor-pointer transition-all hover:opacity-90 ${
+                                                isMine
+                                                  ? 'bg-black/15 border-white text-white'
+                                                  : 'bg-slate-100 dark:bg-slate-700/60 border-blue-600 text-slate-800 dark:text-slate-200'
+                                              }`}
+                                              title="Click to jump to original message"
                                             >
-                                              <span className="text-[13px] leading-none">{uniqueEmojis.slice(0, 3).join('')}</span>
-                                              {emojis.length > 1 && (
-                                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-0.5">
-                                                  {emojis.length}
+                                              <p className="font-bold text-[11px] truncate">{msg.reply_to_sender || chatReply?.replyToSender || 'Chat Partner'}</p>
+                                              <p className="truncate max-w-[220px] text-[11px] opacity-85">{getDisplayContent(msg.reply_to_text || chatReply?.replyToText || 'Original message')}</p>
+                                            </div>
+                                          )}
+
+                                          {/* Bubble Body Content */}
+                                          {chatReply ? (
+                                            <p className="whitespace-pre-wrap break-words">{getDisplayContent(chatReply.text)}</p>
+                                          ) : parseStatusReply(msg) ? (
+                                            <StoryReplyBubble
+                                              msg={msg}
+                                              isMine={isMine}
+                                              onStoryClick={(statusId) => {
+                                                const gIdx = statusGroups.findIndex(g => g.items?.some(it => it.id === statusId));
+                                                if (gIdx !== -1) {
+                                                  const iIdx = statusGroups[gIdx].items.findIndex(it => it.id === statusId);
+                                                  setActiveStatusViewer({ userIdx: gIdx, itemIdx: iIdx !== -1 ? iIdx : 0 });
+                                                }
+                                              }}
+                                            />
+                                          ) : isStatusReplyContent(msg.content) ? (
+                                            <div className="space-y-1">
+                                              <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold mb-0.5 ${
+                                                isMine ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                              }`}>
+                                                <span>📷 Replying to status</span>
+                                              </div>
+                                              <p className="whitespace-pre-wrap break-words">{getDisplayContent(msg.content)}</p>
+                                            </div>
+                                          ) : msg.message_type === 'audio' ? (
+                                            <div className="flex items-center space-x-3 py-1">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handlePlayAudio(msg.id, msg.media_url);
+                                                }}
+                                                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                                  isMine ? 'bg-white text-blue-600 hover:bg-blue-50' : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                                }`}
+                                              >
+                                                {playingAudioId === msg.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                                              </button>
+                                              <div>
+                                                <div className="flex items-center space-x-1 mb-1">
+                                                  {[4, 8, 14, 18, 10, 16, 8, 12, 14, 10, 6, 12, 8].map((h, i) => (
+                                                    <span
+                                                      key={i}
+                                                      className={`w-1 rounded-full transition-all ${
+                                                        playingAudioId === msg.id
+                                                          ? 'animate-pulse bg-emerald-400'
+                                                          : isMine
+                                                            ? 'bg-blue-200'
+                                                            : 'bg-slate-300'
+                                                      }`}
+                                                      style={{ height: `${h}px` }}
+                                                    />
+                                                  ))}
+                                                </div>
+                                                <span className={`text-[10px] font-semibold ${isMine ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                  🎤 Voice Note ({msg.duration ? `${Math.floor(msg.duration / 60)}:${(msg.duration % 60).toString().padStart(2, '0')}` : '0:15'})
                                                 </span>
+                                              </div>
+                                            </div>
+                                          ) : (msg.message_type === 'image' || msg.message_type === 'images' || (msg.media_url && !['video', 'audio'].includes(msg.message_type))) ? (
+                                            <div className="space-y-1.5">
+                                              <ChatMediaGallery mediaUrl={msg.media_url} />
+                                              {msg.content && !['Photo', 'Video', 'Voice note'].includes(msg.content) && !msg.content.startsWith('Shared ') && (
+                                                <p className="break-words mt-1">{renderMessageTextWithMentions(msg.content, isMine, false)}</p>
                                               )}
                                             </div>
-                                          );
-                                        })()}
-                                      </div>
-                                    </div>
-                                  </SwipeableMessageBubble>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="py-12 text-center text-xs text-slate-400">
-                              Say hello to {selectedPartner.partner_name}! Ask what product they want or offer quick pickup.
-                            </div>
-                          )}
-                          <div ref={messagesEndRef} />
-                        </div>
+                                          ) : msg.message_type === 'video' ? (
+                                            <div className="space-y-1.5">
+                                              <video
+                                                src={msg.media_url}
+                                                controls
+                                                className="rounded-xl max-h-64 w-full bg-black"
+                                              />
+                                              {msg.content && msg.content !== 'Video' && <p>{renderMessageTextWithMentions(msg.content, isMine, false)}</p>}
+                                            </div>
+                                          ) : (
+                                            <p className="leading-relaxed whitespace-pre-wrap">{renderMessageTextWithMentions(msg.content || msg.text, isMine, false)}</p>
+                                          )}
 
-                        {/* Direct Messaging Area */}
-                        <>
+                                          {/* Inline Timestamp & Read Receipt Checkmarks (WhatsApp Double Blue Ticks) */}
+                                          <div className={`text-[10px] mt-1 float-right ml-2 inline-flex items-center gap-1 select-none opacity-85 ${
+                                            isMine ? 'text-blue-100' : 'text-slate-400'
+                                          }`}>
+                                            <span>{safeTime(msg.created_at, 'Just now')}</span>
+                                            {msg.is_edited && <span className="italic text-[9px] opacity-70">edited</span>}
+                                            {isMine && (
+                                              <span className="inline-flex items-center ml-0.5" title={msg.is_optimistic ? 'Sending...' : msg.is_read ? 'Read / Viewed' : 'Delivered'}>
+                                                {msg.is_optimistic ? (
+                                                  <Clock className="w-2.5 h-2.5 opacity-70 animate-pulse text-white" />
+                                                ) : msg.is_read ? (
+                                                  <span className="inline-flex items-center text-cyan-300 drop-shadow-[0_0_2px_rgba(103,232,249,0.9)]">
+                                                    <CheckCheck className="w-3.5 h-3.5 stroke-[2.5]" />
+                                                  </span>
+                                                ) : (
+                                                  <CheckCheck className="w-3 h-3 text-white/50" />
+                                                )}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {/* WhatsApp Reaction Pill Badge */}
+                                          {msg.reactions && (() => {
+                                            let rObj = {};
+                                            try {
+                                              rObj = typeof msg.reactions === 'string' ? JSON.parse(msg.reactions) : (msg.reactions || {});
+                                              if (typeof rObj !== 'object' || rObj === null) rObj = {};
+                                            } catch {
+                                              if (typeof msg.reactions === 'string' && msg.reactions.length <= 4) rObj = { d: msg.reactions };
+                                            }
+                                            const emojis = Object.values(rObj || {});
+                                            if (!emojis.length) return null;
+                                            const uniqueEmojis = Array.from(new Set(emojis));
+                                            return (
+                                              <div
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setActionModalMsg(msg);
+                                                }}
+                                                className={`absolute -bottom-3 ${
+                                                  isMine ? 'right-2' : 'left-2'
+                                                } z-20 flex items-center gap-1 px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 shadow-md rounded-full text-xs font-medium cursor-pointer hover:scale-110 active:scale-95 transition-all select-none`}
+                                                title={`Reactions: ${emojis.join(' ')}`}
+                                              >
+                                                <span className="text-[13px] leading-none">{uniqueEmojis.slice(0, 3).join('')}</span>
+                                                {emojis.length > 1 && (
+                                                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-0.5">
+                                                    {emojis.length}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
+                                        </div>
+                                      </div>
+                                    </SwipeableMessageBubble>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="py-20 text-center text-xs text-slate-400">
+                                <MessageSquare className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                                <p className="font-bold text-slate-600">No messages exchanged yet</p>
+                                <p className="mt-1">Say hello to {selectedPartner.partner_name}! Ask what product they want or offer quick pickup.</p>
+                              </div>
+                            )}
+                            <div className="h-6 sm:h-8 shrink-0 w-full" aria-hidden="true" />
+                            <div ref={messagesEndRef} />
+                          </div>
+
                           {/* Vendor Quick-Action Chips */}
                           <div className="px-3 py-2 bg-white border-t border-slate-100 flex items-center space-x-2 text-[11px] overflow-x-auto scrollbar-none">
                             <span className="text-[10px] font-bold text-slate-400 uppercase shrink-0">Quick:</span>
@@ -6028,7 +6210,7 @@ export default function VendorDashboard() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleSendChatMessage(`💳 Bank details for transfer: ${bankInfo.bank_name} - ${bankInfo.account_number} (${bankInfo.account_name})`)}
+                              onClick={() => handleSendChatMessage(`💳 Bank details for transfer: ${bankInfo?.bank_name || ''} - ${bankInfo?.account_number || ''} (${bankInfo?.account_name || ''})`)}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 font-semibold rounded-lg shrink-0 cursor-pointer text-xs transition-colors"
                             >
                               💳 Send Bank Info
@@ -6042,13 +6224,13 @@ export default function VendorDashboard() {
                             </button>
                           </div>
 
-                          {/* Message Input Form */}
+                          {/* Message Input Form & VN Voice Recorder */}
                           <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                             {/* Quoted Swipe-to-Reply Banner */}
                             {replyingToMessage && (
                               <div className="flex items-center justify-between px-3.5 py-2 bg-blue-50 border border-blue-200 rounded-2xl mb-2 text-xs shadow-2xs">
                                 <div className="flex items-center space-x-2.5 min-w-0">
-                                  <div className="w-1 h-7 rounded-full bg-blue-500 shrink-0" />
+                                  <div className="w-1 h-7 rounded-full bg-blue-600 shrink-0" />
                                   <div className="min-w-0">
                                     <div className="flex items-center space-x-1 text-blue-700 font-bold text-[11px]">
                                       <Reply className="w-3 h-3" />
@@ -6108,7 +6290,7 @@ export default function VendorDashboard() {
                                     onClick={() => {
                                       pendingMediaFiles.forEach(f => {
                                         if (f.previewUrl) {
-                                          try { URL.revokeObjectURL(f.previewUrl); } catch { }
+                                          try { URL.revokeObjectURL(f.previewUrl); } catch {}
                                         }
                                       });
                                       setPendingMediaFiles([]);
@@ -6161,12 +6343,11 @@ export default function VendorDashboard() {
                             )}
 
                             {isRecordingAudio ? (
-                              <div className="flex items-center justify-between p-2.5 bg-rose-50 border border-rose-200 rounded-2xl animate-pulse">
-                                <div className="flex items-center space-x-2.5">
+                              <div className="flex items-center justify-between bg-rose-50 border border-rose-200 rounded-2xl p-2 px-4">
+                                <div className="flex items-center space-x-3">
                                   <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
-                                  <Mic className="w-4 h-4 text-rose-600" />
                                   <span className="text-xs font-bold text-rose-700">
-                                    Recording VN: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                                    Recording Voice Note: {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
                                   </span>
                                 </div>
                                 <div className="flex items-center space-x-2">
@@ -6192,10 +6373,13 @@ export default function VendorDashboard() {
                               <form
                                 onSubmit={(e) => {
                                   e.preventDefault();
-                                  handleSendChatMessage();
+                                  if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                    handleSendChatMessage();
+                                  }
                                 }}
                                 className="flex items-end space-x-1.5 sm:space-x-2"
                               >
+                                {/* Hidden Attachment Input for Photos & Videos (Multiple Selection) */}
                                 <input
                                   ref={chatMediaInputRef}
                                   type="file"
@@ -6207,16 +6391,33 @@ export default function VendorDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => chatMediaInputRef.current?.click()}
-                                  className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
-                                  title="Attach photos or video"
+                                  title="Attach Photos or Video"
+                                  className="p-2.5 min-tap-target-sm bg-slate-100 hover:bg-sky-50 text-slate-600 hover:text-sky-600 rounded-2xl transition-colors cursor-pointer flex items-center justify-center shrink-0 mb-0.5"
                                 >
-                                  <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
+                                  <Paperclip className="w-4 h-4" />
                                 </button>
+
                                 <textarea
                                   ref={chatInputRef}
                                   rows={1}
                                   placeholder={editingMessage ? 'Edit your message...' : replyingToMessage ? `Replying to ${replyingToMessage.sender_name}...` : `Message ${selectedPartner.partner_name}...`}
                                   value={newMsgText}
+                                  onChange={(e) => {
+                                    setNewMsgText(e.target.value);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      const isMobileTouch = ('ontouchstart' in window) && (window.innerWidth < 640);
+                                      if (isMobileTouch) return;
+                                      if (e.shiftKey || e.altKey) return;
+                                      e.preventDefault();
+                                      if (newMsgText.trim() || pendingMediaFiles.length > 0) {
+                                        handleSendChatMessage();
+                                      }
+                                    }
+                                  }}
                                   onFocus={() => {
                                     if (typeof window !== 'undefined' && window.innerWidth < 768) {
                                       window.scrollTo(0, 0);
@@ -6228,35 +6429,25 @@ export default function VendorDashboard() {
                                       }, 60);
                                     }
                                   }}
-                                  onChange={(e) => {
-                                    setNewMsgText(e.target.value);
-                                    e.target.style.height = 'auto';
-                                    e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      if (e.shiftKey || e.altKey || e.ctrlKey) return;
-                                      const isSmallMobile = typeof window !== 'undefined' && window.innerWidth < 640 && ('ontouchstart' in window);
-                                      if (isSmallMobile) return;
-                                      e.preventDefault();
-                                      if (newMsgText.trim() || pendingMediaFiles.length > 0) {
-                                        handleSendChatMessage();
-                                      }
-                                    }
-                                  }}
-                                  className={`flex-1 min-h-[38px] sm:min-h-[42px] max-h-36 overflow-y-auto p-2 sm:p-2.5 bg-slate-50 border rounded-xl text-xs sm:text-sm text-slate-800 focus:outline-none resize-none leading-relaxed transition-colors ${editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500 focus:bg-white'
-                                    }`}
+                                  className={`flex-1 p-2.5 max-h-36 overflow-y-auto bg-slate-50 border rounded-2xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed transition-colors ${
+                                    editingMessage ? 'border-amber-400 focus:border-amber-500 bg-amber-50/40' : 'border-slate-200 focus:border-blue-500'
+                                  }`}
                                 />
-                                {!editingMessage && (!newMsgText.trim() || window.innerWidth >= 640) && (
+
+                                {/* Voice Note Button */}
+                                {!editingMessage && (
                                   <button
                                     type="button"
                                     onClick={handleStartRecordingAudio}
-                                    className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-100 hover:bg-emerald-50 active:scale-95 text-slate-600 hover:text-emerald-600 rounded-xl cursor-pointer transition-all shrink-0 flex items-center justify-center mb-0.5"
                                     title="Record Voice Note"
+                                    className={`p-2.5 min-tap-target-sm bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600 rounded-2xl transition-colors cursor-pointer items-center justify-center shrink-0 mb-0.5 ${
+                                      newMsgText.trim() ? 'hidden sm:flex' : 'flex'
+                                    }`}
                                   >
-                                    <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
+                                    <Mic className="w-4 h-4" />
                                   </button>
                                 )}
+
                                 <button
                                   type="submit"
                                   onClick={(e) => {
@@ -6266,173 +6457,175 @@ export default function VendorDashboard() {
                                     }
                                   }}
                                   disabled={!newMsgText.trim() && pendingMediaFiles.length === 0}
-                                  className={`w-9 h-9 sm:w-10 sm:h-10 text-white rounded-xl cursor-pointer disabled:opacity-40 transition-all shrink-0 flex items-center justify-center shadow-xs mb-0.5 active:scale-95 ${editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
-                                    }`}
+                                  className={`p-2.5 min-tap-target-sm text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 flex items-center justify-center shrink-0 mb-0.5 active:scale-95 ${
+                                    editingMessage ? 'bg-amber-500 hover:bg-amber-600 shadow-md shadow-amber-500/20' : 'bg-blue-600 hover:bg-blue-700'
+                                  }`}
                                   title={editingMessage ? 'Save edited message' : 'Send message'}
                                 >
-                                  {editingMessage ? <Check className="w-4 h-4 sm:w-5 sm:h-5" /> : <Send className="w-4 h-4 sm:w-5 sm:h-5" />}
+                                  {editingMessage ? <Check className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                                 </button>
                               </form>
                             )}
                           </div>
-                        </>
 
-                        {/* WhatsApp-Style Message Options Bottom Sheet / Modal */}
-                        {actionModalMsg && (
-                          <div
-                            className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
-                            onClick={() => setActionModalMsg(null)}
-                          >
+                          {/* WhatsApp-Style Message Options Bottom Sheet / Modal */}
+                          {actionModalMsg && (
                             <div
-                              className="w-full sm:max-w-xs bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in slide-in-from-bottom-5 sm:zoom-in-95 duration-200"
-                              onClick={(e) => e.stopPropagation()}
+                              className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-150"
+                              onClick={() => setActionModalMsg(null)}
                             >
-                              {/* WhatsApp Quick Reactions Bar */}
-                              <div className="flex items-center justify-around py-3 px-3 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800">
-                                {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                              <div
+                                className="w-full sm:max-w-xs bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in slide-in-from-bottom-5 sm:zoom-in-95 duration-200"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {/* WhatsApp Quick Reactions Bar */}
+                                <div className="flex items-center justify-around py-3 px-3 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800">
+                                  {['❤️', '👍', '😂', '🔥', '👏', '🙏'].map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      onClick={() => {
+                                        const m = actionModalMsg;
+                                        setActionModalMsg(null);
+                                        handleReactToMessage(m, emoji);
+                                      }}
+                                      className="text-2xl hover:scale-130 active:scale-95 transition-transform p-1 cursor-pointer leading-none"
+                                      title={`React with ${emoji}`}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+
+                                {/* Message Quote Preview Snippet */}
+                                <div className="px-4 py-2.5 bg-slate-100/60 dark:bg-slate-800/30 text-xs text-slate-500 dark:text-slate-400 truncate border-b border-slate-100 dark:border-slate-800 flex items-center space-x-2">
+                                  <MessageSquare className="w-3.5 h-3.5 shrink-0 text-slate-400" />
+                                  <span className="truncate italic">
+                                    "{typeof actionModalMsg.content === 'string' ? actionModalMsg.content.slice(0, 75) : (actionModalMsg.text || 'Attachment')}"
+                                  </span>
+                                </div>
+
+                                {/* WhatsApp Options Menu */}
+                                <div className="p-2 space-y-1">
+                                  {/* Reply */}
                                   <button
-                                    key={emoji}
                                     type="button"
                                     onClick={() => {
                                       const m = actionModalMsg;
                                       setActionModalMsg(null);
-                                      handleReactToMessage(m, emoji);
+                                      handleStartReply(m);
                                     }}
-                                    className="text-2xl hover:scale-130 active:scale-95 transition-transform p-1 cursor-pointer leading-none"
-                                    title={`React with ${emoji}`}
+                                    className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
                                   >
-                                    {emoji}
+                                    <div className="w-8 h-8 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-600 flex items-center justify-center shrink-0">
+                                      <Reply className="w-4 h-4" />
+                                    </div>
+                                    <span>Reply</span>
                                   </button>
-                                ))}
-                              </div>
 
-                              {/* Message Quote Preview Snippet */}
-                              <div className="px-4 py-2.5 bg-slate-100/60 dark:bg-slate-800/30 text-xs text-slate-500 dark:text-slate-400 truncate border-b border-slate-100 dark:border-slate-800 flex items-center space-x-2">
-                                <MessageSquare className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                                <span className="truncate italic">
-                                  "{typeof actionModalMsg.content === 'string' ? actionModalMsg.content.slice(0, 75) : (actionModalMsg.text || 'Attachment')}"
-                                </span>
-                              </div>
+                                  {/* Copy Text */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const m = actionModalMsg;
+                                      setActionModalMsg(null);
+                                      handleCopyMessageText(m);
+                                    }}
+                                    className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                  >
+                                    <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0">
+                                      <Copy className="w-4 h-4" />
+                                    </div>
+                                    <span>Copy Text</span>
+                                  </button>
 
-                              {/* WhatsApp Options Menu */}
-                              <div className="p-2 space-y-1">
-                                {/* Reply */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const m = actionModalMsg;
-                                    setActionModalMsg(null);
-                                    handleStartReply(m);
-                                  }}
-                                  className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
-                                >
-                                  <div className="w-8 h-8 rounded-full bg-sky-50 dark:bg-sky-950/40 text-sky-600 flex items-center justify-center shrink-0">
-                                    <Reply className="w-4 h-4" />
-                                  </div>
-                                  <span>Reply</span>
-                                </button>
+                                  {/* Edit Message (Only for own messages, non-audio) */}
+                                  {(() => {
+                                    const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                                    const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
+                                      String(actionModalMsg.sender_id) === currentUserIdStr ||
+                                      (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
+                                    ));
+                                    if (isMine && actionModalMsg.message_type !== 'audio') {
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const m = actionModalMsg;
+                                            setActionModalMsg(null);
+                                            handleStartEditMessage(m);
+                                          }}
+                                          className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                        >
+                                          <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center shrink-0">
+                                            <Edit3 className="w-4 h-4" />
+                                          </div>
+                                          <span>Edit Message</span>
+                                        </button>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
 
-                                {/* Copy Text */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const m = actionModalMsg;
-                                    setActionModalMsg(null);
-                                    handleCopyMessageText(m);
-                                  }}
-                                  className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl transition-colors cursor-pointer active:scale-98"
-                                >
-                                  <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 flex items-center justify-center shrink-0">
-                                    <Copy className="w-4 h-4" />
-                                  </div>
-                                  <span>Copy Text</span>
-                                </button>
+                                  {/* Delete Message (Only for own messages) */}
+                                  {(() => {
+                                    const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
+                                    const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
+                                      String(actionModalMsg.sender_id) === currentUserIdStr ||
+                                      (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
+                                    ));
+                                    if (isMine) {
+                                      return (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const id = actionModalMsg.id;
+                                            setActionModalMsg(null);
+                                            handleDeleteMessage(id);
+                                          }}
+                                          className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
+                                        >
+                                          <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 flex items-center justify-center shrink-0">
+                                            <Trash2 className="w-4 h-4" />
+                                          </div>
+                                          <span>Delete Message</span>
+                                        </button>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
 
-                                {/* Edit Message (Only for own messages, non-audio) */}
-                                {(() => {
-                                  const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
-                                  const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
-                                    String(actionModalMsg.sender_id) === currentUserIdStr ||
-                                    (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
-                                  ));
-                                  if (isMine && actionModalMsg.message_type !== 'audio') {
-                                    return (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const m = actionModalMsg;
-                                          setActionModalMsg(null);
-                                          handleStartEditMessage(m);
-                                        }}
-                                        className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
-                                      >
-                                        <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-600 flex items-center justify-center shrink-0">
-                                          <Edit3 className="w-4 h-4" />
-                                        </div>
-                                        <span>Edit Message</span>
-                                      </button>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-
-                                {/* Delete Message (Only for own messages) */}
-                                {(() => {
-                                  const currentUserIdStr = String(user?.user_id || user?.id || vendorStore?.user_id || '');
-                                  const isMine = Boolean(currentUserIdStr && actionModalMsg.sender_id && (
-                                    String(actionModalMsg.sender_id) === currentUserIdStr ||
-                                    (vendorStore?.id && String(actionModalMsg.sender_id) === String(vendorStore.id))
-                                  ));
-                                  if (isMine) {
-                                    return (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const id = actionModalMsg.id;
-                                          setActionModalMsg(null);
-                                          handleDeleteMessage(id);
-                                        }}
-                                        className="w-full flex items-center space-x-3 px-3.5 py-3 text-sm font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-2xl transition-colors cursor-pointer active:scale-98"
-                                      >
-                                        <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-600 flex items-center justify-center shrink-0">
-                                          <Trash2 className="w-4 h-4" />
-                                        </div>
-                                        <span>Delete Message</span>
-                                      </button>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                              </div>
-
-                              {/* Cancel button */}
-                              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800">
-                                <button
-                                  type="button"
-                                  onClick={() => setActionModalMsg(null)}
-                                  className="w-full py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
+                                {/* Cancel button */}
+                                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActionModalMsg(null)}
+                                    className="w-full py-2.5 text-center text-sm font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-xl hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </>
-                    )
-                  ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
-                      <MessageSquare className="w-12 h-12 mb-3 text-slate-300" />
-                      <h4 className="text-sm font-bold text-slate-700">Select a student inquiry to chat</h4>
-                      <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                        Provide quick answers, hostel delivery ETAs or share stall pickup locations.
-                      </p>
-                    </div>
-                  )}
+                          )}
+                        </>
+                      )
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
+                        <MessageSquare className="w-12 h-12 mb-3 text-slate-300" />
+                        <h4 className="text-sm font-bold text-slate-700">Select a student inquiry to chat</h4>
+                        <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                          Provide quick answers, hostel delivery ETAs or share stall pickup locations.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
+
 
           {/* ========================================================================= */}
           {/* --- DEDICATED TAB: CAMPUS NETWORK & FRIENDS --- */}
