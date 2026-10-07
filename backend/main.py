@@ -371,10 +371,27 @@ async def keep_render_awake_loop():
             print(f"[CampusLink Pulse] Ping check warning: {_ping_err}")
         await asyncio.sleep(12 * 60)  # Ping every 12 minutes (Render sleeps at 15m)
 
+async def periodic_news_sync_loop():
+    """Periodically fetches and refreshes authentic Nigerian educational & JAMB news continuously."""
+    await asyncio.sleep(5)  # Quick 5-second initial delay after boot
+    while True:
+        try:
+            db_news = database.SessionLocal()
+            try:
+                await asyncio.to_thread(news_service.fetch_live_rss_news, db_news, 8)
+            finally:
+                db_news.close()
+        except Exception as _news_err:
+            print(f"[CampusLink News Worker] Background sync notice: {_news_err}")
+        await asyncio.sleep(60 * 60)  # Refresh every 1 hour
+
 @app.on_event("startup")
 async def on_app_startup():
     # Asynchronously clean legacy image URLs in background without blocking server boot
     asyncio.create_task(asyncio.to_thread(clean_legacy_image_urls))
+
+    # Continuously sync live Nigerian tertiary & JAMB education news in background
+    asyncio.create_task(periodic_news_sync_loop())
 
     # Only launch keep-alive loop on production Render cloud instances
     if os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL"):

@@ -293,12 +293,13 @@ export function getInitialStudentTab() {
   try {
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (tabParam === 'home') return 'reels';
-    const validTabs = ['marketplace', 'reels', 'campus', 'messages', 'profile', 'friends', 'notifications'];
+    if (tabParam === 'home' || tabParam === 'campus') return 'reels';
+    const validTabs = ['marketplace', 'reels', 'messages', 'profile', 'friends', 'notifications'];
     if (tabParam && validTabs.includes(tabParam)) {
       return tabParam;
     }
     const saved = localStorage.getItem('campuslink_student_tab');
+    if (saved === 'campus') return 'reels';
     if (saved && validTabs.includes(saved)) {
       return saved;
     }
@@ -431,26 +432,6 @@ export default function StudentDashboard() {
     return myMedia;
   }, [myMedia, mediaFilter]);
 
-  // Campus Notice Board & Lost/Found State (SWR Instant Load)
-  const [notices, setNotices] = useState(() => getCachedData('notices', []));
-  const [activeNoticeMenuId, setActiveNoticeMenuId] = useState(null);
-  const [noticeType, setNoticeType] = useState('all'); // 'all' | 'lost' | 'found' | 'announcement'
-  const [noticeCategory, setNoticeCategory] = useState('all');
-  const [noticeSearch, setNoticeSearch] = useState('');
-  const [reportModalOpen, setReportModalOpen] = useState(false);
-  const [newNoticeForm, setNewNoticeForm] = useState({
-    type: 'lost',
-    title: '',
-    category: 'id_card',
-    description: '',
-    location: '',
-    date_lost_or_found: '',
-    contact_phone: '',
-    image_url: ''
-  });
-  const [submittingNotice, setSubmittingNotice] = useState(false);
-  const [uploadingNoticeImage, setUploadingNoticeImage] = useState(false);
-  const noticeFileInputRef = useRef(null);
   const [universityName, setUniversityName] = useState('University Campus');
 
   // WhatsApp-Style Campus Status State (SWR Instant Load)
@@ -956,7 +937,7 @@ export default function StudentDashboard() {
           return;
         }
 
-        // Priority 3: If on any sub-tab (Market, Messages list, Notices, Friends, Profile), return to Home (reels)
+        // Priority 3: If on any sub-tab (Market, Messages list, Friends, Profile), return to Home (reels)
         if (activeTabRef.current !== 'reels') {
           setActiveTab('reels');
           const url = new URL(window.location.href);
@@ -1752,7 +1733,7 @@ export default function StudentDashboard() {
 
   const loadAllData = async () => {
     // Stale-While-Revalidate: If we have any cached data, never block the UI with a full spinner
-    const hasInitialCache = products.length > 0 || services.length > 0 || reels.length > 0 || notices.length > 0;
+    const hasInitialCache = products.length > 0 || services.length > 0 || reels.length > 0;
     if (!hasInitialCache) {
       setLoading(true);
     }
@@ -1832,13 +1813,6 @@ export default function StudentDashboard() {
       setConversations(fetched);
       setCachedData('conversations', fetched);
       prefetchRecentConversations(fetched);
-    }).catch(() => {});
-
-    // Stream Campus Notices
-    API.get('/campus/notices').then(res => {
-      const fetched = res.data || [];
-      setNotices(fetched);
-      setCachedData('notices', fetched);
     }).catch(() => {});
 
     // Secondary background streams (Statuses, Community, Friends, Orders, Memories)
@@ -2028,7 +2002,7 @@ export default function StudentDashboard() {
         }
       }
     } else if (t.includes('notice') || t.includes('lost') || t.includes('found')) {
-      setActiveTab('campus');
+      setActiveTab('notifications');
     } else if (t.includes('order') || t.includes('service') || t.includes('product')) {
       setActiveTab('marketplace');
       if (t.includes('service')) setMarketType('services');
@@ -2119,10 +2093,9 @@ export default function StudentDashboard() {
   const handleManualRefresh = async (showToast = true) => {
     setIsRefreshing(true);
     try {
-      const [reelsRes, statRes, notRes, convRes, notifRes, prodRes, svcRes] = await Promise.all([
+      const [reelsRes, statRes, convRes, notifRes, prodRes, svcRes] = await Promise.all([
         API.get('/reels').catch(() => ({ data: [] })),
         API.get('/campus/statuses').catch(() => ({ data: [] })),
-        API.get('/campus/notices').catch(() => ({ data: [] })),
         API.get('/conversations').catch(() => ({ data: [] })),
         API.get('/notifications').catch(() => ({ data: [] })),
         API.get('/products').catch(() => ({ data: [] })),
@@ -2134,7 +2107,6 @@ export default function StudentDashboard() {
         setCachedData('reels', reelsRes.data);
       }
       if (statRes.data && Array.isArray(statRes.data)) setStatusGroups(statRes.data);
-      if (notRes.data && Array.isArray(notRes.data)) setNotices(notRes.data);
       if (convRes.data && Array.isArray(convRes.data)) setConversations(convRes.data);
       if (prodRes.data && Array.isArray(prodRes.data)) {
         setProducts(prodRes.data);
@@ -3381,91 +3353,6 @@ export default function StudentDashboard() {
     }
   };
 
-  // --- NOTICE BOARD HANDLERS ---
-  // --- NOTICE BOARD HANDLERS ---
-  const fetchCampusNotices = async () => {
-    try {
-      const res = await API.get('/campus/notices');
-      const data = res.data || [];
-      setNotices(data);
-      setCachedData('notices', data);
-    } catch (err) {
-      console.error('Failed to fetch notices:', err);
-    }
-  };
-
-  const handleNoticeImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingNoticeImage(true);
-    try {
-      const res = await uploadFile(file);
-      const uploadedUrl = typeof res === 'string' ? res : (res?.file_url || res?.url);
-      if (uploadedUrl) {
-        setNewNoticeForm(prev => ({ ...prev, image_url: uploadedUrl }));
-      }
-    } catch (err) {
-      alert('Failed to upload image. Please try again.');
-    } finally {
-      setUploadingNoticeImage(false);
-    }
-  };
-
-  const handleCreateNotice = async (e) => {
-    if (e) e.preventDefault();
-    if (!newNoticeForm.title.trim() || !newNoticeForm.description.trim() || !newNoticeForm.location.trim()) {
-      alert('Please fill in title, campus location, and description.');
-      return;
-    }
-    setSubmittingNotice(true);
-    try {
-      const res = await API.post('/campus/notices', newNoticeForm);
-      if (res.data) {
-        setNotices(prev => [res.data, ...prev]);
-      }
-      setToast({ text: 'Report / announcement posted to campus notice board!', type: 'success' });
-      setReportModalOpen(false);
-      setNewNoticeForm({
-        type: 'lost',
-        title: '',
-        category: 'id_card',
-        description: '',
-        location: '',
-        date_lost_or_found: '',
-        contact_phone: currentUser?.phone_number || '',
-        image_url: ''
-      });
-      fetchCampusNotices();
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post notice.');
-    } finally {
-      setSubmittingNotice(false);
-    }
-  };
-
-  const handleResolveNotice = async (noticeId) => {
-    try {
-      setNotices(prev => prev.map(n => n.id === noticeId ? { ...n, status: 'resolved' } : n));
-      await API.patch(`/campus/notices/${noticeId}/resolve`);
-      setToast({ text: 'Notice marked as claimed / resolved!', type: 'success' });
-    } catch (err) {
-      fetchCampusNotices();
-      alert(err.response?.data?.detail || 'Failed to update notice status.');
-    }
-  };
-
-  const handleDeleteNotice = async (noticeId) => {
-    if (!window.confirm('Delete this notice?')) return;
-    try {
-      setNotices(prev => prev.filter(n => n.id !== noticeId));
-      await API.delete(`/campus/notices/${noticeId}`);
-      setToast({ text: 'Notice removed.', type: 'info' });
-    } catch (err) {
-      fetchCampusNotices();
-      alert(err.response?.data?.detail || 'Failed to delete notice.');
-    }
-  };
-
   // --- WHATSAPP STATUS STORIES HANDLERS ---
   const fetchCampusStatuses = async () => {
     try {
@@ -4527,7 +4414,8 @@ export default function StudentDashboard() {
     });
   }, [products, selectedCategory, searchQuery, selectedUniversityFilter]);
 
-  const scatteredProducts = useRotatingFeed(filteredProducts, { timeWindowMinutes: 3 });
+  const studentMyId = currentUser?.user_id || currentUser?.id;
+  const scatteredProducts = useRotatingFeed(filteredProducts, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 20 });
 
   const filteredServices = useMemo(() => {
     return services.filter(s => {
@@ -4538,17 +4426,17 @@ export default function StudentDashboard() {
     });
   }, [services, selectedCategory, searchQuery, selectedUniversityFilter]);
 
-  const scatteredServices = useRotatingFeed(filteredServices, { timeWindowMinutes: 3 });
+  const scatteredServices = useRotatingFeed(filteredServices, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 20 });
 
   const visibleReels = useMemo(() => {
     return reels.filter(r => !hiddenPostIds.includes(r.id));
   }, [reels, hiddenPostIds]);
 
-  const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3 });
+  const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 20 });
 
   // Home Feed dynamic random rotating products & services (shuffles every 2 minutes across all sellers)
-  const rotatingHomeProducts = useRotatingFeed(products, { timeWindowMinutes: 2, seedOffset: dropsNonce });
-  const rotatingHomeServices = useRotatingFeed(services, { timeWindowMinutes: 2, seedOffset: dropsNonce });
+  const rotatingHomeProducts = useRotatingFeed(products, { timeWindowMinutes: 2, seedOffset: dropsNonce, currentUserId: studentMyId });
+  const rotatingHomeServices = useRotatingFeed(services, { timeWindowMinutes: 2, seedOffset: dropsNonce, currentUserId: studentMyId });
 
   const filteredStudents = campusStudents.filter(s => {
     if (isSelfUser(s)) return false;
@@ -4570,27 +4458,11 @@ export default function StudentDashboard() {
     return matchesSearch && matchesRole;
   });
 
-  const filteredNotices = notices.filter(n => {
-    const q = noticeSearch.toLowerCase().trim();
-    const matchesSearch = !q || (
-      (n.title && n.title.toLowerCase().includes(q)) ||
-      (n.description && n.description.toLowerCase().includes(q)) ||
-      (n.location && n.location.toLowerCase().includes(q)) ||
-      (n.author_name && n.author_name.toLowerCase().includes(q))
-    );
-
-    const matchesType = noticeType === 'all' || n.type === noticeType;
-    const matchesCat = noticeCategory === 'all' || n.category === noticeCategory;
-
-    return matchesSearch && matchesType && matchesCat;
-  });
-
   // Determine if any modal is currently open to hide the mobile bottom navigation bar
   const isAnyModalOpen = Boolean(
     editProfileModalOpen ||
     changePasswordModalOpen ||
     orderModalItem ||
-    reportModalOpen ||
     createStatusModalOpen ||
     statusPrivacyModalOpen ||
     statusViewersModalOpen ||
@@ -4669,7 +4541,7 @@ export default function StudentDashboard() {
               </div>
             </div>
 
-          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, Friends, Messages, Marketplace, Notifications, Lost & Found) */}
+          {/* Row 2: Modern Segmented Capsule Tabs (Desktop / Tablet: Home, Friends, Messages, Marketplace, Notifications) */}
           <div className="hidden md:block px-2 sm:px-4 py-1.5 border-t border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-1 p-1 bg-slate-100/80 rounded-2xl border border-slate-200/60 shadow-2xs">
               {[
@@ -4677,8 +4549,7 @@ export default function StudentDashboard() {
                 { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
                 { id: 'messages', icon: MessageSquare, label: 'Messages', badge: totalUnreadChatCount },
                 { id: 'marketplace', icon: Store, label: 'Market' },
-                { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
-                { id: 'campus', icon: PackageSearch, label: 'Lost & Found' }
+                { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount }
               ].map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -6446,7 +6317,7 @@ export default function StudentDashboard() {
                 { id: 'all', label: 'All Notifications' },
                 { id: 'unread', label: `Unread (${unreadCount})` },
                 { id: 'social', label: 'Requests & Friends' },
-                { id: 'campus', label: 'Campus & Orders' }
+                { id: 'orders', label: 'Orders & Market' }
               ].map((f) => (
                 <button
                   key={f.id}
@@ -6469,7 +6340,7 @@ export default function StudentDashboard() {
                 const t = (n.notification_type || n.type || '').toLowerCase();
                 if (notifFilter === 'unread') return !n.is_read;
                 if (notifFilter === 'social') return t.includes('friend') || t.includes('like') || t.includes('comment') || t.includes('reaction') || t.includes('message') || t === 'status_view';
-                if (notifFilter === 'campus') return t.includes('notice') || t.includes('lost') || t.includes('found') || t.includes('order') || t.includes('product') || t.includes('service');
+                if (notifFilter === 'orders') return t.includes('order') || t.includes('product') || t.includes('service');
                 return true;
               });
 
@@ -6580,476 +6451,6 @@ export default function StudentDashboard() {
             })()}
           </div>
         )}
-
-        {/* --- TAB 3: CAMPUS NOTICE BOARD & LOST/FOUND SYSTEM --- */}
-        {activeTab === 'campus' && (
-          <div className="space-y-5 sm:space-y-6">
-            {/* Sleek Top Banner & Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 bg-gradient-to-r from-sky-50/70 via-indigo-50/60 to-purple-50/50 p-4 sm:p-5 rounded-3xl border border-sky-100/80 shadow-2xs">
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-500 text-white shadow-2xs">
-                    Campus Hub
-                  </span>
-                  <span className="text-xs text-slate-400">•</span>
-                  <span className="text-xs font-bold text-slate-700 flex items-center space-x-1">
-                    <Building2 className="w-3.5 h-3.5 text-sky-500" />
-                    <span>{universityName || 'Campus'}</span>
-                  </span>
-                </div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
-                  Campus Notice Board & Lost / Found
-                </h1>
-                <p className="text-xs text-slate-600 mt-0.5 max-w-xl">
-                  Misplaced student ID card, phone, or keys? Report lost items or claim found property across campus.
-                </p>
-              </div>
-
-              <div className="flex items-center space-x-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setReportModalOpen(true)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 active:scale-95 text-white font-extrabold text-xs flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Report Item / Post Notice</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Interactive Filter Cards (Metrics + Instant Tab Switcher) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-              {[
-                {
-                  id: 'all',
-                  label: 'All Notices',
-                  count: notices.length,
-                  sub: 'Total campus updates',
-                  icon: Bell,
-                  activeClass: 'bg-slate-900 text-white border-slate-900 shadow-md',
-                  inactiveClass: 'bg-white text-slate-700 border-slate-200/90 hover:bg-slate-50'
-                },
-                {
-                  id: 'lost',
-                  label: 'Lost Items',
-                  count: notices.filter(n => n.type === 'lost' && n.status === 'open').length,
-                  sub: 'Looking for owner',
-                  icon: AlertCircle,
-                  activeClass: 'bg-rose-500 text-white border-rose-500 shadow-rose-500/25 shadow-md',
-                  inactiveClass: 'bg-rose-50/60 text-rose-800 border-rose-200/90 hover:bg-rose-100/70'
-                },
-                {
-                  id: 'found',
-                  label: 'Found Items',
-                  count: notices.filter(n => n.type === 'found' && n.status === 'open').length,
-                  sub: 'Claim safe property',
-                  icon: CheckCircle2,
-                  activeClass: 'bg-emerald-600 text-white border-emerald-600 shadow-emerald-500/25 shadow-md',
-                  inactiveClass: 'bg-emerald-50/60 text-emerald-800 border-emerald-200/90 hover:bg-emerald-100/70'
-                },
-                {
-                  id: 'announcement',
-                  label: 'Announcements',
-                  count: notices.filter(n => n.type === 'announcement').length,
-                  sub: 'SUG & Faculty news',
-                  icon: Megaphone,
-                  activeClass: 'bg-sky-600 text-white border-sky-600 shadow-sky-500/25 shadow-md',
-                  inactiveClass: 'bg-sky-50/60 text-sky-800 border-sky-200/90 hover:bg-sky-100/70'
-                }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setNoticeType(item.id)}
-                  className={`p-3 sm:p-3.5 rounded-2xl border text-left transition-all active:scale-95 cursor-pointer shadow-2xs flex items-center justify-between ${
-                    noticeType === item.id ? item.activeClass : item.inactiveClass
-                  }`}
-                >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <div className="flex items-center space-x-1.5 mb-0.5">
-                      <item.icon className="w-3.5 h-3.5 shrink-0" />
-                      <span className="text-xs font-extrabold truncate">{item.label}</span>
-                    </div>
-                    <p className={`text-[10px] truncate ${noticeType === item.id ? 'opacity-85' : 'text-slate-500'}`}>{item.sub}</p>
-                  </div>
-                  <span className={`text-sm sm:text-base font-black shrink-0 px-2 py-0.5 rounded-xl ${
-                    noticeType === item.id ? 'bg-white/20 text-white' : 'bg-white/90 border border-slate-200/90 text-slate-800'
-                  }`}>
-                    {item.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            {/* Filter, Search & Category Strip */}
-            <div className="bg-white p-3 sm:p-4 rounded-3xl border border-slate-200/90 shadow-2xs space-y-2.5">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search notice title, student matric number, keys, hostel hall..."
-                    value={noticeSearch}
-                    onChange={(e) => setNoticeSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:bg-white"
-                  />
-                  {noticeSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setNoticeSearch('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0 text-xs scrollbar-none">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'id_card', label: 'ID Cards' },
-                    { id: 'phone_gadget', label: 'Gadgets' },
-                    { id: 'keys', label: 'Keys' },
-                    { id: 'wallet_atm', label: 'Wallets & ATMs' },
-                    { id: 'books', label: 'Books' },
-                    { id: 'announcement', label: 'Announcements' }
-                  ].map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setNoticeCategory(cat.id)}
-                      className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer text-xs ${
-                        noticeCategory === cat.id
-                          ? 'bg-sky-500 text-white shadow-2xs'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Notices Grid */}
-            <div>
-              <div className="flex items-center justify-between mb-3 px-1">
-                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center space-x-2">
-                  <Bell className="w-4 h-4 text-sky-500" />
-                  <span>Campus Notices ({filteredNotices.length})</span>
-                </h3>
-                <span className="text-[11px] text-slate-400 font-medium">Real-time reports for {universityName || 'your university'}</span>
-              </div>
-
-              {filteredNotices.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                  {filteredNotices.map((n) => {
-                    const isOwner = n.user_id === currentUser?.user_id;
-                    const isClaimed = n.status === 'claimed' || n.status === 'resolved';
-
-                    return (
-                      <div
-                        key={n.id}
-                        className={`bg-white rounded-2xl sm:rounded-3xl border transition-all duration-200 flex flex-col justify-between overflow-hidden shadow-2xs hover:shadow-md ${
-                          n.type === 'lost'
-                            ? 'border-rose-200 hover:border-rose-300'
-                            : n.type === 'found'
-                              ? 'border-emerald-200 hover:border-emerald-300'
-                              : 'border-sky-200 hover:border-sky-300'
-                        }`}
-                      >
-                        <div>
-                          {/* Image preview (if any) */}
-                          {n.image_url && (
-                            <div className="h-40 w-full bg-slate-100 relative overflow-hidden group">
-                              <SafeImage
-                                src={n.image_url}
-                                alt={n.title}
-                                fallbackType="product"
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              />
-                            </div>
-                          )}
-
-                          <div className="p-4 sm:p-5">
-                            {/* Tags Header */}
-                            <div className="flex items-center justify-between gap-2 mb-2.5">
-                              <span
-                                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center space-x-1.5 border ${
-                                  n.type === 'lost'
-                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                    : n.type === 'found'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-sky-50 text-sky-700 border-sky-200'
-                                }`}
-                              >
-                                {n.type === 'lost' && (
-                                  <>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                                    <span>Lost Item</span>
-                                  </>
-                                )}
-                                {n.type === 'found' && (
-                                  <>
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                    <span>Found Item</span>
-                                  </>
-                                )}
-                                {n.type === 'announcement' && (
-                                  <>
-                                    <Megaphone className="w-3 h-3 text-sky-600" />
-                                    <span>Announcement</span>
-                                  </>
-                                )}
-                              </span>
-
-                              <div className="flex items-center space-x-1.5 relative">
-                                <span
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                    isClaimed
-                                      ? 'bg-slate-100 text-slate-500 line-through'
-                                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  }`}
-                                >
-                                  {isClaimed ? 'Claimed' : 'Active'}
-                                </span>
-
-                                <button
-                                  type="button"
-                                  onClick={() => setActiveNoticeMenuId(activeNoticeMenuId === n.id ? null : n.id)}
-                                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                                  title="Notice options"
-                                  aria-label="Notice options"
-                                >
-                                  <MoreVertical className="w-3.5 h-3.5" />
-                                </button>
-
-                                {activeNoticeMenuId === n.id && (
-                                  <>
-                                    <div
-                                      className="fixed inset-0 z-20"
-                                      onClick={() => setActiveNoticeMenuId(null)}
-                                    />
-                                    <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 py-1.5 z-30 animate-in fade-in zoom-in-95 duration-100">
-                                      {isOwner && (
-                                        <>
-                                          {!isClaimed && (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setActiveNoticeMenuId(null);
-                                                handleResolveNotice(n.id);
-                                              }}
-                                              className="w-full px-3 py-2 text-left text-xs font-semibold text-emerald-700 hover:bg-emerald-50 flex items-center space-x-2 transition-colors cursor-pointer"
-                                            >
-                                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                              <span>Mark Claimed</span>
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setActiveNoticeMenuId(null);
-                                              handleDeleteNotice(n.id);
-                                            }}
-                                            className="w-full px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center space-x-2 transition-colors cursor-pointer"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                                            <span>Delete Notice</span>
-                                          </button>
-                                        </>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setActiveNoticeMenuId(null);
-                                          const noticeText = `${n.title}\n${n.description}\nLocation: ${n.location} • ${universityName}`;
-                                          if (navigator.clipboard && navigator.clipboard.writeText) {
-                                            navigator.clipboard.writeText(noticeText);
-                                            setToast({ text: 'Notice details copied to clipboard!', type: 'success' });
-                                          } else {
-                                            setToast({ text: 'Notice: ' + n.title, type: 'info' });
-                                          }
-                                        }}
-                                        className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2 transition-colors cursor-pointer"
-                                      >
-                                        <Copy className="w-3.5 h-3.5 text-slate-400" />
-                                        <span>Copy Details</span>
-                                      </button>
-                                      {n.user_id && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setActiveNoticeMenuId(null);
-                                            handleViewProfile(n.user_id);
-                                          }}
-                                          className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center space-x-2 transition-colors cursor-pointer"
-                                        >
-                                          <User className="w-3.5 h-3.5 text-slate-400" />
-                                          <span>View Reporter</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Title & Description */}
-                            <h4 className="font-extrabold text-sm sm:text-base text-slate-900 leading-snug mb-1.5">
-                              {n.title}
-                            </h4>
-
-                            <p className="text-xs text-slate-600 leading-relaxed mb-3 line-clamp-2">
-                              {n.description}
-                            </p>
-
-                            {/* Location & Date Badge Row */}
-                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 mb-3.5">
-                              {n.location && (
-                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-700 max-w-[200px] truncate">
-                                  <MapPin className="w-3 h-3 text-sky-500 shrink-0" />
-                                  <span className="truncate">{n.location}</span>
-                                </span>
-                              )}
-                              {n.date_lost_or_found && (
-                                <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 font-semibold text-slate-600">
-                                  <Clock className="w-3 h-3 text-slate-400 shrink-0" />
-                                  <span>{n.date_lost_or_found}</span>
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Reporter Info */}
-                            <div className="flex items-center space-x-2 pt-2.5 border-t border-slate-100">
-                              {n.author_avatar ? (
-                                <SafeImage src={n.author_avatar} alt={n.author_name} fallbackType="avatar" className="w-6 h-6 rounded-full object-cover" />
-                              ) : (
-                                <div className="w-6 h-6 rounded-full bg-sky-100 text-sky-700 font-bold flex items-center justify-center text-[10px]">
-                                  {n.author_name?.charAt(0) || 'U'}
-                                </div>
-                              )}
-                              <div className="overflow-hidden flex items-center space-x-1.5">
-                                <span className="text-xs font-bold text-slate-800 truncate">{n.author_name}</span>
-                                <span className="text-[10px] text-slate-400">•</span>
-                                <span className="text-[10px] text-slate-400 truncate">{n.author_department || n.author_dept || 'Student'}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="p-4 sm:p-5 pt-0 space-y-2">
-                          {isOwner ? (
-                            <div className="flex items-center space-x-2">
-                              {!isClaimed && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleResolveNotice(n.id)}
-                                  className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5 cursor-pointer"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Mark Claimed</span>
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteNotice(n.id)}
-                                className="py-2.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl transition-colors cursor-pointer"
-                                title="Delete notice"
-                                aria-label="Delete notice"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="space-y-1.5">
-                              {/* Direct WhatsApp Reporter */}
-                              {n.contact_phone && (
-                                <a
-                                  href={`https://wa.me/${n.contact_phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                                    `Hello ${n.author_name}, I saw your notice for "${n.title}" at ${universityName} on CampusLink. I would like to inquire/claim.`
-                                  )}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>Message on WhatsApp</span>
-                                </a>
-                              )}
-
-                              <div className="flex items-center space-x-2">
-                                {/* Direct Call */}
-                                {n.contact_phone && (
-                                  <a
-                                    href={`tel:${n.contact_phone}`}
-                                    className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs rounded-xl transition-colors flex items-center justify-center space-x-1.5"
-                                  >
-                                    <Phone className="w-3.5 h-3.5 text-slate-600" />
-                                    <span>Call</span>
-                                  </a>
-                                )}
-
-                                {/* CampusLink In-App Chat */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartChatWithStudent({
-                                    user_id: n.user_id,
-                                    full_name: n.author_name,
-                                    phone_number: n.contact_phone,
-                                    department: n.author_department,
-                                    profile_picture_url: n.author_avatar
-                                  })}
-                                  className="flex-1 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
-                                >
-                                  <MessageCircle className="w-3.5 h-3.5" />
-                                  <span>Chat</span>
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="py-16 text-center bg-white rounded-3xl border border-slate-200 p-8 shadow-2xs">
-                  <Bell className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                  <h4 className="text-sm font-bold text-slate-800">No notices match your filter</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">Try switching categories or report a new lost/found item.</p>
-                  <button
-                    type="button"
-                    onClick={() => setReportModalOpen(true)}
-                    className="mt-3 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-colors"
-                  >
-                    + Post Notice
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Campus Security & Recovery Protocol Tips */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-sky-50/80 via-blue-50/60 to-indigo-50/60 rounded-3xl border border-sky-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-sky-700">Security & Safe Recovery Protocol</span>
-                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Found an item or claiming lost property?</h4>
-                <p className="text-[11px] text-slate-600 max-w-xl">
-                  Always arrange handovers in public, well-lit campus areas (library quad, faculty security desk). Verify ownership before releasing items.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReportModalOpen(true)}
-                className="px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold rounded-xl shrink-0 cursor-pointer shadow-xs transition-colors"
-              >
-                + Report an Item
-              </button>
-            </div>
-          </div>
-        )}
-
 
         {/* --- TAB 4: MESSAGES & CAMPUS FRIENDS SYSTEM --- */}
         {activeTab === 'messages' && (
@@ -9771,220 +9172,6 @@ export default function StudentDashboard() {
         )}
       </AnimatePresence>
 
-      {/* --- REPORT NOTICE / LOST & FOUND MODAL (Mobile Bottom Sheet Drawer) --- */}
-      <AnimatePresence>
-        {reportModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
-              className="bg-white rounded-t-3xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-7 shadow-2xl relative border-t sm:border border-slate-200 max-h-[92dvh] sm:max-h-[90vh] flex flex-col safe-drawer-bottom sm:pb-7"
-            >
-              {/* Mobile Drawer Drag Handle */}
-              <div className="sm:hidden -mt-2 mb-2 flex justify-center">
-                <div className="drawer-handle" />
-              </div>
-
-              <button
-                onClick={() => setReportModalOpen(false)}
-                className="min-tap-target-sm absolute top-4 right-4 text-slate-400 hover:text-slate-800 cursor-pointer p-1.5"
-                aria-label="Close modal"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                  <Bell className="w-5 h-5 sm:w-6 sm:h-6" />
-                </div>
-                <div>
-                  <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">Post Campus Notice / Report Item</h3>
-                  <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                    Broadcast lost items, found property, or department announcements to {universityName}.
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleCreateNotice} className="space-y-3.5 text-xs flex-1 overflow-y-auto pr-1">
-                {/* Type Selection */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1.5">Notice Type *</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: 'lost', label: 'Lost Item', color: 'border-rose-500 bg-rose-50 text-rose-700 ring-2 ring-rose-200' },
-                      { id: 'found', label: 'Found Item', color: 'border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200' },
-                      { id: 'announcement', label: 'Announcement', color: 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200' }
-                    ].map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setNewNoticeForm(prev => ({ ...prev, type: t.id }))}
-                        className={`min-tap-target-sm py-2 rounded-xl border font-bold text-center cursor-pointer transition-all ${
-                          newNoticeForm.type === t.id
-                            ? t.color
-                            : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Title */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Title *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder={
-                      newNoticeForm.type === 'lost'
-                        ? 'e.g. Lost Student ID Card (Ekene Chinedu, Computer Science)'
-                        : newNoticeForm.type === 'found'
-                          ? 'e.g. Found Black HP Laptop Charger'
-                          : 'e.g. SUG Townhall Meeting: Campus Hostel Maintenance'
-                    }
-                    value={newNoticeForm.title}
-                    onChange={(e) => setNewNoticeForm(prev => ({ ...prev, title: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* Category & Date */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Category</label>
-                    <select
-                      value={newNoticeForm.category}
-                      onChange={(e) => setNewNoticeForm(prev => ({ ...prev, category: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="id_card">Student ID Card</option>
-                      <option value="phone_gadget">Phone / Laptop / Gadget</option>
-                      <option value="keys">Keys / Access Card</option>
-                      <option value="wallet_atm">Wallet / ATM Card / Cash</option>
-                      <option value="books">Books / Notes / File</option>
-                      <option value="announcement">General Announcement</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Date Misplaced / Found</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Today around 2pm"
-                      value={newNoticeForm.date_lost_or_found}
-                      onChange={(e) => setNewNoticeForm(prev => ({ ...prev, date_lost_or_found: e.target.value }))}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Campus Location */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Campus Location / Landmark *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Faculty of Science LT 2, Central Library Reading Room"
-                    value={newNoticeForm.location}
-                    onChange={(e) => setNewNoticeForm(prev => ({ ...prev, location: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Contact Phone / WhatsApp Number</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 08012345678"
-                    value={newNoticeForm.contact_phone}
-                    onChange={(e) => setNewNoticeForm(prev => ({ ...prev, contact_phone: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-
-                {/* Photo Upload */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Item Photo (Optional)</label>
-                  <input
-                    type="file"
-                    ref={noticeFileInputRef}
-                    onChange={handleNoticeImageUpload}
-                    accept="image/*"
-                    className="hidden"
-                  />
-                  {newNoticeForm.image_url ? (
-                    <div className="relative rounded-2xl overflow-hidden border border-slate-200 h-32 bg-slate-100">
-                      <img src={newNoticeForm.image_url} alt="Notice preview" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setNewNoticeForm(prev => ({ ...prev, image_url: '' }))}
-                        className="absolute top-2 right-2 p-1.5 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors"
-                        title="Remove photo"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => noticeFileInputRef.current?.click()}
-                      disabled={uploadingNoticeImage}
-                      className="w-full py-2.5 border-2 border-dashed border-slate-200 hover:border-indigo-400 rounded-xl flex items-center justify-center space-x-2 text-slate-500 hover:text-indigo-600 transition-colors bg-slate-50/50 cursor-pointer"
-                    >
-                      {uploadingNoticeImage ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-                          <span className="font-semibold">Uploading photo...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Camera className="w-4 h-4" />
-                          <span className="font-semibold">Attach item photo</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Description & Instructions to Claim *</label>
-                  <textarea
-                    rows={3}
-                    required
-                    placeholder="Describe item appearance, distinguishing marks, where to meet, or claim procedure..."
-                    value={newNoticeForm.description}
-                    onChange={(e) => setNewNoticeForm(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-indigo-500 resize-none"
-                  />
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center space-x-2">
-                  <button
-                    type="button"
-                    onClick={() => setReportModalOpen(false)}
-                    className="min-tap-target flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submittingNotice}
-                    className="min-tap-target flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer transition-all disabled:opacity-50"
-                  >
-                    {submittingNotice ? 'Publishing...' : 'Publish Notice'}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* --- MARKETPLACE PRODUCT DETAIL MODAL (Screenshot 3 / Facebook Lite Style) --- */}
       <AnimatePresence>
         {orderModalItem && (
@@ -10631,13 +9818,6 @@ export default function StudentDashboard() {
                         icon: Bell,
                         color: 'text-rose-600 bg-rose-50',
                         tab: 'notifications'
-                      },
-                      {
-                        title: 'Lost & Found',
-                        desc: 'Campus notice board',
-                        icon: PackageSearch,
-                        color: 'text-purple-600 bg-purple-50',
-                        tab: 'campus'
                       }
                     ].map((item, idx) => {
                       const Icon = item.icon;
@@ -11581,20 +10761,12 @@ export default function StudentDashboard() {
                     Social & Friends
                   </button>
                   <button
-                    onClick={() => setNotifFilter('notices')}
-                    className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      notifFilter === 'notices' ? 'bg-sky-500 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    Campus Notices & Lost
-                  </button>
-                  <button
                     onClick={() => setNotifFilter('orders')}
                     className={`px-3 py-1.5 rounded-full font-bold transition-all cursor-pointer whitespace-nowrap ${
                       notifFilter === 'orders' ? 'bg-sky-500 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
-                    Orders
+                    Orders & Market
                   </button>
                 </div>
 
@@ -11658,11 +10830,8 @@ export default function StudentDashboard() {
                       if (notifFilter === 'social') {
                         return t.includes('like') || t.includes('comment') || t.includes('reel') || t.includes('friend') || t === 'status_view' || t === 'message';
                       }
-                      if (notifFilter === 'notices') {
-                        return t.includes('notice') || t.includes('lost') || t.includes('found');
-                      }
                       if (notifFilter === 'orders') {
-                        return t.includes('order') || t.includes('service');
+                        return t.includes('order') || t.includes('service') || t.includes('product');
                       }
                       return true;
                     });
@@ -11673,7 +10842,7 @@ export default function StudentDashboard() {
                           <Bell className="w-12 h-12 text-slate-200 mx-auto mb-3" />
                           <h4 className="font-bold text-slate-700 text-sm">No notifications here yet</h4>
                           <p className="text-xs text-slate-400 mt-1">
-                            When peers like your reels, comment, send friend requests, or post campus notices & lost/found items, they'll show up here!
+                            When peers like your reels, comment, send friend requests, or place orders, they'll show up here!
                           </p>
                         </div>
                       );
@@ -12172,14 +11341,13 @@ export default function StudentDashboard() {
 
       {/* --- MODERN MOBILE BOTTOM NAVIGATION BAR --- */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-1 py-1.5 safe-nav-bottom shadow-lg ${selectedPartner && activeTab === 'messages' ? 'hidden' : 'block'}`}>
-        <div className="grid grid-cols-6 w-full max-w-lg mx-auto items-center">
+        <div className="grid grid-cols-5 w-full max-w-lg mx-auto items-center">
           {[
             { id: 'reels', icon: Home, label: 'Home' },
             { id: 'friends', icon: Users, label: 'Friends', badge: pendingRequests.length },
             { id: 'messages', icon: MessageSquare, label: 'Chats', badge: totalUnreadChatCount },
             { id: 'marketplace', icon: Store, label: 'Market' },
-            { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount },
-            { id: 'campus', icon: PackageSearch, label: 'Lost&Found' }
+            { id: 'notifications', icon: Bell, label: 'Alerts', badge: unreadCount }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

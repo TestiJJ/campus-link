@@ -3991,7 +3991,8 @@ export default function VendorDashboard() {
     });
   }, [marketplaceProducts, marketplaceCategory, marketplaceSearchQuery, marketplaceUniFilter]);
 
-  const scatteredMarketProducts = useRotatingFeed(filteredMarketProducts, { timeWindowMinutes: 3 });
+  const vendorMyId = user?.user_id || user?.id;
+  const scatteredMarketProducts = useRotatingFeed(filteredMarketProducts, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 20 });
 
   const filteredMarketServices = useMemo(() => {
     const searchQ = marketplaceSearchQuery.toLowerCase().trim();
@@ -4019,7 +4020,7 @@ export default function VendorDashboard() {
     });
   }, [marketplaceServices, marketplaceCategory, marketplaceSearchQuery, marketplaceUniFilter]);
 
-  const scatteredMarketServices = useRotatingFeed(filteredMarketServices, { timeWindowMinutes: 3 });
+  const scatteredMarketServices = useRotatingFeed(filteredMarketServices, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 20 });
 
   // Filtered & Scattered Reels
   const rawReelBase = useMemo(() => {
@@ -4028,7 +4029,7 @@ export default function VendorDashboard() {
       : allReels;
   }, [allReels, reelFeedFilter, user?.user_id, user?.id]);
 
-  const filteredReels = useRotatingFeed(rawReelBase, { timeWindowMinutes: 3 });
+  const filteredReels = useRotatingFeed(rawReelBase, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 20 });
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">

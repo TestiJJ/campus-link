@@ -1,13 +1,15 @@
 """
 CampusLink Education & JAMB News Aggregator Service
 Fetches real Nigerian university & tertiary education news, JAMB updates, scholarships, and ASUU developments.
+Continuously syncs from multiple verified education feeds.
 """
 
 import os
 import re
 import html
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import List, Optional
 import requests
 from sqlalchemy.orm import Session
@@ -22,7 +24,31 @@ NEWS_IMAGE_MAP = {
     "campus": "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=800&auto=format&fit=crop&q=80"
 }
 
-# Authentic benchmark Nigerian school & JAMB news articles
+# Verified live educational RSS feeds for continuous news updates
+RSS_FEEDS = [
+    {
+        "name": "Google News Nigeria Tertiary & JAMB",
+        "url": "https://news.google.com/rss/search?q=JAMB+Nigeria+OR+university+admission+OR+ASUU&hl=en-NG&gl=NG&ceid=NG:en",
+        "default_source": "National Education Desk"
+    },
+    {
+        "name": "Google News UTME & Student Loans",
+        "url": "https://news.google.com/rss/search?q=UTME+OR+NELFUND+student+loan+OR+ASUU+strike&hl=en-NG&gl=NG&ceid=NG:en",
+        "default_source": "Tertiary Education Watch"
+    },
+    {
+        "name": "Punch Education News",
+        "url": "https://punchng.com/topics/education/feed/",
+        "default_source": "Punch Education"
+    },
+    {
+        "name": "Daily Post Education News",
+        "url": "https://dailypost.ng/education/feed/",
+        "default_source": "Daily Post Education"
+    }
+]
+
+# Authentic benchmark Nigerian school & JAMB news articles (used if network is completely unreachable)
 DEFAULT_NEWS_SEED = [
     {
         "title": "JAMB Announces Official 2026/2027 UTME Registration Guidelines & Profile Code Steps",
@@ -131,79 +157,102 @@ def seed_default_news(db: Session):
         db.rollback()
         print(f"[News Service] Error seeding news: {e}")
 
-def fetch_live_rss_news(db: Session, max_items: int = 10) -> int:
-    """
-    Fetches real-time Nigerian education news from Google News RSS.
-    Parses items, dedupes by title, and stores in database.
-    """
-    rss_url = "https://news.google.com/rss/search?q=JAMB+Nigeria+OR+university+admission+OR+ASUU&hl=en-NG&gl=NG&ceid=NG:en"
-    added_count = 0
+def parse_pub_date(date_str: Optional[str]) -> datetime:
+    """Safely parse RSS pubDate or default to utcnow."""
+    if not date_str:
+        return datetime.utcnow()
     try:
-        resp = requests.get(rss_url, timeout=8, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        if resp.status_code != 200:
-            return 0
+        dt = parsedate_to_datetime(date_str)
+        # Convert to naive UTC datetime for database compatibility
+        if dt.tzinfo:
+            dt = dt.astimezone().replace(tzinfo=None)
+        return dt
+    except Exception:
+        return datetime.utcnow()
 
-        root = ET.fromstring(resp.content)
-        items = root.findall(".//item")
-        if not items:
-            return 0
+def fetch_live_rss_news(db: Session, max_items_per_feed: int = 8) -> int:
+    """
+    Fetches real-time Nigerian tertiary & JAMB education news from multiple verified RSS feeds.
+    Parses items, dedupes by title, extracts actual publish timestamps, and stores in database.
+    """
+    added_count = 0
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
+    try:
         existing_titles = {n.title.lower().strip() for n in db.query(models.CampusNews.title).all()}
 
-        for item in items[:max_items]:
-            title_node = item.find("title")
-            link_node = item.find("link")
-            desc_node = item.find("description")
-            source_node = item.find("source")
+        for feed in RSS_FEEDS:
+            try:
+                resp = requests.get(feed["url"], timeout=8, headers=headers)
+                if resp.status_code != 200:
+                    continue
 
-            if title_node is None or not title_node.text:
+                root = ET.fromstring(resp.content)
+                items = root.findall(".//item")
+                if not items:
+                    continue
+
+                for item in items[:max_items_per_feed]:
+                    title_node = item.find("title")
+                    link_node = item.find("link")
+                    desc_node = item.find("description")
+                    source_node = item.find("source")
+                    pub_node = item.find("pubDate")
+
+                    if title_node is None or not title_node.text:
+                        continue
+
+                    full_title = clean_html_tags(title_node.text)
+                    source_name = feed.get("default_source", "Campus Education Desk")
+
+                    if source_node is not None and source_node.text:
+                        source_name = source_node.text.strip()
+                    elif " - " in full_title:
+                        parts = full_title.rsplit(" - ", 1)
+                        full_title = parts[0].strip()
+                        source_name = parts[1].strip()
+
+                    clean_title_key = full_title.lower().strip()
+                    if clean_title_key in existing_titles or len(clean_title_key) < 15:
+                        continue
+
+                    desc_raw = desc_node.text if desc_node is not None else ""
+                    summary = clean_html_tags(desc_raw)
+                    if not summary or len(summary) < 20:
+                        summary = f"Latest national educational development: {full_title}. Read details for university directives and prospective student guidance."
+
+                    category = categorize_article(full_title, summary)
+                    image_url = NEWS_IMAGE_MAP.get(category, NEWS_IMAGE_MAP["university"])
+                    source_url = link_node.text.strip() if link_node is not None and link_node.text else "https://news.google.com"
+
+                    is_breaking = any(b in full_title.lower() for b in ["breaking", "announces", "deadline", "urgent", "approved", "releases", "declares"])
+                    published_at = parse_pub_date(pub_node.text if pub_node is not None else None)
+
+                    news_obj = models.CampusNews(
+                        title=full_title,
+                        summary=summary,
+                        content=f"{summary}\n\nFull official coverage available from {source_name}.",
+                        category=category,
+                        source_name=source_name,
+                        source_url=source_url,
+                        image_url=image_url,
+                        is_breaking=is_breaking,
+                        published_at=published_at
+                    )
+                    db.add(news_obj)
+                    existing_titles.add(clean_title_key)
+                    added_count += 1
+            except Exception as feed_err:
+                # Continue with other feeds if one feed fails or times out
+                print(f"[News Service] Notice: Feed {feed.get('name')} skipped ({feed_err}).")
                 continue
-
-            full_title = clean_html_tags(title_node.text)
-            source_name = "Campus Education Desk"
-            if source_node is not None and source_node.text:
-                source_name = source_node.text.strip()
-            elif " - " in full_title:
-                parts = full_title.rsplit(" - ", 1)
-                full_title = parts[0].strip()
-                source_name = parts[1].strip()
-
-            clean_title_key = full_title.lower().strip()
-            if clean_title_key in existing_titles or len(clean_title_key) < 15:
-                continue
-
-            desc_raw = desc_node.text if desc_node is not None else ""
-            summary = clean_html_tags(desc_raw)
-            if not summary or len(summary) < 20:
-                summary = f"Latest national educational development: {full_title}. Read details for university directives and prospective student guidance."
-
-            category = categorize_article(full_title, summary)
-            image_url = NEWS_IMAGE_MAP.get(category, NEWS_IMAGE_MAP["university"])
-            source_url = link_node.text.strip() if link_node is not None and link_node.text else "https://news.google.com"
-
-            is_breaking = any(b in full_title.lower() for b in ["breaking", "announces", "deadline", "urgent", "approved"])
-
-            news_obj = models.CampusNews(
-                title=full_title,
-                summary=summary,
-                content=f"{summary}\n\nFull official coverage available from {source_name}.",
-                category=category,
-                source_name=source_name,
-                source_url=source_url,
-                image_url=image_url,
-                is_breaking=is_breaking,
-                published_at=datetime.utcnow()
-            )
-            db.add(news_obj)
-            existing_titles.add(clean_title_key)
-            added_count += 1
 
         if added_count > 0:
             db.commit()
-            print(f"[News Service] Successfully synced {added_count} live news articles from RSS.")
+            print(f"[News Service] Successfully synced {added_count} fresh live news articles from RSS feeds.")
     except Exception as err:
         db.rollback()
-        print(f"[News Service] Notice: Live RSS fetch skipped ({err}). Using cached articles.")
+        print(f"[News Service] Live RSS fetch error: {err}")
 
     return added_count
 
@@ -214,8 +263,25 @@ def get_campus_news(
     university_id: Optional[int] = None,
     limit: int = 30
 ) -> List[models.CampusNews]:
-    """Retrieve news articles with intelligent fallback and search."""
+    """
+    Retrieve authentic news articles with intelligent auto-refresh if articles are stale.
+    """
     seed_default_news(db)
+
+    # Check freshness: if newest article is older than 2 hours or total count < 10, sync fresh headlines
+    try:
+        latest_item = db.query(models.CampusNews).order_by(models.CampusNews.published_at.desc()).first()
+        total_count = db.query(models.CampusNews).count()
+        is_stale = False
+        if not latest_item or total_count < 10:
+            is_stale = True
+        elif latest_item.published_at and (datetime.utcnow() - latest_item.published_at) > timedelta(hours=2):
+            is_stale = True
+
+        if is_stale:
+            fetch_live_rss_news(db, max_items_per_feed=5)
+    except Exception as check_err:
+        print(f"[News Service] Freshness check notice: {check_err}")
 
     query = db.query(models.CampusNews)
 
