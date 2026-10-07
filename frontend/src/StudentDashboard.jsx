@@ -34,6 +34,7 @@ import MentionAutocompletePopup from './components/MentionAutocompletePopup';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
+import ExpandablePostText from './components/ExpandablePostText';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
@@ -4426,13 +4427,13 @@ export default function StudentDashboard() {
     });
   }, [services, selectedCategory, searchQuery, selectedUniversityFilter]);
 
-  const scatteredServices = useRotatingFeed(filteredServices, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 20 });
+  const scatteredServices = useRotatingFeed(filteredServices, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 40, myPostGraceMinutes: 45 });
 
   const visibleReels = useMemo(() => {
     return reels.filter(r => !hiddenPostIds.includes(r.id));
   }, [reels, hiddenPostIds]);
 
-  const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 20 });
+  const scatteredReels = useRotatingFeed(visibleReels, { timeWindowMinutes: 3, currentUserId: studentMyId, freshWindowMinutes: 40, myPostGraceMinutes: 45 });
 
   // Home Feed dynamic random rotating products & services (shuffles every 2 minutes across all sellers)
   const rotatingHomeProducts = useRotatingFeed(products, { timeWindowMinutes: 2, seedOffset: dropsNonce, currentUserId: studentMyId });
@@ -5476,15 +5477,25 @@ export default function StudentDashboard() {
                     {/* Post Content */}
                     {(!reel.media_url || reel.media_type === 'text') ? (
                       <div className="px-4 pb-3.5 pt-1">
-                        <p className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed whitespace-pre-line">
-                          {reel.description || reel.title}
-                        </p>
+                        <ExpandablePostText
+                          text={reel.description || reel.title}
+                          maxChars={240}
+                          maxLines={4}
+                          className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed"
+                          isMediaCaption={false}
+                        />
                       </div>
                     ) : (
                       <>
                         {reel.description && (
-                          <div className="px-4 pb-2.5 pt-1 text-xs sm:text-sm text-slate-800 leading-relaxed font-medium">
-                            {reel.description}
+                          <div className="px-4 pb-2.5 pt-1">
+                            <ExpandablePostText
+                              text={reel.description}
+                              maxChars={140}
+                              maxLines={3}
+                              className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium"
+                              isMediaCaption={true}
+                            />
                           </div>
                         )}
                         {/* Media Display - Occupies the container cleanly without excess height */}

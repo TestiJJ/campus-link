@@ -30,6 +30,7 @@ import CampusSelectModal from './components/CampusSelectModal';
 import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
+import ExpandablePostText from './components/ExpandablePostText';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
@@ -4020,7 +4021,7 @@ export default function VendorDashboard() {
     });
   }, [marketplaceServices, marketplaceCategory, marketplaceSearchQuery, marketplaceUniFilter]);
 
-  const scatteredMarketServices = useRotatingFeed(filteredMarketServices, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 20 });
+  const scatteredMarketServices = useRotatingFeed(filteredMarketServices, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 40, myPostGraceMinutes: 45 });
 
   // Filtered & Scattered Reels
   const rawReelBase = useMemo(() => {
@@ -4029,7 +4030,7 @@ export default function VendorDashboard() {
       : allReels;
   }, [allReels, reelFeedFilter, user?.user_id, user?.id]);
 
-  const filteredReels = useRotatingFeed(rawReelBase, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 20 });
+  const filteredReels = useRotatingFeed(rawReelBase, { timeWindowMinutes: 3, currentUserId: vendorMyId, freshWindowMinutes: 40, myPostGraceMinutes: 45 });
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-slate-50 text-slate-900 font-sans antialiased flex flex-col md:flex-row select-none">
@@ -7456,21 +7457,29 @@ export default function VendorDashboard() {
                           </div>
                         </div>
 
-                        {/* Content: Clean Post Caption (No Bold Heading) */}
+                        {/* Content: Clean Post Caption with Read more for long posts */}
                         {(!reel.media_url || isVideo === false && reel.media_type === 'text') ? (
                           (reel.description || (reel.title && !['Campus Post', 'Campus Moment', 'Post'].includes(reel.title))) && (
                             <div className="px-4 pb-3.5 pt-1">
-                              <p className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed whitespace-pre-line">
-                                {reel.description && reel.description.trim() ? reel.description : reel.title}
-                              </p>
+                              <ExpandablePostText
+                                text={reel.description && reel.description.trim() ? reel.description : reel.title}
+                                maxChars={240}
+                                maxLines={4}
+                                className="text-slate-800 text-sm sm:text-[15px] font-medium leading-relaxed"
+                                isMediaCaption={false}
+                              />
                             </div>
                           )
                         ) : (
                           (reel.description || (reel.title && !['Campus Post', 'Campus Moment', 'Post'].includes(reel.title))) && (
                             <div className="px-4 pb-2.5 pt-1">
-                              <p className="text-xs sm:text-sm text-slate-800 leading-relaxed whitespace-pre-line font-medium">
-                                {reel.description && reel.description.trim() ? reel.description : reel.title}
-                              </p>
+                              <ExpandablePostText
+                                text={reel.description && reel.description.trim() ? reel.description : reel.title}
+                                maxChars={140}
+                                maxLines={3}
+                                className="text-xs sm:text-sm text-slate-800 leading-relaxed font-medium"
+                                isMediaCaption={true}
+                              />
                             </div>
                           )
                         )}

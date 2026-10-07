@@ -15,30 +15,55 @@ function createMulberry32(seed) {
 }
 
 /**
- * Helper to determine the age of an item in minutes.
+ * Safely parses the timestamp of an item into epoch milliseconds (UTC).
+ * Corrects naive ISO strings from FastAPI/PostgreSQL so all timezones calculate
+ * post recency identically.
  */
-function getItemAgeMinutes(item) {
+export function parseItemTimestamp(item) {
+  if (!item) return 0;
+  if (item.is_optimistic || item._is_new) return Date.now();
+  const rawDate = item.created_at || item.createdAt || item.date || item.timestamp;
+  if (!rawDate) return 0;
+
+  try {
+    let raw = String(rawDate).trim();
+    // Normalize "2026-10-07 10:45:00" -> "2026-10-07T10:45:00"
+    let iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    // If naive timestamp without timezone offset, append 'Z' for UTC
+    if (!iso.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(iso)) {
+      iso += 'Z';
+    }
+    const parsed = new Date(iso).getTime();
+    if (!isNaN(parsed)) return parsed;
+  } catch {}
+
+  const fallback = new Date(rawDate).getTime();
+  return !isNaN(fallback) ? fallback : 0;
+}
+
+/**
+ * Helper to determine the accurate age of an item in minutes.
+ */
+export function getItemAgeMinutes(item) {
   if (!item) return Infinity;
   if (item.is_optimistic || item._is_new) return 0;
-  const rawDate = item.created_at || item.createdAt || item.date || item.timestamp;
-  if (!rawDate) return Infinity;
-  const parsed = new Date(rawDate).getTime();
-  if (isNaN(parsed)) return Infinity;
-  const ageMs = Date.now() - parsed;
-  return ageMs > 0 ? ageMs / (60 * 1000) : 0;
+  const timeMs = parseItemTimestamp(item);
+  if (!timeMs) return Infinity;
+  const diffMs = Date.now() - timeMs;
+  // If slightly in the future due to server clock drift, age is 0 minutes
+  return diffMs > 0 ? diffMs / (60 * 1000) : 0;
 }
 
 /**
  * Scatters and randomly rotates feed items over time.
  *
- * FRESH POST PRIORITY RULE:
- * - If someone posts a new picture or post, it MUST come first in the feed!
- * - It stays at the top of the feed for a grace period (e.g. 20-30 minutes) before
- *   blending into the periodic rotating scattered pool.
- * - Posts by the current user stay prioritized even longer (45 minutes) so the
- *   author immediately sees their post at the front of their feed.
- * - All other (older) items are pseudo-randomly shuffled and author-interleaved
- *   every `timeWindowMinutes` (default: 3 minutes) so the feed stays lively and fair.
+ * FRESH POST RECENCY RULE:
+ * - Every new post (by latest date) appears at the front of EVERYONE's feed
+ *   for a limited grace period (default: 40 minutes).
+ * - Fresh posts are ordered strictly newest-first (latest date first).
+ * - Authors also enjoy priority for their own posts for up to 45 minutes.
+ * - After this initial window, older posts seamlessly rejoin the pseudo-random
+ *   rotating pool, shuffling and alternating across creators every `timeWindowMinutes`.
  *
  * @param {Array} items - Array of feed items (reels, products, services)
  * @param {Object} options - Configuration options
@@ -51,7 +76,7 @@ export function scatterFeed(items = [], options = {}) {
 
   const {
     timeWindowMinutes = 3,
-    freshWindowMinutes = 20,
+    freshWindowMinutes = 40,
     myPostGraceMinutes = 45,
     currentUserId = null,
     authorKey = (item) => (
@@ -75,8 +100,8 @@ export function scatterFeed(items = [], options = {}) {
     const itemAuthor = String(item.user_id || item.author_id || item.creator_id || item.vendor_id || item.vendor_user_id || '');
     const isMyPost = currentUserId && itemAuthor === String(currentUserId);
 
-    // If it is the current user's post within grace period, or any post within fresh window:
-    const isFresh = (isMyPost && ageMins <= myPostGraceMinutes) || (ageMins <= freshWindowMinutes);
+    // If it is any new post within the fresh window, or user's own post within grace period:
+    const isFresh = (ageMins <= freshWindowMinutes) || (isMyPost && ageMins <= myPostGraceMinutes);
 
     if (isFresh) {
       freshItems.push(item);
@@ -85,11 +110,9 @@ export function scatterFeed(items = [], options = {}) {
     }
   }
 
-  // Fresh items stay strictly ordered newest-first so the newest post is at the very top
+  // Fresh items stay strictly ordered newest-first so the newest post is at the very top of everyone's feed
   freshItems.sort((a, b) => {
-    const timeA = new Date(a.created_at || a.createdAt || a.date || a.timestamp || 0).getTime() || 0;
-    const timeB = new Date(b.created_at || b.createdAt || b.date || b.timestamp || 0).getTime() || 0;
-    return timeB - timeA;
+    return parseItemTimestamp(b) - parseItemTimestamp(a);
   });
 
   if (olderItems.length <= 1) {
