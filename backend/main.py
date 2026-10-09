@@ -2895,12 +2895,58 @@ def update_vendor_store(
     if "logo" in data and data["logo"]:
         vendor.logo = data["logo"].strip()
         current_user.profile_picture_url = data["logo"].strip()
-    if "category_id" in data and data["category_id"]:
-        vendor.category_id = int(data["category_id"])
+    custom_cat = (data.get("custom_category") or "").strip()
+    if custom_cat:
+        existing_cat = db.query(models.Category).filter(
+            func.lower(models.Category.name) == custom_cat.lower()
+        ).first()
+        if existing_cat:
+            vendor.category_id = existing_cat.id
+        else:
+            new_cat = models.Category(
+                name=custom_cat,
+                icon="Tag",
+                description=f"Store category: {custom_cat}"
+            )
+            db.add(new_cat)
+            db.flush()
+            vendor.category_id = new_cat.id
+    elif "category_id" in data and data["category_id"] and str(data["category_id"]).lower() != "other":
+        try:
+            vendor.category_id = int(data["category_id"])
+        except (ValueError, TypeError):
+            pass
 
     db.commit()
     db.refresh(vendor)
-    return {"message": "Store profile updated successfully!", "vendor": vendor}
+
+    refreshed_vendor = db.query(models.Vendor).options(
+        joinedload(models.Vendor.university),
+        joinedload(models.Vendor.category)
+    ).filter(models.Vendor.id == vendor.id).first()
+
+    cat_name = refreshed_vendor.category.name if (refreshed_vendor and refreshed_vendor.category) else (custom_cat or "General")
+
+    return {
+        "message": "Store profile updated successfully!",
+        "vendor": {
+            "id": vendor.id,
+            "user_id": vendor.user_id,
+            "business_name": vendor.business_name,
+            "business_description": vendor.business_description,
+            "category_id": vendor.category_id,
+            "category_name": cat_name,
+            "university_id": vendor.university_id,
+            "state": vendor.state,
+            "location": vendor.location,
+            "phone": vendor.phone,
+            "logo": vendor.logo,
+            "cover_image": vendor.cover_image,
+            "verification_status": vendor.verification_status,
+        },
+        "category_name": cat_name,
+        "category_id": vendor.category_id
+    }
 
 @app.post("/api/vendor/verification")
 def submit_vendor_verification(

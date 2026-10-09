@@ -406,6 +406,32 @@ export default function VendorDashboard() {
   const [marketplaceType, setMarketplaceType] = useState('products'); // 'products' | 'services'
   const [marketplaceCategory, setMarketplaceCategory] = useState('all');
   const [categories, setCategories] = useState(() => getCachedData('categories', []));
+
+  const defaultStoreCategories = [
+    { id: 1, name: 'Food & Meals (Cafeteria / Restaurant)' },
+    { id: 2, name: 'Fashion, Shoes & Wears' },
+    { id: 3, name: 'Laptops, Phones & Accessories' },
+    { id: 4, name: 'Academic Materials & Books' },
+    { id: 5, name: 'Laundry, Styling & Campus Services' },
+    { id: 6, name: 'Hostel Essentials & Groceries' },
+  ];
+
+  const availableStoreCategories = useMemo(() => {
+    const baseList = (categories && categories.length > 0) ? [...categories] : [...defaultStoreCategories];
+    const hasCategory = (id) => baseList.some(c => String(c.id) === String(id));
+
+    defaultStoreCategories.forEach(d => {
+      if (!hasCategory(d.id)) {
+        baseList.push(d);
+      }
+    });
+
+    if (vendorStore?.category_id && vendorStore?.category_name && !hasCategory(vendorStore.category_id)) {
+      baseList.push({ id: vendorStore.category_id, name: vendorStore.category_name });
+    }
+
+    return baseList;
+  }, [categories, vendorStore?.category_id, vendorStore?.category_name]);
   const [marketplaceSearchQuery, setMarketplaceSearchQuery] = useState('');
   const [marketplaceSelectedItem, setMarketplaceSelectedItem] = useState(null);
   const [viewProductDetails, setViewProductDetails] = useState(null);
@@ -675,6 +701,7 @@ export default function VendorDashboard() {
     business_description: '',
     location: '',
     category_id: 1,
+    custom_category: '',
     bio: ''
   });
   const [passwordForm, setPasswordForm] = useState({
@@ -1988,6 +2015,7 @@ export default function VendorDashboard() {
               business_description: storeData.business_description || '',
               location: storeData.location || '',
               category_id: storeData.category_id || 1,
+              custom_category: '',
               bio: user?.bio || ''
             });
 
@@ -2358,10 +2386,33 @@ export default function VendorDashboard() {
   };
 
   // --- SETTINGS & PROFILE EDIT ACTIONS ---
+  const handleOpenEditProfile = () => {
+    setProfileForm({
+      full_name: vendorStore?.user_name || user?.full_name || '',
+      phone_number: vendorStore?.phone || user?.phone_number || '',
+      business_name: vendorStore?.business_name || '',
+      business_description: vendorStore?.business_description || '',
+      location: vendorStore?.location || '',
+      category_id: vendorStore?.category_id || 1,
+      custom_category: '',
+      bio: user?.bio || ''
+    });
+    setEditProfileModalOpen(true);
+  };
+
   const handleUpdateVendorProfile = async (e) => {
     e.preventDefault();
     setSavingProfile(true);
     try {
+      const isOther = String(profileForm.category_id) === 'other';
+      const customCategoryName = (profileForm.custom_category || '').trim();
+
+      if (isOther && !customCategoryName) {
+        showToast('Please specify your custom store category name.', 'error');
+        setSavingProfile(false);
+        return;
+      }
+
       // 1. Update user profile
       await API.put('/users/profile', {
         full_name: profileForm.full_name.trim(),
@@ -2370,13 +2421,20 @@ export default function VendorDashboard() {
       });
 
       // 2. Update vendor store
-      await API.put('/vendor/my-store', {
+      const storePayload = {
         business_name: profileForm.business_name.trim(),
         business_description: profileForm.business_description.trim(),
         location: profileForm.location.trim(),
         phone: profileForm.phone_number.trim(),
-        category_id: parseInt(profileForm.category_id) || 1
-      });
+      };
+
+      if (isOther && customCategoryName) {
+        storePayload.custom_category = customCategoryName;
+      } else {
+        storePayload.category_id = parseInt(profileForm.category_id) || 1;
+      }
+
+      const storeRes = await API.put('/vendor/my-store', storePayload);
 
       // Update local storage
       const stored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -2388,6 +2446,21 @@ export default function VendorDashboard() {
       };
       localStorage.setItem('user', JSON.stringify(updated));
       setUser(updated);
+
+      // Optimistically update vendor store badge/profile with custom category
+      const returnedCatName = storeRes?.data?.category_name || (isOther ? customCategoryName : null);
+      const returnedCatId = storeRes?.data?.category_id || storeRes?.data?.vendor?.category_id;
+      if (returnedCatName) {
+        setVendorStore((prev) => ({
+          ...prev,
+          category_name: returnedCatName,
+          category_id: returnedCatId || prev?.category_id,
+          business_name: profileForm.business_name.trim(),
+          business_description: profileForm.business_description.trim(),
+          location: profileForm.location.trim(),
+          phone: profileForm.phone_number.trim(),
+        }));
+      }
 
       showToast('Store profile & settings updated successfully!', 'success');
       setEditProfileModalOpen(false);
@@ -8031,7 +8104,7 @@ export default function VendorDashboard() {
                     <div className="mt-3.5 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-start sm:space-x-2 w-full max-w-xs mx-auto sm:mx-0">
                       <button
                         type="button"
-                        onClick={() => setEditProfileModalOpen(true)}
+                        onClick={handleOpenEditProfile}
                         className="w-full sm:w-auto px-4 py-2.5 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
                       >
                         <Edit3 className="w-3.5 h-3.5 shrink-0" />
@@ -8300,7 +8373,7 @@ export default function VendorDashboard() {
                   {/* Store Profile Row */}
                   <button
                     type="button"
-                    onClick={() => setEditProfileModalOpen(true)}
+                    onClick={handleOpenEditProfile}
                     className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
                   >
                     <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
@@ -8310,7 +8383,7 @@ export default function VendorDashboard() {
                       <div className="min-w-0 flex-1">
                         <h4 className="text-xs sm:text-sm font-bold text-slate-900">Store Identity & Contact Details</h4>
                         <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                          {vendorStore?.business_name || 'Set store name'} • {vendorStore?.phone || user?.phone_number || 'Hotline'}
+                          {vendorStore?.business_name || 'Set store name'} • {vendorStore?.category_name || 'Category'} • {vendorStore?.phone || user?.phone_number || 'Hotline'}
                         </p>
                       </div>
                     </div>
@@ -8320,7 +8393,7 @@ export default function VendorDashboard() {
                   {/* Stall & Delivery Spot Row */}
                   <button
                     type="button"
-                    onClick={() => setEditProfileModalOpen(true)}
+                    onClick={handleOpenEditProfile}
                     className="w-full p-3.5 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50 transition-colors cursor-pointer group min-w-0"
                   >
                     <div className="flex items-center space-x-3 min-w-0 flex-1 pr-2">
@@ -8968,18 +9041,44 @@ export default function VendorDashboard() {
                     <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Store Category</label>
                     <select
                       value={profileForm.category_id}
-                      onChange={(e) => setProfileForm({ ...profileForm, category_id: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setProfileForm({
+                          ...profileForm,
+                          category_id: val,
+                          custom_category: val === 'other' ? profileForm.custom_category : ''
+                        });
+                      }}
                       className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm"
                     >
-                      <option value={1}>Food & Meals (Cafeteria / Restaurant)</option>
-                      <option value={2}>Fashion, Shoes & Wears</option>
-                      <option value={3}>Laptops, Phones & Accessories</option>
-                      <option value={4}>Academic Materials & Books</option>
-                      <option value={5}>Laundry, Styling & Campus Services</option>
-                      <option value={6}>Hostel Essentials & Groceries</option>
+                      {availableStoreCategories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                      <option value="other">Others (Specify below)</option>
                     </select>
                   </div>
                 </div>
+
+                {String(profileForm.category_id) === 'other' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-sky-600 uppercase mb-1">
+                      Specify Custom Store Category <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Handmade Crafts, Hair Styling & Barbering, Pharmacy, Photography..."
+                      value={profileForm.custom_category || ''}
+                      onChange={(e) => setProfileForm({ ...profileForm, custom_category: e.target.value })}
+                      className="w-full p-3 bg-sky-50/50 border border-sky-300 rounded-xl text-slate-800 focus:outline-none focus:border-sky-500 text-[16px] sm:text-sm font-semibold"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Enter your category. It will be saved and displayed on your storefront and campus listings.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Stall Spot / Campus Delivery Location</label>

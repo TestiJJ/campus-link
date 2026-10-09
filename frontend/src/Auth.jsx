@@ -309,16 +309,19 @@ export default function Auth() {
     const msg = String(err?.message || '');
     const code = String(err?.code || '');
 
-    // 2. Network Connection Breakdown (ERR_NETWORK, net::ERR_FAILED, Host unreachable)
+    // 2. Network Connection Breakdown (ERR_NETWORK, net::ERR_FAILED, Host unreachable, offline)
     if (
+      (typeof navigator !== 'undefined' && !navigator.onLine) ||
       code === 'ERR_NETWORK' ||
       err?.name === 'TypeError' ||
       msg.includes('Failed to fetch') ||
       msg.includes('NetworkError') ||
       msg.includes('net::ERR_FAILED') ||
-      msg.toLowerCase().includes('network error')
+      msg.toLowerCase().includes('network error') ||
+      msg.toLowerCase().includes('network') ||
+      msg.toLowerCase().includes('connection')
     ) {
-      return 'Cannot connect to CampusLink server. Please verify backend service status on Render.';
+      return 'Network connection error. Please check your internet connection and try again.';
     }
 
     // 3. HTTP Gateway Timeouts
@@ -328,7 +331,7 @@ export default function Auth() {
       msg.includes('502') ||
       msg.includes('503')
     ) {
-      return 'Server is warming up on Render. Please wait a few seconds and try again.';
+      return 'Server is temporarily unavailable or busy. Please wait a moment and try again.';
     }
 
     return msg || defaultMsg;
@@ -415,6 +418,11 @@ export default function Auth() {
         triggerValidationError('You must accept the CampusLink Community Safety Agreement to proceed.', 'agreedToTerms');
         return;
       }
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      triggerValidationError('Network connection error. Please check your internet connection and try again.', 'auth-error-banner-bottom');
+      return;
     }
 
     setLoading(true);
@@ -543,6 +551,12 @@ export default function Auth() {
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     setErrorMessage('');
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorMessage('Network connection error. Please check your internet connection and try again.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -600,8 +614,14 @@ export default function Auth() {
 
   const handleResendOtp = async () => {
     if (resendCooldown > 0 || resendLoading) return;
-    setResendLoading(true);
     setErrorMessage('');
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorMessage('Network connection error. Please check your internet connection and try again.');
+      return;
+    }
+
+    setResendLoading(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/resend-otp`, {
@@ -650,6 +670,11 @@ export default function Auth() {
       return;
     }
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setForgotError('Network connection error. Please check your internet connection and try again.');
+      return;
+    }
+
     setForgotLoading(true);
     setForgotError('');
     setForgotSuccess('');
@@ -672,7 +697,7 @@ export default function Auth() {
       setForgotCooldown(60);
       setForgotSuccess(data.message || 'A 6-digit reset code has been sent to your email.');
     } catch (err) {
-      setForgotError(err.message || 'Failed to send password reset code.');
+      setForgotError(formatAuthError(err, null, 'Failed to send password reset code.'));
     } finally {
       setForgotLoading(false);
     }
@@ -680,8 +705,14 @@ export default function Auth() {
 
   const handleResendResetCode = async () => {
     if (forgotCooldown > 0 || forgotLoading) return;
-    setForgotLoading(true);
     setForgotError('');
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setForgotError('Network connection error. Please check your internet connection and try again.');
+      return;
+    }
+
+    setForgotLoading(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/forgot-password`, {
@@ -700,7 +731,7 @@ export default function Auth() {
       setForgotCooldown(60);
       setForgotSuccess('A fresh 6-digit reset code has been sent to your email.');
     } catch (err) {
-      setForgotError(err.message || 'Failed to resend reset code.');
+      setForgotError(formatAuthError(err, null, 'Failed to resend reset code.'));
     } finally {
       setForgotLoading(false);
     }
@@ -723,6 +754,11 @@ export default function Auth() {
 
     if (forgotNewPassword !== forgotConfirmPassword) {
       setForgotError('Passwords do not match. Please verify both fields.');
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setForgotError('Network connection error. Please check your internet connection and try again.');
       return;
     }
 
@@ -757,7 +793,7 @@ export default function Auth() {
       setOtpSuccessMessage(data.message || 'Password reset successful! Please sign in with your new password.');
       setErrorMessage('');
     } catch (err) {
-      setForgotError(err.message || 'Failed to reset password.');
+      setForgotError(formatAuthError(err, null, 'Failed to reset password.'));
     } finally {
       setForgotLoading(false);
     }

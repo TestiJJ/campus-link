@@ -146,7 +146,7 @@ export default function CreateGroupModal({ isOpen, onClose, onGroupCreated, curr
       onClose();
     } catch (err) {
       if (err?.response?.status === 404) {
-        setErrorMessage('Backend group service is currently deploying on Render. Please give it 1-2 minutes or trigger Manual Deploy on Render.');
+        setErrorMessage('Group service is currently initializing. Please try again in a moment.');
       } else {
         const detail = err?.response?.data?.detail || err?.message || 'Failed to create group. Please try again.';
         setErrorMessage(detail);
