@@ -538,6 +538,7 @@ export default function VendorDashboard() {
   // Status Stories States (SWR Instant-Load Cache)
   const [statusGroups, setStatusGroups] = useState(() => getCachedData('statusGroups', []));
   const [activeStatusViewer, setActiveStatusViewer] = useState(null); // { userIdx: 0, itemIdx: 0 }
+  const [storyMediaBuffering, setStoryMediaBuffering] = useState(false);
   const [createStatusModalOpen, setCreateStatusModalOpen] = useState(false);
   const [statusMediaFile, setStatusMediaFile] = useState(null);
   const [statusMediaPreview, setStatusMediaPreview] = useState(null);
@@ -9804,18 +9805,19 @@ export default function VendorDashboard() {
                       </div>
                     </div>
 
-                    {/* Center Content Slide */}
-                    <div className="relative flex-1 flex items-center justify-center overflow-hidden">
-                      {/* Click zones for Prev / Next */}
+                    {/* Center Content Slide - Tap/Click anywhere on story advances to next story */}
+                    <div
+                      onClick={handleNext}
+                      className="relative flex-1 flex items-center justify-center overflow-hidden cursor-pointer select-none"
+                    >
+                      {/* Left 25% zone: Click to navigate to Previous Story */}
                       <div
-                        onClick={handlePrev}
-                        className="absolute left-0 top-0 bottom-0 w-1/3 z-10 cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePrev();
+                        }}
+                        className="absolute left-0 top-0 bottom-0 w-1/4 z-30 cursor-pointer"
                         title="Previous"
-                      />
-                      <div
-                        onClick={handleNext}
-                        className="absolute right-0 top-0 bottom-0 w-1/3 z-10 cursor-pointer"
-                        title="Next"
                       />
 
                       {/* WhatsApp-Style In-Card Visible Prev/Next Arrow Buttons */}
@@ -9863,28 +9865,40 @@ export default function VendorDashboard() {
                                 src={mediaUrl}
                                 autoPlay
                                 playsInline
-                                controls
-                                className="w-full h-full object-contain rounded-xl"
+                                onWaiting={() => setStoryMediaBuffering(true)}
+                                onPlaying={() => setStoryMediaBuffering(false)}
+                                onCanPlay={() => setStoryMediaBuffering(false)}
+                                onLoadStart={() => setStoryMediaBuffering(true)}
+                                onLoadedData={() => setStoryMediaBuffering(false)}
+                                onEnded={handleNext}
+                                className="w-full h-full object-contain rounded-xl pointer-events-none"
                               />
+                              {storyMediaBuffering && (
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                                  <div className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-lg">
+                                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         }
 
                         if (currentItem.media_type === 'image' || mediaUrl) {
                           return (
-                            <div className="w-full h-full flex items-center justify-center p-2 relative">
+                            <div className="w-full h-full flex items-center justify-center p-2 relative pointer-events-none">
                               <SafeImage
                                 src={mediaUrl}
                                 alt="Story"
                                 fallbackType="product"
-                                className="w-full h-full object-contain"
+                                className="w-full h-full object-contain pointer-events-none"
                               />
                             </div>
                           );
                         }
 
                         return (
-                          <div className={`w-full h-full bg-gradient-to-br ${currentItem.background_color || 'from-emerald-600 to-teal-800'} flex items-center justify-center p-8 text-center text-white text-base font-bold leading-relaxed`}>
+                          <div className={`w-full h-full bg-gradient-to-br ${currentItem.background_color || 'from-emerald-600 to-teal-800'} flex items-center justify-center p-8 text-center text-white text-base font-bold leading-relaxed pointer-events-none select-none`}>
                             {currentItem.caption}
                           </div>
                         );

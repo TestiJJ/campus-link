@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Globe, MapPin, Search, X, Check, Building2, GraduationCap, Sparkles
+  Globe, MapPin, Search, X, Check, Building2, GraduationCap
 } from 'lucide-react';
 
 export default function CampusSelectModal({
@@ -14,6 +14,7 @@ export default function CampusSelectModal({
   subtitle = "Filter goods, stores and services by institution"
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const listContainerRef = useRef(null);
 
   // Reset search whenever modal opens
   useEffect(() => {
@@ -22,15 +23,28 @@ export default function CampusSelectModal({
     }
   }, [isOpen]);
 
-  // Lock body scroll on mobile when modal is open
+  // Scroll to top of results whenever user types a search query
+  useEffect(() => {
+    if (listContainerRef.current) {
+      listContainerRef.current.scrollTop = 0;
+    }
+  }, [searchQuery]);
+
+  // Lock body & main container scroll when modal is open
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      const mainEl = document.querySelector('main');
+      if (mainEl) mainEl.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
+      const mainEl = document.querySelector('main');
+      if (mainEl) mainEl.style.overflow = '';
     }
     return () => {
       document.body.style.overflow = '';
+      const mainEl = document.querySelector('main');
+      if (mainEl) mainEl.style.overflow = '';
     };
   }, [isOpen]);
 
@@ -54,13 +68,14 @@ export default function CampusSelectModal({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [universities]);
 
-  // Filtered by search query
+  // Filtered and ranked by search query relevance so the user's preferred university appears at the very top
   const filteredInstitutions = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return availableInstitutions;
     const cleanQ = q.replace(/\buni\b/g, 'university').trim();
     const words = q.split(/\s+/).filter(Boolean);
-    return availableInstitutions.filter((u) => {
+
+    const matches = availableInstitutions.filter((u) => {
       const name = (u.name || '').toLowerCase();
       const abbr = (u.abbreviation || '').toLowerCase();
       const state = (u.state || '').toLowerCase();
@@ -70,6 +85,30 @@ export default function CampusSelectModal({
         const tokenNorm = token === 'uni' ? 'university' : token;
         return name.includes(tokenNorm) || abbr.includes(token) || state.includes(token);
       });
+    });
+
+    // Score for relevance so preferred university / acronyms appear immediately at the top
+    return matches.sort((a, b) => {
+      const score = (u) => {
+        const name = (u.name || '').toLowerCase();
+        const abbr = (u.abbreviation || '').toLowerCase();
+        let s = 0;
+        if (abbr === q) s += 1000;
+        else if (abbr.startsWith(q)) s += 700;
+        else if (abbr.includes(q)) s += 500;
+
+        if (name === q || name === cleanQ) s += 900;
+        else if (name.startsWith(q) || name.startsWith(cleanQ)) s += 600;
+        else if (name.includes(` ${q}`) || name.includes(` ${cleanQ}`)) s += 400;
+        else if (name.includes(q)) s += 200;
+
+        return s;
+      };
+
+      const scoreA = score(a);
+      const scoreB = score(b);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      return a.name.localeCompare(b.name);
     });
   }, [availableInstitutions, searchQuery]);
 
@@ -85,7 +124,7 @@ export default function CampusSelectModal({
     >
       {/* Modal Container: Bottom Sheet on Mobile, Centered Dialog on Desktop */}
       <div
-        className="w-full sm:max-w-lg bg-white rounded-t-[32px] sm:rounded-3xl shadow-2xl flex flex-col max-h-[90vh] sm:max-h-[85vh] overflow-hidden border border-slate-200 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200"
+        className="w-full sm:max-w-lg bg-white rounded-t-[32px] sm:rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] sm:max-h-[85dvh] overflow-hidden border border-slate-200 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Mobile Drag Indicator Handle */}
@@ -142,7 +181,7 @@ export default function CampusSelectModal({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2.5">
+        <div ref={listContainerRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2.5">
           {/* Quick Primary Actions: All Campuses & My Campus */}
           {!searchQuery && (
             <div className="space-y-2 mb-3">
@@ -215,9 +254,8 @@ export default function CampusSelectModal({
                       <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
                         My Campus
                       </span>
-                      <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full border border-blue-200 flex items-center space-x-0.5 shrink-0">
-                        <Sparkles className="w-2.5 h-2.5 text-blue-600" />
-                        <span>Registered</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-2 py-0.5 rounded-full border border-blue-200 shrink-0">
+                        Registered
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-600 truncate mt-0.5 font-medium">
