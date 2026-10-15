@@ -16,6 +16,7 @@ import {
   Archive, ArchiveRestore, AtSign, ArrowLeft
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
+import { useUpload } from './context/UploadContext';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner from './components/InAppChatBanner';
@@ -318,6 +319,7 @@ const formatItemPrice = (val) => {
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
+  const { startUpload } = useUpload();
   const [currentUser, setCurrentUser] = useState(() => {
     const cached = getCachedData('student_user', null);
     if (cached) return cached;
@@ -3375,48 +3377,70 @@ export default function StudentDashboard() {
       alert('Please select a photo or video to share to your campus story.');
       return;
     }
-    setSubmittingStatus(true);
-    try {
-      let mediaUrl = null;
-      let mediaType = 'text';
 
-      if (statusMode === 'media' && statusMediaFile) {
-        const isVid = (
-          (statusMediaFile.type && statusMediaFile.type.startsWith('video')) ||
-          Boolean(statusMediaFile.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
-        );
-        mediaType = isVid ? 'video' : 'image';
-        mediaUrl = await uploadFile(statusMediaFile);
+    // Capture upload payload context before resetting state
+    const fileToUpload = statusMediaFile;
+    const previewToDisplay = statusMediaPreview;
+    const mode = statusMode;
+    const captionText = newStatusForm.caption?.trim() || '';
+    const bgColor = mode === 'text' ? (newStatusForm.background_color || 'from-emerald-600 to-teal-800') : null;
+    const privacy = statusPrivacy;
+    const audience = statusPrivacy === 'custom' ? [...selectedAudienceFriends] : [];
+
+    // Instantly close modal & reset form for 0ms delay (X/Twitter style)
+    setCreateStatusModalOpen(false);
+    setStatusMediaFile(null);
+    setStatusMediaPreview(null);
+    setNewStatusForm({
+      media_type: 'image',
+      caption: '',
+      background_color: 'from-emerald-600 to-teal-800',
+      media_url: ''
+    });
+    setSubmittingStatus(false);
+
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'story',
+      title: 'Sharing campus story...',
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let mediaUrl = null;
+        let mediaType = 'text';
+
+        if (mode === 'media' && fileToUpload) {
+          const isVid = (
+            (fileToUpload.type && fileToUpload.type.startsWith('video')) ||
+            Boolean(fileToUpload.name && fileToUpload.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
+          );
+          mediaType = isVid ? 'video' : 'image';
+          mediaUrl = await uploadFile(fileToUpload, onProgress);
+        }
+
+        const payload = {
+          media_type: mediaType,
+          caption: captionText,
+          background_color: bgColor,
+          media_url: mediaUrl,
+          privacy_setting: privacy,
+          allowed_user_ids: audience
+        };
+        await API.post('/campus/statuses', payload);
+      },
+      onSuccess: () => {
+        fetchCampusStatuses();
+        setToast({ 
+          text: 'Story shared! Visible to your campus circle.', 
+          type: 'success' 
+        });
+      },
+      onError: (err) => {
+        setToast({
+          text: err.response?.data?.detail || 'Failed to post story. Tap retry below.',
+          type: 'error'
+        });
       }
-
-      const payload = {
-        media_type: mediaType,
-        caption: newStatusForm.caption?.trim() || '',
-        background_color: statusMode === 'text' ? (newStatusForm.background_color || 'from-emerald-600 to-teal-800') : null,
-        media_url: mediaUrl,
-        privacy_setting: statusPrivacy,
-        allowed_user_ids: statusPrivacy === 'custom' ? selectedAudienceFriends : []
-      };
-      await API.post('/campus/statuses', payload);
-      setToast({ 
-        text: 'Story shared! Visible to your campus circle.', 
-        type: 'success' 
-      });
-      setCreateStatusModalOpen(false);
-      setStatusMediaFile(null);
-      setStatusMediaPreview(null);
-      setNewStatusForm({
-        media_type: 'image',
-        caption: '',
-        background_color: 'from-emerald-600 to-teal-800',
-        media_url: ''
-      });
-      fetchCampusStatuses();
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post story.');
-    } finally {
-      setSubmittingStatus(false);
-    }
+    });
   };
 
   const handleReplyToStatus = async (customText = null) => {
@@ -4060,41 +4084,58 @@ export default function StudentDashboard() {
 
   // Post Reel Submit (Supports pure text, normal photos, and videos)
   const handlePostReelSubmit = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     if (!reelFile && !reelText.trim()) {
       alert('Please add a photo, video or write some text to share!');
       return;
     }
 
-    setReelPosting(true);
-    try {
-      let mediaUrl = null;
-      let mediaType = 'text';
+    const fileToUpload = reelFile;
+    const previewToDisplay = reelPreview;
+    const textContent = reelText.trim();
+    const loc = reelLocation || `${universityName} Campus`;
 
-      if (reelFile) {
-        mediaUrl = await uploadFile(reelFile);
-        mediaType = reelFile.type.startsWith('video') ? 'video' : 'image';
+    // Immediately close modal & clear inputs (0ms delay)
+    setQuickPostModalOpen(false);
+    setReelText('');
+    setReelFile(null);
+    setReelPreview(null);
+    setReelLocation('');
+    setReelPosting(false);
+
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'drop',
+      title: 'Sharing campus drop...',
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let mediaUrl = null;
+        let mediaType = 'text';
+
+        if (fileToUpload) {
+          mediaUrl = await uploadFile(fileToUpload, onProgress);
+          mediaType = fileToUpload.type.startsWith('video') ? 'video' : 'image';
+        }
+
+        await API.post('/reels', {
+          title: textContent ? textContent.slice(0, 60) : 'Campus Moment',
+          description: textContent || undefined,
+          media_url: mediaUrl,
+          media_type: mediaType,
+          location: loc
+        });
+      },
+      onSuccess: () => {
+        setToast({ text: 'Post published to campus feed!', type: 'success' });
+        API.get('/reels').then(res => setReels(res.data)).catch(() => {});
+      },
+      onError: (err) => {
+        setToast({
+          text: err.response?.data?.detail || 'Failed to post to campus. Tap retry below.',
+          type: 'error'
+        });
       }
-
-      await API.post('/reels', {
-        title: reelText.trim() ? reelText.trim().slice(0, 60) : 'Campus Moment',
-        description: reelText.trim() || undefined,
-        media_url: mediaUrl,
-        media_type: mediaType,
-        location: reelLocation || `${universityName} Campus`
-      });
-
-      setReelText('');
-      setReelFile(null);
-      setReelPreview(null);
-      setToast({ text: 'Post published to campus feed!', type: 'success' });
-      const res = await API.get('/reels');
-      setReels(res.data);
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Failed to post to campus.');
-    } finally {
-      setReelPosting(false);
-    }
+    });
   };
 
   // Delete Reel Post

@@ -44,6 +44,7 @@ NIGERIAN_INSTITUTIONS = [
     # Private Universities
     {"name": "Afe Babalola University, Ado-Ekiti", "state": "Ekiti", "type": "Private"},
     {"name": "Ajayi Crowther University, Oyo", "state": "Oyo", "type": "Private"},
+    {"name": "Al-Hikmah University, Ilorin", "state": "Kwara", "type": "Private", "abbreviation": "HIKMAH"},
     {"name": "Babcock University, Ilishan-Remo", "state": "Ogun", "type": "Private"},
     {"name": "Bells University of Technology, Ota", "state": "Ogun", "type": "Private"},
     {"name": "Bowen University, Iwo", "state": "Osun", "type": "Private"},

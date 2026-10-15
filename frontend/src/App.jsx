@@ -4,6 +4,8 @@ import PrivateRoute from './PrivateRoute';
 import PublicRoute from './PublicRoute';
 import InstallPwaPrompt from './InstallPwaPrompt';
 import { PwaProvider } from './context/PwaContext';
+import { UploadProvider } from './context/UploadContext';
+import UploadProgressBar from './components/UploadProgressBar';
 
 // Resilient code-splitting with auto-retry and cache-bust recovery on deployments
 function lazyWithRetry(componentImport, componentName = 'chunk') {
@@ -313,11 +315,13 @@ export default function App() {
   return (
     <ErrorBoundary>
       <PwaProvider>
-        <Router>
-          <ScrollToTop />
-          <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
-            <InstallPwaPrompt />
-            <Suspense fallback={<PageLoading />}>
+        <UploadProvider>
+          <Router>
+            <ScrollToTop />
+            <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-sky-500 selection:text-white">
+              <InstallPwaPrompt />
+              <UploadProgressBar />
+              <Suspense fallback={<PageLoading />}>
               <Routes>
                 {/* Public Routes (Auto-bypassed if user is already authenticated) */}
                 <Route
@@ -412,7 +416,8 @@ export default function App() {
             </Suspense>
           </div>
         </Router>
-      </PwaProvider>
-    </ErrorBoundary>
+      </UploadProvider>
+    </PwaProvider>
+  </ErrorBoundary>
   );
 }

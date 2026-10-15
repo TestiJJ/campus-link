@@ -17,6 +17,7 @@ import {
   Paperclip, AtSign
 } from 'lucide-react';
 import API, { uploadFile, getMediaUrl, getWsUrl, getAuthToken, isAuthenticated } from './api';
+import { useUpload } from './context/UploadContext';
 import SafeImage from './components/SafeImage';
 import StoryReplyBubble, { parseStatusReply } from './components/StoryReplyBubble';
 import InAppChatBanner from './components/InAppChatBanner';
@@ -309,6 +310,7 @@ export function getInitialVendorTab() {
 
 export default function VendorDashboard() {
   const navigate = useNavigate();
+  const { startUpload } = useUpload();
   const [user, setUser] = useState(() => {
     try {
       const stored = localStorage.getItem('user');
@@ -2284,41 +2286,56 @@ export default function VendorDashboard() {
 
   // --- STATUS STORIES ACTIONS ---
   const handlePublishStatus = async (e) => {
-    e.preventDefault();
-    setIsPublishingStatus(true);
-    try {
-      let mediaUrl = null;
-      let mediaType = 'text';
-      if (statusMediaFile) {
-        const isVid = (
-          (statusMediaFile.type && statusMediaFile.type.startsWith('video')) ||
-          Boolean(statusMediaFile.name && statusMediaFile.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
-        );
-        mediaType = isVid ? 'video' : 'image';
-        mediaUrl = await uploadFile(statusMediaFile);
+    if (e?.preventDefault) e.preventDefault();
+
+    const fileToUpload = statusMediaFile;
+    const previewToDisplay = statusMediaPreview;
+    const captionText = statusCaption.trim();
+    const bgColor = statusBgColor;
+    const privacy = statusPrivacy;
+
+    // Immediately close modal & reset fields for instant response
+    setCreateStatusModalOpen(false);
+    setStatusCaption('');
+    setStatusMediaFile(null);
+    setStatusMediaPreview(null);
+    setIsPublishingStatus(false);
+
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'story',
+      title: 'Posting campus story...',
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let mediaUrl = null;
+        let mediaType = 'text';
+        if (fileToUpload) {
+          const isVid = (
+            (fileToUpload.type && fileToUpload.type.startsWith('video')) ||
+            Boolean(fileToUpload.name && fileToUpload.name.match(/\.(mp4|mov|webm|m4v|3gp|avi|mkv)$/i))
+          );
+          mediaType = isVid ? 'video' : 'image';
+          mediaUrl = await uploadFile(fileToUpload, onProgress);
+        }
+
+        await API.post('/campus/statuses', {
+          media_url: mediaUrl,
+          media_type: mediaType,
+          caption: captionText,
+          background_color: bgColor,
+          privacy_setting: privacy
+        });
+      },
+      onSuccess: () => {
+        showToast('Status story posted to campus network!', 'success');
+        API.get('/campus/statuses')
+          .then(statRes => setStatusGroups(statRes.data || []))
+          .catch(() => {});
+      },
+      onError: (err) => {
+        showToast(err.response?.data?.detail || 'Failed to post status. Tap retry below.', 'error');
       }
-
-      await API.post('/campus/statuses', {
-        media_url: mediaUrl,
-        media_type: mediaType,
-        caption: statusCaption.trim(),
-        background_color: statusBgColor,
-        privacy_setting: statusPrivacy
-      });
-
-      setCreateStatusModalOpen(false);
-      setStatusCaption('');
-      setStatusMediaFile(null);
-      setStatusMediaPreview(null);
-      showToast('Status story posted to campus network!', 'success');
-
-      const statRes = await API.get('/campus/statuses');
-      setStatusGroups(statRes.data || []);
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to post status.', 'error');
-    } finally {
-      setIsPublishingStatus(false);
-    }
+    });
   };
 
   const handleDeleteStatus = async (statusId) => {
@@ -3703,133 +3720,160 @@ export default function VendorDashboard() {
     setShowProductModal(true);
   };
 
-  // Create or Update Product (with file upload & campus selection)
+  // Create or Update Product (with non-blocking background upload)
   const handleSaveProduct = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     if (!editingProduct && !prodFile) {
       showToast('Please select a product photo before publishing to the marketplace.', 'error');
       return;
     }
-    setIsSubmitting(true);
-    try {
-      let imageUrl = editingProduct ? (editingProduct.image || '') : '';
-      if (prodFile) {
-        imageUrl = await uploadFile(prodFile);
+
+    const fileToUpload = prodFile;
+    const previewToDisplay = prodPreview || (editingProduct?.image || null);
+    const isEditing = Boolean(editingProduct);
+    const prodToEdit = editingProduct;
+    const formSnapshot = { ...productForm };
+    const vStore = vendorStore;
+
+    // Immediately close modal and clear form state for instant response
+    setShowProductModal(false);
+    setEditingProduct(null);
+    setProductForm({ name: '', description: '', price: '', category_id: 1, custom_category: '', quantity: 1, university_id: '' });
+    setProdFile(null);
+    setProdPreview(null);
+    setIsSubmitting(false);
+
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'product',
+      title: isEditing ? `Updating ${formSnapshot.name || 'product'}...` : `Publishing ${formSnapshot.name || 'product'}...`,
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let imageUrl = prodToEdit ? (prodToEdit.image || '') : '';
+        if (fileToUpload) {
+          imageUrl = await uploadFile(fileToUpload, onProgress);
+        }
+        if (!imageUrl) {
+          throw new Error('Please select a product photo before publishing.');
+        }
+
+        const isOther = String(formSnapshot.category_id) === 'other';
+        const catId = isOther ? 1 : (parseInt(formSnapshot.category_id) || 1);
+        const desc = isOther && formSnapshot.custom_category
+          ? `[Category: ${formSnapshot.custom_category.trim()}] ${formSnapshot.description.trim()}`
+          : formSnapshot.description.trim();
+
+        const payload = {
+          name: formSnapshot.name.trim(),
+          description: desc,
+          price: parseFloat(formSnapshot.price),
+          category_id: catId,
+          quantity: parseInt(formSnapshot.quantity) || 1,
+          university_id: formSnapshot.university_id ? parseInt(formSnapshot.university_id) : (vStore?.university_id || null),
+          image: imageUrl
+        };
+
+        if (prodToEdit) {
+          await API.put(`/products/${prodToEdit.id}`, payload);
+        } else {
+          await API.post('/products', payload);
+        }
+      },
+      onSuccess: () => {
+        showToast(isEditing ? 'Product details updated!' : 'Product published to Campus Marketplace!', 'success');
+        const vId = vStore?.id;
+        const params = vId ? { vendor_id: vId } : {};
+        API.get('/products', { params }).then(res => {
+          const fresh = res.data || [];
+          const currentUserId = String(user?.id || user?.user_id || '');
+          const myProds = vId ? fresh : fresh.filter(p => {
+            if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
+            return false;
+          });
+          setProducts(myProds);
+          setCachedData('products', myProds);
+        }).catch(() => { });
+        API.get('/products').then(res => {
+          const mkt = res.data || [];
+          setMarketplaceProducts(mkt);
+          setCachedData('marketplace_products', mkt);
+        }).catch(() => { });
+      },
+      onError: (err) => {
+        showToast(err.response?.data?.detail || err.message || (isEditing ? 'Failed to update product.' : 'Failed to add product.'), 'error');
       }
-      if (!imageUrl) {
-        showToast('Please select a product photo before publishing.', 'error');
-        setIsSubmitting(false);
-        return;
-      }
-
-      const isOther = String(productForm.category_id) === 'other';
-      const catId = isOther ? 1 : (parseInt(productForm.category_id) || 1);
-      const desc = isOther && productForm.custom_category
-        ? `[Category: ${productForm.custom_category.trim()}] ${productForm.description.trim()}`
-        : productForm.description.trim();
-
-      const payload = {
-        name: productForm.name.trim(),
-        description: desc,
-        price: parseFloat(productForm.price),
-        category_id: catId,
-        quantity: parseInt(productForm.quantity) || 1,
-        university_id: productForm.university_id ? parseInt(productForm.university_id) : (vendorStore?.university_id || null),
-        image: imageUrl
-      };
-
-      if (editingProduct) {
-        await API.put(`/products/${editingProduct.id}`, payload);
-        setFeedbackMsg({ type: 'success', text: 'Product details and campus dispatch updated!' });
-      } else {
-        await API.post('/products', payload);
-        setFeedbackMsg({ type: 'success', text: 'Product published to Campus Marketplace!' });
-      }
-
-      setShowProductModal(false);
-      setEditingProduct(null);
-      setProductForm({ name: '', description: '', price: '', category_id: 1, custom_category: '', quantity: 1, university_id: '' });
-      setProdFile(null);
-      setProdPreview(null);
-      const vId = vendorStore?.id;
-      const params = vId ? { vendor_id: vId } : {};
-      API.get('/products', { params }).then(res => {
-        const fresh = res.data || [];
-        const currentUserId = String(user?.id || user?.user_id || '');
-        const myProds = vId ? fresh : fresh.filter(p => {
-          if (currentUserId && (String(p.vendor_user_id) === currentUserId || String(p.user_id) === currentUserId)) return true;
-          return false;
-        });
-        setProducts(myProds);
-        setCachedData('products', myProds);
-      }).catch(() => { });
-      API.get('/products').then(res => {
-        const mkt = res.data || [];
-        setMarketplaceProducts(mkt);
-        setCachedData('marketplace_products', mkt);
-      }).catch(() => { });
-    } catch (err) {
-      showToast(err.response?.data?.detail || (editingProduct ? 'Failed to update product.' : 'Failed to add product.'), 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
-  // Create Service (with file upload)
+  // Create Service (with non-blocking background upload)
   const handleCreateService = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      let imageUrl = 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80';
-      if (svcFile) {
-        imageUrl = await uploadFile(svcFile);
-      }
+    if (e?.preventDefault) e.preventDefault();
 
-      const isOther = String(serviceForm.category_id) === 'other';
-      const catId = isOther ? 5 : (parseInt(serviceForm.category_id) || 5);
-      const desc = isOther && serviceForm.custom_category
-        ? `[Category: ${serviceForm.custom_category.trim()}] ${serviceForm.description.trim()}`
-        : serviceForm.description.trim();
+    const fileToUpload = svcFile;
+    const previewToDisplay = svcPreview;
+    const formSnapshot = { ...serviceForm };
+    const vStore = vendorStore;
 
-      await API.post('/services', {
-        name: serviceForm.name.trim(),
-        description: desc,
-        price: parseFloat(serviceForm.price),
-        category_id: catId,
-        location: serviceForm.location.trim() || vendorStore?.location,
-        image: imageUrl
-      });
+    // Immediately close modal & reset fields
+    setShowServiceModal(false);
+    setServiceForm({ name: '', description: '', price: '', category_id: 5, custom_category: '', location: '' });
+    setSvcFile(null);
+    setSvcPreview(null);
+    setIsSubmitting(false);
 
-      setShowServiceModal(false);
-      setServiceForm({ name: '', description: '', price: '', category_id: 5, custom_category: '', location: '' });
-      setSvcFile(null);
-      setSvcPreview(null);
-      showToast('Service published to Campus Marketplace!', 'success');
-      const vId = vendorStore?.id;
-      const params = vId ? { vendor_id: vId } : {};
-      API.get('/services', { params }).then(res => {
-        const fresh = res.data || [];
-        const currentUserId = String(user?.id || user?.user_id || '');
-        const mySvcs = vId ? fresh : fresh.filter(s => {
-          if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
-          return false;
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'product',
+      title: `Publishing ${formSnapshot.name || 'service'}...`,
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let imageUrl = 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80';
+        if (fileToUpload) {
+          imageUrl = await uploadFile(fileToUpload, onProgress);
+        }
+
+        const isOther = String(formSnapshot.category_id) === 'other';
+        const catId = isOther ? 5 : (parseInt(formSnapshot.category_id) || 5);
+        const desc = isOther && formSnapshot.custom_category
+          ? `[Category: ${formSnapshot.custom_category.trim()}] ${formSnapshot.description.trim()}`
+          : formSnapshot.description.trim();
+
+        await API.post('/services', {
+          name: formSnapshot.name.trim(),
+          description: desc,
+          price: parseFloat(formSnapshot.price),
+          category_id: catId,
+          location: formSnapshot.location.trim() || vStore?.location,
+          image: imageUrl
         });
-        setServices(mySvcs);
-        setCachedData('services', mySvcs);
-      }).catch(() => { });
-      API.get('/services').then(res => {
-        const mkt = res.data || [];
-        setMarketplaceServices(mkt);
-        setCachedData('marketplace_services', mkt);
-      }).catch(() => { });
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to add service.', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+      },
+      onSuccess: () => {
+        showToast('Service published to Campus Marketplace!', 'success');
+        const vId = vStore?.id;
+        const params = vId ? { vendor_id: vId } : {};
+        API.get('/services', { params }).then(res => {
+          const fresh = res.data || [];
+          const currentUserId = String(user?.id || user?.user_id || '');
+          const mySvcs = vId ? fresh : fresh.filter(s => {
+            if (currentUserId && (String(s.vendor_user_id) === currentUserId || String(s.user_id) === currentUserId)) return true;
+            return false;
+          });
+          setServices(mySvcs);
+          setCachedData('services', mySvcs);
+        }).catch(() => { });
+        API.get('/services').then(res => {
+          const mkt = res.data || [];
+          setMarketplaceServices(mkt);
+          setCachedData('marketplace_services', mkt);
+        }).catch(() => { });
+      },
+      onError: (err) => {
+        showToast(err.response?.data?.detail || 'Failed to add service.', 'error');
+      }
+    });
   };
 
-  // Create Reel / Campus Drop
+  // Create Reel / Campus Drop (with non-blocking background upload)
   const handleCreateReel = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     const content = (reelForm.description || reelForm.title || '').trim();
@@ -3837,39 +3881,53 @@ export default function VendorDashboard() {
       showToast('Please add a photo, video or write some text to share!', 'info');
       return;
     }
-    setIsSubmitting(true);
-    try {
-      let mediaUrl = null;
-      let mediaType = 'text';
 
-      if (reelMediaFile) {
-        mediaUrl = await uploadFile(reelMediaFile);
-        mediaType = reelMediaFile.type.startsWith('video') ? 'video' : 'image';
+    const fileToUpload = reelMediaFile;
+    const previewToDisplay = reelMediaPreview;
+    const formSnapshot = { ...reelForm };
+    const loc = formSnapshot.location?.trim() || vendorStore?.location || 'Campus';
+
+    // Immediately close modal & reset fields (0ms delay)
+    setShowReelModal(false);
+    setReelForm({ title: '', description: '', media_type: 'image', location: '' });
+    setReelMediaFile(null);
+    setReelMediaPreview(null);
+    setIsSubmitting(false);
+
+    // Launch non-blocking background upload with live progress bar
+    startUpload({
+      type: 'drop',
+      title: 'Sharing campus drop...',
+      preview: previewToDisplay,
+      uploadFn: async (onProgress) => {
+        let mediaUrl = null;
+        let mediaType = 'text';
+
+        if (fileToUpload) {
+          mediaUrl = await uploadFile(fileToUpload, onProgress);
+          mediaType = fileToUpload.type.startsWith('video') ? 'video' : 'image';
+        }
+
+        await API.post('/reels', {
+          title: formSnapshot.title?.trim() || content.slice(0, 60),
+          description: content,
+          media_url: mediaUrl,
+          media_type: mediaType,
+          location: loc
+        });
+      },
+      onSuccess: () => {
+        showToast('Campus drop published successfully!', 'success');
+        API.get('/reels').then(res => {
+          const fresh = res.data || [];
+          setAllReels(fresh);
+          setCachedData('allReels', fresh);
+        }).catch(() => { });
+      },
+      onError: (err) => {
+        showToast(err.response?.data?.detail || 'Failed to publish drop. Tap retry below.', 'error');
       }
-
-      await API.post('/reels', {
-        title: reelForm.title?.trim() || content.slice(0, 60),
-        description: content,
-        media_url: mediaUrl,
-        media_type: mediaType,
-        location: reelForm.location?.trim() || vendorStore?.location || 'Campus'
-      });
-
-      setShowReelModal(false);
-      setReelForm({ title: '', description: '', media_type: 'image', location: '' });
-      setReelMediaFile(null);
-      setReelMediaPreview(null);
-      showToast('Campus drop published successfully!', 'success');
-      API.get('/reels').then(res => {
-        const fresh = res.data || [];
-        setAllReels(fresh);
-        setCachedData('allReels', fresh);
-      }).catch(() => { });
-    } catch (err) {
-      showToast(err.response?.data?.detail || 'Failed to publish drop.', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   // 0ms Optimistic Delete Product
