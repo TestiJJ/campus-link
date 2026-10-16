@@ -238,6 +238,7 @@ class ReelCommentOut(BaseModel):
     author_name: Optional[str] = "Campus Member"
     author_avatar: Optional[str] = None
     author_role: Optional[str] = "Student"
+    author_is_verified: Optional[bool] = False
     reply_to_comment_id: Optional[int] = None
     reply_to_author: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -261,6 +262,7 @@ class ReelOut(ReelCreate):
     author_avatar: Optional[str] = None
     author_university: Optional[str] = None
     author_university_abbr: Optional[str] = None
+    author_is_verified: Optional[bool] = False
     likes_count: int
     comments_count: Optional[int] = 0
     has_liked: Optional[bool] = False
@@ -279,6 +281,7 @@ class OrderCreate(BaseModel):
     quantity: int = 1
     amount: float
     delivery_location: str
+    item_image: Optional[str] = None
 
 class OrderOut(OrderCreate):
     id: int
@@ -287,6 +290,7 @@ class OrderOut(OrderCreate):
     created_at: Optional[datetime] = None
     customer_name: Optional[str] = None
     vendor_name: Optional[str] = None
+    item_image: Optional[str] = None
 
     class Config:
         from_attributes = True

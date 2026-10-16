@@ -32,6 +32,7 @@ import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
 import ExpandablePostText from './components/ExpandablePostText';
+import VerifiedBadge from './components/VerifiedBadge';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
@@ -804,26 +805,49 @@ export default function VendorDashboard() {
     });
   }, [conversations, myFriends, chatSearchQuery, user?.user_id, user?.id]);
 
-  // Catalog Search Filtering for Products & Services
+  // Catalog Search & Category Filtering for Products & Services
   const displayedProducts = useMemo(() => {
+    let list = products;
+    if (selectedCatalogCategory !== 'all') {
+      list = list.filter(p => {
+        const cId = p.category_id ? String(p.category_id) : '';
+        const cName = (p.category_name || '').toLowerCase();
+        if (selectedCatalogCategory === cId) return true;
+        if (selectedCatalogCategory === '1' || selectedCatalogCategory === 'food') return cName.includes('food') || cName.includes('meal') || cName.includes('snack') || cName.includes('drink');
+        if (selectedCatalogCategory === '2' || selectedCatalogCategory === 'fashion') return cName.includes('fashion') || cName.includes('shoe') || cName.includes('wear') || cName.includes('cloth') || cName.includes('bag');
+        if (selectedCatalogCategory === '3' || selectedCatalogCategory === 'tech') return cName.includes('laptop') || cName.includes('phone') || cName.includes('gadget') || cName.includes('tech');
+        if (selectedCatalogCategory === '4' || selectedCatalogCategory === 'academic') return cName.includes('book') || cName.includes('academic') || cName.includes('stationery');
+        return false;
+      });
+    }
     const q = catalogSearchQuery.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(p =>
+    if (!q) return list;
+    return list.filter(p =>
       (p.name || '').toLowerCase().includes(q) ||
       (p.description || '').toLowerCase().includes(q) ||
       (p.category_name || '').toLowerCase().includes(q)
     );
-  }, [products, catalogSearchQuery]);
+  }, [products, catalogSearchQuery, selectedCatalogCategory]);
 
   const displayedServices = useMemo(() => {
+    let list = services;
+    if (selectedCatalogCategory !== 'all') {
+      list = list.filter(s => {
+        const cId = s.category_id ? String(s.category_id) : '';
+        const cName = (s.category_name || '').toLowerCase();
+        if (selectedCatalogCategory === cId) return true;
+        if (selectedCatalogCategory === '5' || selectedCatalogCategory === 'services') return true;
+        return false;
+      });
+    }
     const q = catalogSearchQuery.trim().toLowerCase();
-    if (!q) return services;
-    return services.filter(s =>
+    if (!q) return list;
+    return list.filter(s =>
       (s.name || '').toLowerCase().includes(q) ||
       (s.description || '').toLowerCase().includes(q) ||
       (s.location || '').toLowerCase().includes(q)
     );
-  }, [services, catalogSearchQuery]);
+  }, [services, catalogSearchQuery, selectedCatalogCategory]);
 
   // Verification Form State
   const [idFrontFile, setIdFrontFile] = useState(null);
@@ -2044,6 +2068,14 @@ export default function VendorDashboard() {
                   const mySvcs = sRes.data || [];
                   setServices(mySvcs);
                   setCachedData('services', mySvcs);
+                })
+                .catch(() => {});
+
+              API.get('/orders')
+                .then((oRes) => {
+                  const ordersList = oRes.data || [];
+                  setVendorOrders(ordersList);
+                  setCachedData('orders', ordersList);
                 })
                 .catch(() => {});
             }
@@ -4481,7 +4513,7 @@ export default function VendorDashboard() {
                       placeholder={`Search ${catalogType} in your store...`}
                       value={catalogSearchQuery}
                       onChange={(e) => setCatalogSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white"
+                      className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:bg-white transition-all"
                       autoFocus
                     />
                     {catalogSearchQuery && (
@@ -4495,6 +4527,36 @@ export default function VendorDashboard() {
                     )}
                   </div>
                 )}
+
+                {/* Store Catalog Category Filter Pills with Website Theme Colors */}
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCatalogCategory('all')}
+                    className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 text-xs shadow-2xs ${
+                      selectedCatalogCategory === 'all'
+                        ? 'bg-sky-500 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    All Categories
+                  </button>
+                  {(categories || []).map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setSelectedCatalogCategory(c.id.toString())}
+                      className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1 text-xs shadow-2xs ${
+                        selectedCatalogCategory === c.id.toString()
+                          ? 'bg-sky-500 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>{renderCategoryIcon(c.name)}</span>
+                      <span>{c.name}</span>
+                    </button>
+                  ))}
+                </div>
 
                 {/* Today's Picks / Status Sub-bar */}
                 <div className="flex items-center justify-between pt-1 border-t border-slate-100">
@@ -4807,7 +4869,7 @@ export default function VendorDashboard() {
                       placeholder={`Search ${marketplaceType} on campus...`}
                       value={marketplaceSearchQuery}
                       onChange={(e) => setMarketplaceSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white"
+                      className="w-full pl-10 pr-4 py-2 bg-slate-100 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 focus:bg-white transition-all"
                       autoFocus
                     />
                     {marketplaceSearchQuery && (
@@ -4826,8 +4888,8 @@ export default function VendorDashboard() {
                 <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                   <button
                     onClick={() => setMarketplaceCategory('all')}
-                    className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 text-xs ${
-                      marketplaceCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 text-xs shadow-2xs ${
+                      marketplaceCategory === 'all' ? 'bg-sky-500 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
                     All
@@ -4836,8 +4898,8 @@ export default function VendorDashboard() {
                     <button
                       key={c.id}
                       onClick={() => setMarketplaceCategory(c.id.toString())}
-                      className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1 text-xs ${
-                        marketplaceCategory === c.id.toString() ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      className={`px-3 py-1 rounded-full font-bold transition-all cursor-pointer shrink-0 flex items-center space-x-1 text-xs shadow-2xs ${
+                        marketplaceCategory === c.id.toString() ? 'bg-sky-500 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
                       <span>{renderCategoryIcon(c.name)}</span>
@@ -7512,9 +7574,13 @@ export default function VendorDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => handleOpenProfile(reel.author_id || reel.user_id)}
-                                  className="font-bold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate"
+                                  className="font-bold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate flex items-center space-x-1"
                                 >
-                                  {reel.author_name || 'Campus Creator'}
+                                  <span>{reel.author_name || 'Campus Creator'}</span>
+                                  <VerifiedBadge
+                                    isVerified={reel.author_is_verified || reel.is_verified || reel.author_email === 'testimonyjokotoye65@gmail.com' || (reel.author_name && reel.author_name.toLowerCase().includes('testimony'))}
+                                    size="xs"
+                                  />
                                 </button>
                                 {(() => {
                                   const isVendor = String(reel.author_role || '').toLowerCase() === 'vendor' || Boolean(reel.vendor_id);
@@ -7660,11 +7726,11 @@ export default function VendorDashboard() {
                           <span className="text-[10px] font-semibold text-slate-300 hidden sm:block">Campus Drops</span>
                         </div>
 
-                        {/* Interactive Comments Drawer */}
+                        {/* Facebook-Style Comments Drawer */}
                         {String(activeCommentsReelId) === String(reel.id) && (
-                          <div className="p-3.5 bg-slate-50/80 border-t border-slate-100 space-y-3">
-                            {/* Comments List */}
-                            <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                          <div className="p-3.5 sm:p-4 bg-slate-50/90 border-t border-slate-100 space-y-3">
+                            {/* Facebook-Style Comments List */}
+                            <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                               {reel.comments && reel.comments.length > 0 ? (
                                 reel.comments.map((comment, idx) => {
                                   const canDeleteComment = (user?.user_id && comment.user_id === user.user_id) ||
@@ -7672,29 +7738,55 @@ export default function VendorDashboard() {
                                     isMine;
 
                                   return (
-                                    <div
-                                      key={comment.id || idx}
-                                      id={`comment-${comment.id}`}
-                                      className={`p-3 bg-white rounded-xl border shadow-2xs text-xs transition-all duration-500 ${
-                                        highlightedCommentId === comment.id
-                                          ? 'border-sky-500 ring-2 ring-sky-300 bg-sky-50/70'
-                                          : 'border-slate-100'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between mb-1 gap-2">
-                                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                          <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
-                                          {comment.reply_to_author && (
-                                            <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
-                                              <Reply className="w-2.5 h-2.5" />
-                                              <span>@{comment.reply_to_author}</span>
+                                    <div key={comment.id || idx} id={`comment-${comment.id}`} className="flex items-start space-x-2.5 group">
+                                      {/* Facebook User Avatar */}
+                                      <div className="w-8 h-8 rounded-full bg-slate-200 ring-1 ring-slate-200/80 overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs text-slate-600 select-none">
+                                        {comment.author_avatar ? (
+                                          <SafeImage src={comment.author_avatar} alt={comment.author_name} fallbackType="avatar" className="w-full h-full object-cover" />
+                                        ) : (
+                                          <span>{comment.author_name?.charAt(0) || 'U'}</span>
+                                        )}
+                                      </div>
+
+                                      {/* Facebook Comment Bubble & Action Row */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className={`inline-block max-w-[95%] sm:max-w-[85%] rounded-2xl px-3.5 py-2 transition-all duration-300 ${
+                                          highlightedCommentId === comment.id
+                                            ? 'bg-sky-50 border border-sky-300 ring-2 ring-sky-200'
+                                            : 'bg-slate-100 hover:bg-slate-150 text-slate-900'
+                                        }`}>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold text-xs text-slate-900 leading-tight flex items-center space-x-1">
+                                              <span>{comment.author_name}</span>
+                                              <VerifiedBadge
+                                                isVerified={comment.author_is_verified || comment.is_verified || (comment.author_name && comment.author_name.toLowerCase().includes('testimony'))}
+                                                size="xs"
+                                              />
                                             </span>
-                                          )}
+                                            {comment.reply_to_author && (
+                                              <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded-md flex items-center space-x-0.5">
+                                                <Reply className="w-2.5 h-2.5" />
+                                                <span>@{comment.reply_to_author}</span>
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="text-xs text-slate-800 leading-relaxed mt-0.5 break-words whitespace-pre-wrap">
+                                            {comment.content}
+                                          </p>
                                         </div>
-                                        <div className="flex items-center space-x-2 shrink-0">
-                                          <span className="text-[10px] text-slate-400 whitespace-nowrap">
+
+                                        {/* Facebook Meta Actions (Timestamp, Like, Reply, Delete) */}
+                                        <div className="flex items-center space-x-3.5 mt-1 ml-2 text-[11px] font-bold text-slate-500">
+                                          <span className="font-normal text-slate-400 text-[10px]">
                                             {safeTime(comment.created_at, 'Just now')}
                                           </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => showToast('Liked comment ❤️', 'info')}
+                                            className="hover:text-slate-800 hover:underline cursor-pointer transition-colors"
+                                          >
+                                            Like
+                                          </button>
                                           <button
                                             type="button"
                                             onClick={() => {
@@ -7706,30 +7798,27 @@ export default function VendorDashboard() {
                                               });
                                               setTimeout(() => commentInputRef.current?.focus(), 60);
                                             }}
-                                            className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold"
-                                            title="Reply"
+                                            className="hover:text-slate-800 hover:underline cursor-pointer transition-colors"
                                           >
-                                            <Reply className="w-3 h-3" />
+                                            Reply
                                           </button>
                                           {canDeleteComment && (
                                             <button
                                               type="button"
                                               onClick={() => handleDeleteReelComment(reel.id, comment.id)}
-                                              className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
-                                              title="Delete comment"
+                                              className="text-slate-400 hover:text-rose-600 hover:underline cursor-pointer transition-colors font-medium text-[10px]"
                                             >
-                                              <Trash2 className="w-3 h-3" />
+                                              Delete
                                             </button>
                                           )}
                                         </div>
                                       </div>
-                                      <p className="text-slate-700 leading-relaxed">{comment.content}</p>
                                     </div>
                                   );
                                 })
                               ) : (
                                 <div className="py-4 text-center text-xs text-slate-400">
-                                  No comments on this drop yet.
+                                  No comments on this drop yet. Be the first to join the conversation!
                                 </div>
                               )}
                             </div>
@@ -7753,7 +7842,7 @@ export default function VendorDashboard() {
                               </div>
                             )}
 
-                            {/* Comment Input */}
+                            {/* Facebook-Style Comment Input with User Avatar */}
                             <form
                               onSubmit={(e) => {
                                 e.preventDefault();
@@ -7761,24 +7850,38 @@ export default function VendorDashboard() {
                               }}
                               className="flex items-center space-x-2 pt-2 border-t border-slate-200/60"
                             >
-                              <input
-                                ref={commentInputRef}
-                                type="text"
-                                placeholder={replyingToComment && replyingToComment.reelId === reel.id
-                                  ? `Reply to @${replyingToComment.authorName}...`
-                                  : "Write a comment..."}
-                                value={newCommentText}
-                                onChange={(e) => setNewCommentText(e.target.value)}
-                                className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
-                              />
-                              <button
-                                type="submit"
-                                disabled={!newCommentText.trim() || isPostingComment}
-                                className="px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center space-x-1 shrink-0"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>{replyingToComment && replyingToComment.reelId === reel.id ? 'Reply' : 'Post'}</span>
-                              </button>
+                              <div className="w-8 h-8 rounded-full bg-slate-200 ring-1 ring-slate-200/80 overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs text-slate-600 select-none">
+                                {vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url ? (
+                                  <SafeImage
+                                    src={vendorStore?.logo_url || vendorStore?.logo || user?.profile_picture_url}
+                                    alt="You"
+                                    fallbackType="avatar"
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span>{vendorStore?.business_name?.charAt(0) || user?.full_name?.charAt(0) || 'V'}</span>
+                                )}
+                              </div>
+                              <div className="flex-1 relative flex items-center">
+                                <input
+                                  ref={commentInputRef}
+                                  type="text"
+                                  placeholder={replyingToComment && replyingToComment.reelId === reel.id
+                                    ? `Reply to @${replyingToComment.authorName}...`
+                                    : "Write a comment..."}
+                                  value={newCommentText}
+                                  onChange={(e) => setNewCommentText(e.target.value)}
+                                  className="w-full py-2 pl-3.5 pr-10 bg-slate-100 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white border border-transparent transition-all"
+                                />
+                                <button
+                                  type="submit"
+                                  disabled={!newCommentText.trim() || isPostingComment}
+                                  className="absolute right-1.5 p-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-full transition-colors cursor-pointer disabled:opacity-40 flex items-center justify-center"
+                                  title="Send comment"
+                                >
+                                  <Send className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </form>
                           </div>
                         )}
@@ -7858,6 +7961,183 @@ export default function VendorDashboard() {
                     {friendsList.length}
                   </span>
                   <span className="text-[10px] text-sky-600 font-bold mt-1 block">Connected Buyers</span>
+                </div>
+              </div>
+
+              {/* Customer Order Queue with Item Image Previews */}
+              <div className="p-5 sm:p-6 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-900 flex items-center space-x-2">
+                      <ShoppingBag className="w-5 h-5 text-sky-600" />
+                      <span>Customer Order Queue</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Incoming student orders with live product thumbnail, dispatch address, and direct buyer chat.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2 self-start sm:self-auto">
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                      {pendingOrdersCount} Pending
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                      {(vendorOrders || []).length} Total
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        API.get('/orders')
+                          .then((oRes) => {
+                            const ordersList = oRes.data || [];
+                            setVendorOrders(ordersList);
+                            setCachedData('orders', ordersList);
+                            showToast('Orders refreshed', 'info');
+                          })
+                          .catch(() => showToast('Failed to refresh orders', 'error'));
+                      }}
+                      className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                      title="Refresh Orders"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Orders List */}
+                <div className="space-y-3">
+                  {(vendorOrders || []).length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <ShoppingBag className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-600">No student orders yet</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        When campus buyers place orders for your products or services, they will appear here with product images and fulfillment controls.
+                      </p>
+                    </div>
+                  ) : (
+                    (vendorOrders || []).map((order) => {
+                      const isPending = order.status === 'pending';
+                      const isConfirmed = order.status === 'confirmed';
+                      const isCompleted = order.status === 'completed';
+
+                      return (
+                        <div
+                          key={order.id}
+                          className="p-4 rounded-2xl bg-slate-50/80 hover:bg-slate-50 border border-slate-200 transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+                        >
+                          {/* Order Details & Image */}
+                          <div className="flex items-start space-x-3.5 min-w-0 flex-1">
+                            {/* Product Thumbnail Image */}
+                            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-slate-200 border border-slate-200/80 shrink-0 shadow-2xs">
+                              <SafeImage
+                                src={order.item_image ? getMediaUrl(order.item_image) : null}
+                                alt={order.item_title}
+                                fallbackType="product"
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center space-x-2 flex-wrap">
+                                <h4 className="font-bold text-xs sm:text-sm text-slate-900 truncate">
+                                  {order.item_title || 'Campus Item'}
+                                </h4>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold capitalize border ${
+                                    isPending
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : isConfirmed
+                                      ? 'bg-sky-50 text-sky-800 border-sky-200'
+                                      : isCompleted
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                                  }`}
+                                >
+                                  {order.status || 'pending'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center space-x-2 text-xs font-semibold text-slate-700 mt-1">
+                                <span className="text-sky-700 font-black">₦{(order.amount || 0).toLocaleString()}</span>
+                                <span>•</span>
+                                <span className="text-slate-500 text-[11px]">Qty: {order.quantity || 1}</span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 mt-1.5">
+                                <span className="flex items-center space-x-1">
+                                  <User className="w-3 h-3 text-slate-400" />
+                                  <span className="font-semibold text-slate-700">{order.customer_name || 'Student Buyer'}</span>
+                                </span>
+                                {order.delivery_location && (
+                                  <span className="flex items-center space-x-1 text-sky-700">
+                                    <MapPin className="w-3 h-3 text-sky-500" />
+                                    <span>{order.delivery_location}</span>
+                                  </span>
+                                )}
+                                <span className="text-slate-400">
+                                  {safeDate(order.created_at, 'Recent')}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center space-x-2 self-end sm:self-center shrink-0 flex-wrap gap-y-1.5">
+                            {/* Chat Buyer */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleSelectPartner({
+                                  partner_id: order.user_id,
+                                  partner_name: order.customer_name || 'Customer',
+                                  role: 'student'
+                                });
+                                setActiveTab('messages');
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs flex items-center space-x-1 border border-sky-200 transition-colors cursor-pointer"
+                              title="Chat with buyer"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-sky-600" />
+                              <span>Chat Buyer</span>
+                            </button>
+
+                            {/* Accept Order */}
+                            {isPending && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOrderStatus(order.id, 'confirmed')}
+                                className="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs transition-colors cursor-pointer shadow-2xs"
+                              >
+                                Accept Order
+                              </button>
+                            )}
+
+                            {/* Mark Delivered */}
+                            {(isConfirmed || isPending) && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-2xs flex items-center space-x-1"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Mark Delivered</span>
+                              </button>
+                            )}
+
+                            {/* Decline / Cancel */}
+                            {isPending && (
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOrderStatus(order.id, 'cancelled')}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-rose-100 text-slate-700 hover:text-rose-700 font-bold text-xs transition-colors cursor-pointer"
+                              >
+                                Decline
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -8075,7 +8355,7 @@ export default function VendorDashboard() {
               {/* 1. HERO STORE PROFILE CARD */}
               <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-7 shadow-xs relative overflow-hidden w-full min-w-0">
                 {/* Subtle background gradient glow */}
-                <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl from-amber-400/10 via-sky-500/5 to-transparent rounded-bl-full pointer-events-none" />
+                <div className="absolute top-0 right-0 w-48 h-48 bg-gradient-to-bl from-sky-400/10 via-blue-500/5 to-transparent rounded-bl-full pointer-events-none" />
 
                 <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left space-y-3.5 sm:space-y-0 sm:space-x-5 w-full min-w-0">
                   {/* Store Logo / Avatar with Camera Overlay */}
@@ -8114,8 +8394,12 @@ export default function VendorDashboard() {
                   {/* Profile Details */}
                   <div className="w-full flex-1 min-w-0">
                     <div className="flex flex-col sm:flex-row items-center sm:items-start justify-center sm:justify-start gap-1 sm:gap-2">
-                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full">
-                        {vendorStore?.business_name || user?.business_name || user?.full_name || 'Campus Merchant'}
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full flex items-center justify-center sm:justify-start gap-1.5">
+                        <span>{vendorStore?.business_name || user?.business_name || user?.full_name || 'Campus Merchant'}</span>
+                        <VerifiedBadge
+                          isVerified={user?.is_verified || isVerified || user?.email === 'testimonyjokotoye65@gmail.com' || (user?.full_name && user?.full_name.toLowerCase().includes('testimony'))}
+                          size="md"
+                        />
                       </h2>
                       {isVerified ? (
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center space-x-1 shrink-0">
@@ -8215,13 +8499,13 @@ export default function VendorDashboard() {
                 {/* Card Header with Title and Media Filter Controls */}
                 <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-xs shrink-0">
                       <ImageIcon className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="flex items-center space-x-2">
                         <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">My Media & Drops</h3>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-100 text-sky-800">
                           {myMedia.length}
                         </span>
                       </div>
@@ -8278,7 +8562,7 @@ export default function VendorDashboard() {
                   </div>
                 ) : myMedia.length === 0 ? (
                   <div className="p-8 sm:p-12 text-center">
-                    <div className="w-14 h-14 rounded-3xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center mx-auto mb-3.5 shadow-xs">
+                    <div className="w-14 h-14 rounded-3xl bg-sky-50 text-sky-600 border border-sky-100 flex items-center justify-center mx-auto mb-3.5 shadow-xs">
                       <Camera className="w-7 h-7" />
                     </div>
                     <h4 className="text-sm sm:text-base font-bold text-slate-800">No promotional media uploaded yet</h4>
@@ -8289,9 +8573,9 @@ export default function VendorDashboard() {
                       type="button"
                       onClick={() => {
                         setActiveTab('home');
-                        setReelModalOpen(true);
+                        setShowReelModal(true);
                       }}
-                      className="mt-4 px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all inline-flex items-center space-x-1.5 cursor-pointer"
+                      className="mt-4 px-4 py-2 bg-sky-500 hover:bg-sky-600 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all inline-flex items-center space-x-1.5 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Post Promotional Drop Now</span>
@@ -8946,7 +9230,7 @@ export default function VendorDashboard() {
               {/* Modal Top Bar */}
               <div className="p-3.5 sm:p-4 border-b border-slate-800 flex items-center justify-between">
                 <div className="flex items-center space-x-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
                     {activeMediaViewer.media_type === 'video' ? <Film className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
                   </div>
                   <div className="min-w-0">

@@ -246,19 +246,32 @@ export default function AdminDashboard() {
     }
   };
 
+  // Resilient Real-Time Ecosystem Analytics Computation
+  const computedStats = useMemo(() => {
+    const verifiedVendorsCount = allVendors.filter(v => v.verification_status === 'verified').length;
+    const pendingVendorsCount = allVendors.filter(v => v.verification_status === 'pending' || !v.verification_status).length;
+    const studentCount = users.filter(u => u.role === 'student').length;
+
+    return {
+      total_students: stats?.total_students ?? (studentCount > 0 ? studentCount : (users.length > 0 ? users.length : 0)),
+      verified_vendors: stats?.verified_vendors ?? verifiedVendorsCount,
+      pending_vendors: stats?.pending_vendors ?? pendingVendorsCount,
+      total_products: stats?.total_products ?? products.length,
+      total_services: stats?.total_services ?? services.length,
+      total_reels: stats?.total_reels ?? reels.length,
+      total_orders: stats?.total_orders ?? (stats?.orders_count ?? 0)
+    };
+  }, [stats, users, allVendors, products, services, reels]);
+
   const handleLogout = () => {
     try {
-      localStorage.removeItem('token');
-      localStorage.removeItem('campuslink_token');
-      localStorage.removeItem('user');
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith('cl_cache_') || k.startsWith('campus_ai_'))) {
-          localStorage.removeItem(k);
-        }
-      }
+      localStorage.clear();
+      sessionStorage.clear();
     } catch {}
-    window.location.replace('/login');
+    try {
+      navigate('/login', { replace: true });
+    } catch {}
+    window.location.href = '/login';
   };
 
   // Campus-Wide Emergency Broadcast Announcement
@@ -1921,7 +1934,7 @@ export default function AdminDashboard() {
         )}
 
         {/* --- TAB 6: PLATFORM ANALYTICS --- */}
-        {activeTab === 'stats' && stats && (
+        {activeTab === 'stats' && (
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200">
               <div className="min-w-0">
@@ -1946,28 +1959,28 @@ export default function AdminDashboard() {
                   <GraduationCap className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Registered Students</span>
                 </span>
-                <span className="text-xl sm:text-3xl font-black text-slate-900 mt-1 block truncate">{stats.total_students}</span>
+                <span className="text-xl sm:text-3xl font-black text-slate-900 mt-1 block truncate">{computedStats.total_students}</span>
               </div>
               <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs min-w-0 overflow-hidden">
                 <span className="text-[10px] sm:text-[11px] font-bold text-emerald-600 uppercase flex items-center space-x-1 truncate">
                   <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Verified Vendors</span>
                 </span>
-                <span className="text-xl sm:text-3xl font-black text-emerald-600 mt-1 block truncate">{stats.verified_vendors}</span>
+                <span className="text-xl sm:text-3xl font-black text-emerald-600 mt-1 block truncate">{computedStats.verified_vendors}</span>
               </div>
               <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs min-w-0 overflow-hidden">
                 <span className="text-[10px] sm:text-[11px] font-bold text-amber-600 uppercase flex items-center space-x-1 truncate">
                   <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Pending Review</span>
                 </span>
-                <span className="text-xl sm:text-3xl font-black text-amber-600 mt-1 block truncate">{stats.pending_vendors}</span>
+                <span className="text-xl sm:text-3xl font-black text-amber-600 mt-1 block truncate">{computedStats.pending_vendors}</span>
               </div>
               <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs min-w-0 overflow-hidden">
                 <span className="text-[10px] sm:text-[11px] font-bold text-sky-600 uppercase flex items-center space-x-1 truncate">
                   <Package className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate">Products</span>
                 </span>
-                <span className="text-xl sm:text-3xl font-black text-sky-600 mt-1 block truncate">{stats.total_products}</span>
+                <span className="text-xl sm:text-3xl font-black text-sky-600 mt-1 block truncate">{computedStats.total_products}</span>
               </div>
             </div>
 
@@ -1978,21 +1991,21 @@ export default function AdminDashboard() {
                   <Wrench className="w-3.5 h-3.5 shrink-0" />
                   <span>Student Services</span>
                 </span>
-                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{stats.total_services}</span>
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{computedStats.total_services}</span>
               </div>
               <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs min-w-0 overflow-hidden">
                 <span className="text-[11px] font-bold text-slate-400 uppercase flex items-center space-x-1 truncate">
                   <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                   <span>Campus Reels</span>
                 </span>
-                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{stats.total_reels}</span>
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{computedStats.total_reels}</span>
               </div>
               <div className="bg-white p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs min-w-0 overflow-hidden">
                 <span className="text-[11px] font-bold text-slate-400 uppercase flex items-center space-x-1 truncate">
                   <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
                   <span>Orders Processed</span>
                 </span>
-                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{stats.total_orders}</span>
+                <span className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 block truncate">{computedStats.total_orders}</span>
               </div>
             </div>
 
@@ -2116,7 +2129,7 @@ export default function AdminDashboard() {
             {/* 2. Emergency Campus Announcement Broadcast Suite */}
             <div className="p-6 sm:p-7 rounded-3xl bg-white border border-slate-200 shadow-xs">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center font-bold shadow-md shadow-amber-500/20">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-sky-500 to-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-sky-500/20">
                   <Megaphone className="w-5 h-5" />
                 </div>
                 <div>
@@ -2166,7 +2179,7 @@ export default function AdminDashboard() {
                         onClick={() => setBroadcastAudience(aud.id)}
                         className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                           broadcastAudience === aud.id
-                            ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/40 text-amber-950 shadow-xs'
+                            ? 'bg-sky-50 border-sky-300 ring-2 ring-sky-400/40 text-sky-950 shadow-xs'
                             : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-700'
                         }`}
                       >
@@ -2178,16 +2191,16 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Recipient Email Directory & Quick Copy */}
-                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-200/80 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div>
                       <div className="flex items-center space-x-2">
-                        <Mail className="w-4 h-4 text-amber-700 shrink-0" />
-                        <span className="text-xs font-bold text-amber-950">
+                        <Mail className="w-4 h-4 text-sky-600 shrink-0" />
+                        <span className="text-xs font-bold text-sky-950">
                           Recipient Email Directory ({audienceEmails.length} {audienceEmails.length === 1 ? 'address' : 'addresses'})
                         </span>
                       </div>
-                      <p className="text-[11px] text-amber-800/80 mt-0.5">
+                      <p className="text-[11px] text-slate-500 mt-0.5">
                         Copy emails to paste directly into your email provider's (Gmail/Outlook) Bcc field or open your mail app.
                       </p>
                     </div>
@@ -2204,7 +2217,7 @@ export default function AdminDashboard() {
                             text: `Copied ${audienceEmails.length} recipient email(s) to clipboard!`
                           });
                         }}
-                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
+                        className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer shadow-xs"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         <span>Copy All ({audienceEmails.length})</span>
@@ -2213,7 +2226,7 @@ export default function AdminDashboard() {
                       {audienceEmails.length > 0 && (
                         <a
                           href={`mailto:?bcc=${encodeURIComponent(audienceEmails.join(','))}&subject=${encodeURIComponent(broadcastTitle || 'CampusLink Announcement')}`}
-                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs flex items-center space-x-1.5 transition-colors"
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-sky-100 text-sky-900 border border-sky-300 font-bold text-xs flex items-center space-x-1.5 transition-colors"
                           title="Open default email client with all recipient emails in Bcc"
                         >
                           <Send className="w-3.5 h-3.5" />
@@ -2229,19 +2242,19 @@ export default function AdminDashboard() {
                       {audienceEmails.slice(0, 25).map((em) => (
                         <span
                           key={em}
-                          className="px-2 py-0.5 rounded-md bg-white text-slate-700 text-[10px] font-mono border border-amber-200 select-all"
+                          className="px-2 py-0.5 rounded-md bg-white text-slate-700 text-[10px] font-mono border border-sky-200 select-all"
                         >
                           {em}
                         </span>
                       ))}
                       {audienceEmails.length > 25 && (
-                        <span className="px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-900 text-[10px] font-bold">
+                        <span className="px-2 py-0.5 rounded-md bg-sky-100/80 text-sky-900 text-[10px] font-bold">
                           +{audienceEmails.length - 25} more
                         </span>
                       )}
                     </div>
                   ) : (
-                    <div className="text-[11px] text-amber-700 italic">
+                    <div className="text-[11px] text-sky-700 italic">
                       No emails found for the selected audience.
                     </div>
                   )}
@@ -2256,7 +2269,7 @@ export default function AdminDashboard() {
                     value={broadcastTitle}
                     onChange={(e) => setBroadcastTitle(e.target.value)}
                     placeholder="e.g. Scheduled System Optimization or Campus Safety Advisory"
-                    className="w-full px-4 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-slate-50/50"
+                    className="w-full px-4 py-2.5 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-slate-50/50"
                   />
                 </div>
 
@@ -2274,13 +2287,13 @@ export default function AdminDashboard() {
                     value={broadcastMessage}
                     onChange={(e) => setBroadcastMessage(e.target.value)}
                     placeholder="Write the comprehensive alert or message that all active devices will receive..."
-                    className="w-full px-4 py-3 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-slate-50/50 resize-none leading-relaxed"
+                    className="w-full px-4 py-3 text-xs rounded-xl border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent bg-slate-50/50 resize-none leading-relaxed"
                   />
                 </div>
 
                 {/* Delivery Notice */}
-                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-amber-900 text-xs flex items-start space-x-2.5">
-                  <Megaphone className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200 text-sky-900 text-xs flex items-start space-x-2.5">
+                  <Megaphone className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
                   <p className="text-[11px] leading-relaxed">
                     <strong>Instant Real-Time Push:</strong> When dispatched, all connected sockets receive this announcement immediately. A permanent notification is also generated in users' activity inboxes.
                   </p>
@@ -2289,7 +2302,7 @@ export default function AdminDashboard() {
                 <button
                   type="submit"
                   disabled={broadcastLoading}
-                  className="w-full sm:w-auto py-3 px-6 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs shadow-md shadow-orange-500/20 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto py-3 px-6 rounded-xl bg-gradient-to-r from-sky-500 via-blue-600 to-sky-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs shadow-md shadow-sky-500/20 transition-all flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
                 >
                   {broadcastLoading ? (
                     <>

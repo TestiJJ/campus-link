@@ -2462,24 +2462,71 @@ def get_admin_stats(
     current_user: models.User = Depends(require_role(["admin"])),
     db: Session = Depends(database.get_db)
 ):
+    from sqlalchemy import func
     total_students = db.query(models.User).filter(models.User.role == "student").count()
+    active_students = db.query(models.User).filter(models.User.role == "student", models.User.status == "active").count()
+    online_users = db.query(models.User).filter(models.User.is_online == True).count()
     total_vendors = db.query(models.Vendor).count()
     verified_vendors = db.query(models.Vendor).filter(models.Vendor.verification_status == "verified").count()
     pending_vendors = db.query(models.Vendor).filter(models.Vendor.verification_status == "pending").count()
+    rejected_vendors = db.query(models.Vendor).filter(models.Vendor.verification_status == "rejected").count()
     total_products = db.query(models.Product).count()
     total_services = db.query(models.Service).count()
     total_reels = db.query(models.Reel).count()
     total_orders = db.query(models.Order).count()
+    completed_orders = db.query(models.Order).filter(models.Order.status == "completed").count()
+    pending_orders = db.query(models.Order).filter(models.Order.status == "pending").count()
+    
+    # Platform Gross Merchandise Volume
+    total_gmv = db.query(func.coalesce(func.sum(models.Order.amount), 0.0)).scalar() or 0.0
+    total_universities = db.query(models.University).count()
+
+    # Campus breakdown distribution (optimized fast grouped aggregations)
+    s_counts = dict(
+        db.query(models.User.university_id, func.count(models.User.user_id))
+        .filter(models.User.university_id.isnot(None), models.User.role == "student")
+        .group_by(models.User.university_id)
+        .all()
+    )
+    v_counts = dict(
+        db.query(models.Vendor.university_id, func.count(models.Vendor.id))
+        .filter(models.Vendor.university_id.isnot(None))
+        .group_by(models.Vendor.university_id)
+        .all()
+    )
+    all_uni_ids = set(s_counts.keys()) | set(v_counts.keys())
+    campus_distribution = []
+    if all_uni_ids:
+        active_unis = db.query(models.University).filter(models.University.id.in_(all_uni_ids)).all()
+        for u in active_unis:
+            s_count = s_counts.get(u.id, 0)
+            v_count = v_counts.get(u.id, 0)
+            campus_distribution.append({
+                "university_id": u.id,
+                "name": u.name,
+                "abbreviation": u.abbreviation or u.name[:6].upper(),
+                "students_count": s_count,
+                "vendors_count": v_count
+            })
+        campus_distribution.sort(key=lambda x: (x["students_count"] + x["vendors_count"]), reverse=True)
 
     return {
         "total_students": total_students,
+        "active_students": active_students,
+        "online_users": online_users,
         "total_vendors": total_vendors,
         "verified_vendors": verified_vendors,
         "pending_vendors": pending_vendors,
+        "rejected_vendors": rejected_vendors,
         "total_products": total_products,
         "total_services": total_services,
         "total_reels": total_reels,
-        "total_orders": total_orders
+        "total_orders": total_orders,
+        "completed_orders": completed_orders,
+        "pending_orders": pending_orders,
+        "total_gmv": round(float(total_gmv), 2),
+        "total_universities": total_universities,
+        "campus_distribution": campus_distribution[:10]
     }
 
 @app.get("/api/admin/vendors/pending", response_model=List[schemas.VendorOut])
@@ -3384,6 +3431,7 @@ def get_reels(
                 (c_user.vendor_profile.business_name if c_user and c_user.role == "vendor" and c_user.vendor_profile else c_user.full_name)
                 if c_user else "Campus Member"
             ) or (c_user.full_name if c_user else "Campus Member")
+            c_is_verified = bool(getattr(c_user, "is_verified", False) or (c_user and c_user.vendor_profile and c_user.vendor_profile.verification_status == "verified"))
             comments_list.append({
                 "id": c.id,
                 "reel_id": c.reel_id,
@@ -3392,6 +3440,7 @@ def get_reels(
                 "author_name": c_author_name,
                 "author_avatar": c_user.profile_picture_url if c_user else None,
                 "author_role": "Vendor" if (c_user and c_user.role == "vendor") else "Student",
+                "author_is_verified": c_is_verified,
                 "reply_to_comment_id": getattr(c, "reply_to_comment_id", None),
                 "reply_to_author": getattr(c, "reply_to_author", None),
                 "created_at": c.created_at
@@ -3402,6 +3451,7 @@ def get_reels(
         author_name = (vendor_obj.business_name if vendor_obj and vendor_obj.business_name else (r.user.full_name if r.user else "Campus Student"))
         author_role = "Vendor" if is_vendor else "Student"
         author_avatar = (vendor_obj.logo if (vendor_obj and vendor_obj.logo) else (r.user.profile_picture_url if r.user else None))
+        r_is_verified = bool((r.user and getattr(r.user, "is_verified", False)) or (vendor_obj and vendor_obj.verification_status == "verified"))
 
         u_obj = (vendor_obj.university if (vendor_obj and vendor_obj.university) else None) or (r.user.university if (r.user and r.user.university) else None)
         author_university = u_obj.name if u_obj else "Campus Wide"
@@ -3425,7 +3475,8 @@ def get_reels(
             "author_role": author_role,
             "author_avatar": author_avatar,
             "author_university": author_university,
-            "author_university_abbr": author_university_abbr
+            "author_university_abbr": author_university_abbr,
+            "author_is_verified": r_is_verified
         })
     return results
 
@@ -3575,6 +3626,8 @@ def add_reel_comment(
         or "Campus Member"
     )
 
+    is_curr_verified = bool(getattr(current_user, "is_verified", False) or (current_user.vendor_profile and current_user.vendor_profile.verification_status == "verified"))
+
     return {
         "id": comment.id,
         "reel_id": comment.reel_id,
@@ -3583,6 +3636,7 @@ def add_reel_comment(
         "author_name": author_name,
         "author_avatar": current_user.profile_picture_url,
         "author_role": "Vendor" if current_user.role == "vendor" else "Student",
+        "author_is_verified": is_curr_verified,
         "reply_to_comment_id": comment.reply_to_comment_id,
         "reply_to_author": comment.reply_to_author,
         "created_at": comment.created_at
@@ -3680,6 +3734,19 @@ def get_my_rides(
 
 # --- ORDERS & REVIEWS ---
 
+def resolve_order_image(db: Session, product_id: Optional[int], service_id: Optional[int], fallback_image: Optional[str] = None) -> Optional[str]:
+    if fallback_image:
+        return fallback_image
+    if product_id:
+        p = db.query(models.Product).filter(models.Product.id == product_id).first()
+        if p and p.image:
+            return p.image
+    if service_id:
+        s = db.query(models.Service).filter(models.Service.id == service_id).first()
+        if s and s.image:
+            return s.image
+    return None
+
 @app.post("/api/orders", response_model=schemas.OrderOut)
 def place_order(
     order_data: schemas.OrderCreate,
@@ -3705,6 +3772,8 @@ def place_order(
     db.commit()
     db.refresh(new_order)
 
+    resolved_img = resolve_order_image(db, new_order.product_id, new_order.service_id, order_data.item_image)
+
     # Notify vendor of incoming order
     if vendor and vendor.user_id:
         create_notification(
@@ -3728,7 +3797,6 @@ def place_order(
         reference_id=str(new_order.id)
     )
 
-
     return {
         "id": new_order.id,
         "user_id": new_order.user_id,
@@ -3742,7 +3810,8 @@ def place_order(
         "status": new_order.status,
         "created_at": new_order.created_at,
         "customer_name": current_user.full_name,
-        "vendor_name": vendor.business_name
+        "vendor_name": vendor.business_name,
+        "item_image": resolved_img
     }
 
 @app.get("/api/orders/my", response_model=List[schemas.OrderOut])
@@ -3767,9 +3836,62 @@ def get_my_orders(
             "status": o.status,
             "created_at": o.created_at,
             "customer_name": current_user.full_name,
-            "vendor_name": vendor.business_name if vendor else "Campus Vendor"
+            "vendor_name": vendor.business_name if vendor else "Campus Vendor",
+            "item_image": resolve_order_image(db, o.product_id, o.service_id)
         })
     return results
+
+@app.get("/api/orders", response_model=List[schemas.OrderOut])
+def get_all_orders(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    if current_user.role == "vendor":
+        vendor = db.query(models.Vendor).filter(models.Vendor.user_id == current_user.user_id).first()
+        if not vendor:
+            return []
+        orders = db.query(models.Order).filter(models.Order.vendor_id == vendor.id).order_by(models.Order.created_at.desc()).all()
+        results = []
+        for o in orders:
+            results.append({
+                "id": o.id,
+                "user_id": o.user_id,
+                "vendor_id": o.vendor_id,
+                "product_id": o.product_id,
+                "service_id": o.service_id,
+                "item_title": o.item_title,
+                "quantity": o.quantity,
+                "amount": o.amount,
+                "delivery_location": o.delivery_location,
+                "status": o.status,
+                "created_at": o.created_at,
+                "customer_name": o.user.full_name if o.user else "Student",
+                "vendor_name": vendor.business_name,
+                "item_image": resolve_order_image(db, o.product_id, o.service_id)
+            })
+        return results
+    else:
+        orders = db.query(models.Order).filter(models.Order.user_id == current_user.user_id).order_by(models.Order.created_at.desc()).all()
+        results = []
+        for o in orders:
+            vendor = db.query(models.Vendor).filter(models.Vendor.id == o.vendor_id).first()
+            results.append({
+                "id": o.id,
+                "user_id": o.user_id,
+                "vendor_id": o.vendor_id,
+                "product_id": o.product_id,
+                "service_id": o.service_id,
+                "item_title": o.item_title,
+                "quantity": o.quantity,
+                "amount": o.amount,
+                "delivery_location": o.delivery_location,
+                "status": o.status,
+                "created_at": o.created_at,
+                "customer_name": current_user.full_name,
+                "vendor_name": vendor.business_name if vendor else "Campus Vendor",
+                "item_image": resolve_order_image(db, o.product_id, o.service_id)
+            })
+        return results
 
 @app.get("/api/vendor/orders", response_model=List[schemas.OrderOut])
 def get_vendor_orders(
@@ -3796,7 +3918,8 @@ def get_vendor_orders(
             "status": o.status,
             "created_at": o.created_at,
             "customer_name": o.user.full_name if o.user else "Student",
-            "vendor_name": vendor.business_name
+            "vendor_name": vendor.business_name,
+            "item_image": resolve_order_image(db, o.product_id, o.service_id)
         })
     return results
 

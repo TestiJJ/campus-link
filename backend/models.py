@@ -53,6 +53,9 @@ class User(Base):
     # CampusLink Mini Bank Wallet
     wallet_balance = Column(Float, default=0.0)
 
+    # Official Blue Checkmark Verification
+    is_verified = Column(Boolean, default=False, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     university = relationship("University", back_populates="users")
@@ -68,12 +71,14 @@ class User(Base):
     def verification_status(self):
         if self.vendor_profile:
             return self.vendor_profile.verification_status
-        return None
+        return "verified" if self.is_verified else None
 
     @property
-    def is_verified(self):
-        if self.vendor_profile:
-            return self.vendor_profile.verification_status == "verified"
+    def is_account_verified(self):
+        if bool(self.is_verified):
+            return True
+        if self.vendor_profile and self.vendor_profile.verification_status == "verified":
+            return True
         return False
 
 

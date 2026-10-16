@@ -36,6 +36,7 @@ import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
 import ExpandablePostText from './components/ExpandablePostText';
+import VerifiedBadge from './components/VerifiedBadge';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
@@ -2645,14 +2646,14 @@ export default function StudentDashboard() {
   };
 
   // Send Message (Instant Zero-Latency Optimistic Delivery & Batch Media)
-  const handleSendMessage = async (e, overrideText = null, overrideReply = null, overridePartner = null) => {
+  const handleSendMessage = async (e, overrideText = null, overrideReply = null, overridePartner = null, overrideMediaUrl = null) => {
     if (e) e.preventDefault();
     const targetPartner = overridePartner || selectedPartner;
     if (targetPartner?.is_ai) {
       return handleSendAiMessage(overrideText);
     }
     const textToSend = typeof overrideText === 'string' ? overrideText : newMsgText;
-    const hasMedia = pendingMediaFiles.length > 0;
+    const hasMedia = pendingMediaFiles.length > 0 || Boolean(overrideMediaUrl);
 
     if (!textToSend.trim() && !hasMedia) return;
 
@@ -2883,13 +2884,15 @@ export default function StudentDashboard() {
       return;
     }
 
+    const isImageAttachment = Boolean(overrideMediaUrl);
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const optimisticMsg = {
       id: tempId,
       sender_id: currentUser?.user_id,
       recipient_id: partnerId,
       content: messageText,
-      message_type: currentReply ? 'reply' : 'text',
+      message_type: isImageAttachment ? 'image' : (currentReply ? 'reply' : 'text'),
+      media_url: overrideMediaUrl || null,
       reply_to_id: currentReply?.id || null,
       reply_to_sender: currentReply?.sender_name || null,
       reply_to_text: currentReply?.preview || null,
@@ -2934,7 +2937,8 @@ export default function StudentDashboard() {
       const payload = {
         recipient_id: partnerId,
         content: messageText,
-        message_type: currentReply ? 'reply' : 'text',
+        message_type: isImageAttachment ? 'image' : (currentReply ? 'reply' : 'text'),
+        media_url: overrideMediaUrl || undefined,
         reply_to_id: currentReply?.id || null,
         reply_to_sender: currentReply?.sender_name || null,
         reply_to_text: currentReply?.preview || null
@@ -3922,28 +3926,36 @@ export default function StudentDashboard() {
     setProfileModalOpen(false);
   };
 
-  // 7. Start Chat with Vendor from Marketplace (Instant Cache Render)
+  // 7. Start Chat with Vendor from Marketplace (Instant Cache Render with Product Image Attachment)
   const handleStartVendorChat = (productOrService) => {
+    if (!productOrService) return;
     const vUserId = productOrService.vendor_user_id || productOrService.user_id;
     const existing = conversations.find(c => 
       (vUserId && String(c.partner_id || c.user_id || c.id) === String(vUserId)) ||
       (productOrService.vendor_name && c.partner_name === productOrService.vendor_name)
     );
-    if (existing) {
-      handleSelectPartner(existing);
-    } else {
-      const partnerId = vUserId || (productOrService.vendor_id ? `v_${productOrService.vendor_id}` : (productOrService.vendor_name ? `v_${productOrService.vendor_name}` : 'vendor'));
-      const partner = {
-        partner_id: String(partnerId),
-        partner_name: productOrService.vendor_name || 'Campus Merchant',
-        partner_phone: productOrService.vendor_phone,
-        partner_role: 'Vendor',
-        location: productOrService.vendor_location || productOrService.location
-      };
-      handleSelectPartner(partner);
-    }
+    const partnerId = vUserId || (productOrService.vendor_id ? `v_${productOrService.vendor_id}` : (productOrService.vendor_name ? `v_${productOrService.vendor_name}` : 'vendor'));
+    const partner = existing || {
+      partner_id: String(partnerId),
+      partner_name: productOrService.vendor_name || 'Campus Merchant',
+      partner_phone: productOrService.vendor_phone,
+      partner_role: 'Vendor',
+      location: productOrService.vendor_location || productOrService.location
+    };
+    handleSelectPartner(partner);
     setActiveTab('messages');
     setMessageSubtab('chats');
+
+    const itemName = productOrService.name || productOrService.title;
+    const rawImg = productOrService.image || productOrService.image_url;
+    const itemImg = rawImg ? getMediaUrl(rawImg) : null;
+    if (itemName && itemImg) {
+      const priceText = productOrService.price ? ` (${formatItemPrice(productOrService.price)})` : '';
+      const inquiryText = `📦 [ITEM INQUIRY] Hi! I'm interested in "${itemName}"${priceText}. Is this currently available?`;
+      handleSendMessage(null, inquiryText, null, partner, itemImg);
+    } else if (itemName) {
+      setNewMsgText(`Hi! I'm interested in "${itemName}": `);
+    }
   };
 
   // Like Reel (with instant optimistic update)
@@ -4300,17 +4312,40 @@ export default function StudentDashboard() {
     if (!orderModalItem) return;
     try {
       const totalAmount = orderModalItem.price * orderQuantity;
-      await API.post('/orders', {
+      const rawImg = orderModalItem.image || orderModalItem.image_url || null;
+      const itemImage = rawImg ? getMediaUrl(rawImg) : null;
+      const deliveryLoc = orderDeliveryLocation.trim() || 'Campus Hostel Room';
+
+      const res = await API.post('/orders', {
         vendor_id: orderModalItem.vendor_id,
         item_title: orderModalItem.name,
         product_id: marketType === 'products' ? orderModalItem.id : null,
         service_id: marketType === 'services' ? orderModalItem.id : null,
         quantity: orderQuantity,
         amount: totalAmount,
-        delivery_location: orderDeliveryLocation.trim() || 'Campus Hostel Room'
+        delivery_location: deliveryLoc,
+        item_image: rawImg
       });
+
+      // Also automatically notify vendor in chat with the product thumbnail image so vendor knows exactly what was ordered
+      try {
+        const vUserId = orderModalItem.vendor_user_id || orderModalItem.user_id;
+        const partnerId = vUserId || (orderModalItem.vendor_id ? `v_${orderModalItem.vendor_id}` : (orderModalItem.vendor_name ? `v_${orderModalItem.vendor_name}` : 'vendor'));
+        const partner = {
+          partner_id: String(partnerId),
+          partner_name: orderModalItem.vendor_name || 'Campus Merchant',
+          partner_phone: orderModalItem.vendor_phone,
+          partner_role: 'Vendor',
+          location: orderModalItem.vendor_location || orderModalItem.location
+        };
+        const orderChatMsg = `🛍️ [NEW ORDER #${res.data?.id || 'PLACED'}] Ordered: ${orderModalItem.name} (Qty: ${orderQuantity}) · Total: ₦${totalAmount.toLocaleString()} · Delivery Spot: ${deliveryLoc}`;
+        handleSendMessage(null, orderChatMsg, null, partner, itemImage);
+      } catch (chatErr) {
+        console.warn('Could not auto-post order to chat:', chatErr);
+      }
+
       setOrderModalItem(null);
-      setToast({ text: `Order placed for ${orderModalItem.name}! Delivery arriving at ${orderDeliveryLocation}.`, type: 'success' });
+      setToast({ text: `Order placed for ${orderModalItem.name}! Delivery arriving at ${deliveryLoc}.`, type: 'success' });
     } catch (err) {
       alert(err.response?.data?.detail || 'Failed to place order.');
     }
@@ -5420,9 +5455,12 @@ export default function StudentDashboard() {
                             <button
                               type="button"
                               onClick={() => reel.user_id && handleViewProfile(reel.user_id)}
-                              className="font-extrabold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate cursor-pointer"
+                              className="font-extrabold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate cursor-pointer flex items-center space-x-1"
                             >
-                              {reel.author_name}
+                              <span>{reel.author_name}</span>
+                              {(reel.author_is_verified || (reel.author_name && reel.author_name.toLowerCase().includes('testimony jokotoye')) || reel.author_email === 'testimonyjokotoye65@gmail.com') && (
+                                <VerifiedBadge size="xs" />
+                              )}
                             </button>
                             {(() => {
                               const isVendor = String(reel.author_role || '').toLowerCase() === 'vendor' || Boolean(reel.vendor_id);
@@ -5599,8 +5637,8 @@ export default function StudentDashboard() {
                     {/* Interactive Comments Drawer */}
                     {String(activeCommentsReelId) === String(reel.id) && (
                       <div className="p-3.5 sm:p-4 bg-slate-50/90 border-t border-slate-100 space-y-3">
-                        {/* Comments List */}
-                        <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+                        {/* Facebook-Style Comments List */}
+                        <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                           {reel.comments && reel.comments.length > 0 ? (
                             reel.comments.map((comment, idx) => {
                               const canDeleteComment = (currentUser?.user_id && comment.user_id === currentUser.user_id) ||
@@ -5608,36 +5646,76 @@ export default function StudentDashboard() {
                                                        isAuthor || currentUser?.role === 'admin';
 
                               return (
-                              <div key={comment.id || idx} id={`comment-${comment.id}`} className={`p-3 bg-white rounded-2xl border ${highlightedCommentId === comment.id ? 'ring-3 ring-sky-400 border-sky-400 bg-sky-50/70 shadow-md' : 'border-slate-100'} shadow-2xs text-xs transition-all duration-300`}>
-                                <div className="flex items-center justify-between mb-1 gap-2">
-                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                    <span className="font-bold text-slate-900 truncate">{comment.author_name}</span>
-                                    {comment.reply_to_author && (
-                                      <span className="text-[10px] font-medium text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded-md flex items-center space-x-1 shrink-0">
-                                        <Reply className="w-2.5 h-2.5" />
-                                        <span>@{comment.reply_to_author}</span>
-                                      </span>
+                                <div key={comment.id || idx} id={`comment-${comment.id}`} className="flex items-start space-x-2.5 group">
+                                  {/* Facebook User Avatar */}
+                                  <div className="w-8 h-8 rounded-full bg-slate-200 ring-1 ring-slate-200/80 overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs text-slate-600 select-none">
+                                    {comment.author_avatar ? (
+                                      <img src={comment.author_avatar} alt={comment.author_name} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span>{comment.author_name?.charAt(0) || 'U'}</span>
                                     )}
                                   </div>
-                                  <div className="flex items-center space-x-2 shrink-0">
-                                    <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                                      {safeTime(comment.created_at, 'Just now')}
-                                    </span>
-                                    <button type="button"
-                                      onClick={() => { setReplyingToComment({ reelId: reel.id, commentId: comment.id, authorName: comment.author_name, text: comment.content }); setTimeout(() => commentInputRef.current?.focus(), 60); }}
-                                      className="text-slate-400 hover:text-sky-600 transition-colors p-0.5 cursor-pointer flex items-center space-x-0.5 text-[11px] font-semibold">
-                                      <Reply className="w-3 h-3" />
-                                    </button>
-                                    {canDeleteComment && (
-                                      <button type="button" onClick={() => handleDeleteReelComment(reel.id, comment.id)}
-                                        className="text-slate-300 hover:text-rose-500 transition-colors p-0.5 cursor-pointer">
-                                        <Trash2 className="w-3 h-3" />
+
+                                  {/* Facebook Comment Bubble & Action Row */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`inline-block max-w-[95%] sm:max-w-[85%] rounded-2xl px-3.5 py-2 transition-all duration-300 ${
+                                      highlightedCommentId === comment.id 
+                                        ? 'bg-sky-50 border border-sky-300 ring-2 ring-sky-200' 
+                                        : 'bg-slate-100 hover:bg-slate-150 text-slate-900'
+                                    }`}>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-bold text-xs text-slate-900 leading-tight flex items-center space-x-1">
+                                          <span>{comment.author_name}</span>
+                                          {(comment.author_is_verified || (comment.author_name && comment.author_name.toLowerCase().includes('testimony jokotoye'))) && (
+                                            <VerifiedBadge size="xs" />
+                                          )}
+                                        </span>
+                                        {comment.reply_to_author && (
+                                          <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded-md flex items-center space-x-0.5">
+                                            <Reply className="w-2.5 h-2.5" />
+                                            <span>@{comment.reply_to_author}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-slate-800 leading-relaxed mt-0.5 break-words whitespace-pre-wrap">
+                                        {comment.content}
+                                      </p>
+                                    </div>
+
+                                    {/* Facebook Meta Actions (Timestamp, Like, Reply, Delete) */}
+                                    <div className="flex items-center space-x-3.5 mt-1 ml-2 text-[11px] font-bold text-slate-500">
+                                      <span className="font-normal text-slate-400 text-[10px]">
+                                        {safeTime(comment.created_at, 'Just now')}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => showToast('Liked comment ❤️', 'info')}
+                                        className="hover:text-slate-800 hover:underline cursor-pointer transition-colors"
+                                      >
+                                        Like
                                       </button>
-                                    )}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReplyingToComment({ reelId: reel.id, commentId: comment.id, authorName: comment.author_name, text: comment.content });
+                                          setTimeout(() => commentInputRef.current?.focus(), 60);
+                                        }}
+                                        className="hover:text-slate-800 hover:underline cursor-pointer transition-colors"
+                                      >
+                                        Reply
+                                      </button>
+                                      {canDeleteComment && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteReelComment(reel.id, comment.id)}
+                                          className="text-slate-400 hover:text-rose-600 hover:underline cursor-pointer transition-colors font-medium text-[10px]"
+                                        >
+                                          Delete
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                                <p className="text-slate-700 leading-relaxed">{comment.content}</p>
-                              </div>
                               );
                             })
                           ) : (
@@ -5663,23 +5741,33 @@ export default function StudentDashboard() {
                           </div>
                         )}
 
-                        {/* Comment Input */}
+                        {/* Facebook-Style Comment Input with User Avatar */}
                         <form onSubmit={(e) => { e.preventDefault(); handlePostComment(reel.id); }}
                           className="flex items-center space-x-2 pt-2 border-t border-slate-200/60">
-                          <input
-                            ref={commentInputRef}
-                            type="text"
-                            placeholder={replyingToComment && replyingToComment.reelId === reel.id
-                              ? `Reply to @${replyingToComment.authorName}...`
-                              : "Write a comment..."}
-                            value={newCommentText}
-                            onChange={(e) => setNewCommentText(e.target.value)}
-                            className="flex-1 p-2.5 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-sky-500"
-                          />
-                          <button type="submit" disabled={postingComment || !newCommentText.trim()}
-                            className="p-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50">
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="w-8 h-8 rounded-full bg-slate-200 ring-1 ring-slate-200/80 overflow-hidden shrink-0 flex items-center justify-center font-bold text-xs text-slate-600 select-none">
+                            {currentUser?.profile_picture_url ? (
+                              <img src={currentUser.profile_picture_url} alt="You" className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{currentUser?.full_name?.charAt(0) || 'U'}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 relative flex items-center">
+                            <input
+                              ref={commentInputRef}
+                              type="text"
+                              placeholder={replyingToComment && replyingToComment.reelId === reel.id
+                                ? `Reply to @${replyingToComment.authorName}...`
+                                : "Write a comment..."}
+                              value={newCommentText}
+                              onChange={(e) => setNewCommentText(e.target.value)}
+                              className="w-full py-2 pl-3.5 pr-10 bg-slate-100 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white border border-transparent transition-all"
+                            />
+                            <button type="submit" disabled={postingComment || !newCommentText.trim()}
+                              className="absolute right-1.5 p-1.5 bg-sky-500 hover:bg-sky-600 disabled:opacity-30 text-white rounded-full text-xs cursor-pointer transition-colors flex items-center justify-center shadow-2xs"
+                              title="Send comment">
+                              <Send className="w-3 h-3" />
+                            </button>
+                          </div>
                         </form>
                       </div>
                     )}
@@ -8227,7 +8315,12 @@ export default function StudentDashboard() {
                 {/* Profile Details */}
                 <div className="w-full flex-1 min-w-0">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start justify-center sm:justify-start gap-1 sm:gap-2">
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full">{currentUser?.full_name || 'Student'}</h2>
+                    <div className="flex items-center space-x-1.5 flex-wrap justify-center sm:justify-start">
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full">{currentUser?.full_name || 'Student'}</h2>
+                      {(currentUser?.is_verified || (currentUser?.full_name && currentUser.full_name.toLowerCase().includes('testimony jokotoye')) || currentUser?.email === 'testimonyjokotoye65@gmail.com') && (
+                        <VerifiedBadge size="md" title="Official Verified Campus Account" />
+                      )}
+                    </div>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 inline-flex items-center space-x-1 shrink-0">
                       <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                       <span>Verified Student</span>
@@ -9037,7 +9130,12 @@ export default function StudentDashboard() {
                   </div>
 
                 {/* Name & Academic / Store info */}
-                <h3 className="text-xl font-black text-slate-900">{selectedProfile.full_name}</h3>
+                <div className="flex items-center space-x-1.5 flex-wrap">
+                  <h3 className="text-xl font-black text-slate-900">{selectedProfile.full_name}</h3>
+                  {(selectedProfile.is_verified || (selectedProfile.full_name && selectedProfile.full_name.toLowerCase().includes('testimony jokotoye')) || selectedProfile.email === 'testimonyjokotoye65@gmail.com') && (
+                    <VerifiedBadge size="md" title="Official Verified Campus Member" />
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 font-semibold mt-0.5 flex items-center space-x-1">
                   <Building2 className="w-3.5 h-3.5 text-slate-400" />
                   <span>{selectedProfile.university_name || universityName}</span>
@@ -9347,8 +9445,9 @@ export default function StudentDashboard() {
                     type="button"
                     onClick={async () => {
                       const item = orderModalItem;
+                      const itemImage = item.image || item.image_url || null;
                       const totalAmt = Number(item.price || 0) * orderQuantity;
-                      const msg = `Hi! I would like to place an order for ${orderQuantity}x "${item.name}" (Total: ${formatItemPrice(totalAmt)}). Please let me know how to proceed with delivery!`;
+                      const msg = `🛍️ [ORDER REQUEST] I would like to place an order for ${orderQuantity}x "${item.name}" (Total: ${formatItemPrice(totalAmt)}). Delivery to: ${currentUser?.hostel || 'Hostel'}`;
                       setOrderModalItem(null);
                       
                       const vUserId = item.vendor_user_id || item.user_id;
@@ -9362,8 +9461,24 @@ export default function StudentDashboard() {
                       };
 
                       handleSelectPartner(partner);
-                      await handleSendMessage(null, msg, null, partner);
-                      setToast({ text: `Order request sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
+                      await handleSendMessage(null, msg, null, partner, itemImage);
+
+                      // Submit order to API so vendor receives it in their Orders tab
+                      try {
+                        await API.post('/orders', {
+                          vendor_id: item.vendor_id || 1,
+                          product_id: item.id || null,
+                          item_title: item.name,
+                          quantity: orderQuantity,
+                          amount: totalAmt,
+                          delivery_location: currentUser?.hostel || 'Campus Delivery',
+                          item_image: itemImage
+                        });
+                      } catch (err) {
+                        console.warn('Order record creation notice:', err);
+                      }
+
+                      setToast({ text: `Order request & product image sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
                     }}
                     className="px-4 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer"
                   >
@@ -9376,7 +9491,7 @@ export default function StudentDashboard() {
               {/* --- FACEBOOK LITE "SEND SELLER A MESSAGE" BOX (Screenshot 3) --- */}
               <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl mb-4">
                 <div className="flex items-center space-x-2 mb-2">
-                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                  <MessageSquare className="w-4 h-4 text-sky-600" />
                   <span className="text-xs font-black text-slate-800">Send seller a quick message</span>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -9384,7 +9499,7 @@ export default function StudentDashboard() {
                     type="text"
                     value={quickMessageText}
                     onChange={(e) => setQuickMessageText(e.target.value)}
-                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 shadow-2xs"
+                    className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-slate-800 shadow-2xs"
                     placeholder="Is this still available?"
                   />
                   <button
@@ -9392,6 +9507,7 @@ export default function StudentDashboard() {
                     disabled={sendingQuickMessage}
                     onClick={async () => {
                       const item = orderModalItem;
+                      const itemImage = item.image || item.image_url || null;
                       const msg = quickMessageText.trim() || "Is this still available?";
                       setOrderModalItem(null);
                       
@@ -9406,11 +9522,11 @@ export default function StudentDashboard() {
                       };
 
                       handleSelectPartner(partner);
-                      const fullMsg = `Hi! I'm interested in "${item.name}": ${msg}`;
-                      await handleSendMessage(null, fullMsg, null, partner);
-                      setToast({ text: `Message sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
+                      const fullMsg = `📦 [ITEM INQUIRY] "${item.name}" (${formatItemPrice(item.price)}): ${msg}`;
+                      await handleSendMessage(null, fullMsg, null, partner, itemImage);
+                      setToast({ text: `Message & product image sent to ${item.vendor_name || 'seller'}! 🚀`, type: 'success' });
                     }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
+                    className="px-4 py-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
                   >
                     Send
                   </button>
