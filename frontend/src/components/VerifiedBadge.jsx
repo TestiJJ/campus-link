@@ -1,16 +1,44 @@
 import React from 'react';
 
 /**
+ * Check if a user or entity is the Creator of CampusLink (Testimony Jokotoye)
+ * STRICT: Only returns true for the creator!
+ */
+export function isAppCreator(userOrNameOrEmail) {
+  if (!userOrNameOrEmail) return false;
+  if (typeof userOrNameOrEmail === 'string') {
+    const s = userOrNameOrEmail.toLowerCase().trim();
+    return s === 'testimonyjokotoye65@gmail.com' ||
+           s.includes('testimony jokotoye') ||
+           s === '2631284b-7172-4970-9596-92a7485be20e';
+  }
+  const email = (userOrNameOrEmail.email || userOrNameOrEmail.author_email || '').toLowerCase().trim();
+  const name = (userOrNameOrEmail.full_name || userOrNameOrEmail.author_name || userOrNameOrEmail.name || '').toLowerCase().trim();
+  const id = String(userOrNameOrEmail.user_id || userOrNameOrEmail.author_id || userOrNameOrEmail.id || '');
+
+  return email === 'testimonyjokotoye65@gmail.com' ||
+         name.includes('testimony jokotoye') ||
+         id === '2631284b-7172-4970-9596-92a7485be20e';
+}
+
+/**
  * VerifiedBadge
  * Official Blue Verification Checkmark (Twitter/Instagram/Facebook style blue tick).
- * Used for verified students, platform creators, verified campus vendors, and admins.
+ * STRICT RULE: Only shown on Testimony Jokotoye (the creator of the app).
+ * Never shown on any other vendor or student.
  */
 export default function VerifiedBadge({
   size = 'md',
   className = '',
-  title = 'Verified Campus Member',
-  showTooltip = true
+  title = 'Official Verified Creator · Testimony Jokotoye',
+  showTooltip = true,
+  user = null
 }) {
+  // If user object or identifier passed, only render if it's the app creator
+  if (user !== null && !isAppCreator(user)) {
+    return null;
+  }
+
   const sizeMap = {
     xs: 'w-3 h-3',
     sm: 'w-3.5 h-3.5',

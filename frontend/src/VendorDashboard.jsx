@@ -32,7 +32,7 @@ import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
 import ExpandablePostText from './components/ExpandablePostText';
-import VerifiedBadge from './components/VerifiedBadge';
+import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import { scatterFeed, useRotatingFeed } from './utils/feedScrambler';
@@ -7577,10 +7577,13 @@ export default function VendorDashboard() {
                                   className="font-bold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate flex items-center space-x-1"
                                 >
                                   <span>{reel.author_name || 'Campus Creator'}</span>
-                                  <VerifiedBadge
-                                    isVerified={reel.author_is_verified || reel.is_verified || reel.author_email === 'testimonyjokotoye65@gmail.com' || (reel.author_name && reel.author_name.toLowerCase().includes('testimony'))}
-                                    size="xs"
-                                  />
+                                  {isAppCreator({
+                                    name: reel.author_name,
+                                    email: reel.author_email,
+                                    id: reel.author_id || reel.user_id
+                                  }) && (
+                                    <VerifiedBadge size="xs" />
+                                  )}
                                 </button>
                                 {(() => {
                                   const isVendor = String(reel.author_role || '').toLowerCase() === 'vendor' || Boolean(reel.vendor_id);
@@ -7758,10 +7761,12 @@ export default function VendorDashboard() {
                                           <div className="flex items-center gap-1.5 flex-wrap">
                                             <span className="font-bold text-xs text-slate-900 leading-tight flex items-center space-x-1">
                                               <span>{comment.author_name}</span>
-                                              <VerifiedBadge
-                                                isVerified={comment.author_is_verified || comment.is_verified || (comment.author_name && comment.author_name.toLowerCase().includes('testimony'))}
-                                                size="xs"
-                                              />
+                                              {isAppCreator({
+                                                name: comment.author_name,
+                                                id: comment.user_id
+                                              }) && (
+                                                <VerifiedBadge size="xs" />
+                                              )}
                                             </span>
                                             {comment.reply_to_author && (
                                               <span className="text-[10px] font-semibold text-sky-600 bg-sky-50 px-1.5 py-0.2 rounded-md flex items-center space-x-0.5">
@@ -8396,10 +8401,9 @@ export default function VendorDashboard() {
                     <div className="flex flex-col sm:flex-row items-center sm:items-start justify-center sm:justify-start gap-1 sm:gap-2">
                       <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full flex items-center justify-center sm:justify-start gap-1.5">
                         <span>{vendorStore?.business_name || user?.business_name || user?.full_name || 'Campus Merchant'}</span>
-                        <VerifiedBadge
-                          isVerified={user?.is_verified || isVerified || user?.email === 'testimonyjokotoye65@gmail.com' || (user?.full_name && user?.full_name.toLowerCase().includes('testimony'))}
-                          size="md"
-                        />
+                        {isAppCreator(user) && (
+                          <VerifiedBadge size="md" title="Official Verified Creator · Testimony Jokotoye" />
+                        )}
                       </h2>
                       {isVerified ? (
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center space-x-1 shrink-0">

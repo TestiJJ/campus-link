@@ -36,7 +36,7 @@ import ArchivedChatsModal from './components/ArchivedChatsModal';
 import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
 import ExpandablePostText from './components/ExpandablePostText';
-import VerifiedBadge from './components/VerifiedBadge';
+import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
@@ -5458,7 +5458,11 @@ export default function StudentDashboard() {
                               className="font-extrabold text-xs text-slate-900 hover:text-sky-600 transition-colors text-left truncate cursor-pointer flex items-center space-x-1"
                             >
                               <span>{reel.author_name}</span>
-                              {(reel.author_is_verified || (reel.author_name && reel.author_name.toLowerCase().includes('testimony jokotoye')) || reel.author_email === 'testimonyjokotoye65@gmail.com') && (
+                              {isAppCreator({
+                                name: reel.author_name,
+                                email: reel.author_email,
+                                id: reel.author_id || reel.user_id
+                              }) && (
                                 <VerifiedBadge size="xs" />
                               )}
                             </button>
@@ -5666,7 +5670,10 @@ export default function StudentDashboard() {
                                       <div className="flex items-center gap-1.5 flex-wrap">
                                         <span className="font-bold text-xs text-slate-900 leading-tight flex items-center space-x-1">
                                           <span>{comment.author_name}</span>
-                                          {(comment.author_is_verified || (comment.author_name && comment.author_name.toLowerCase().includes('testimony jokotoye'))) && (
+                                          {isAppCreator({
+                                            name: comment.author_name,
+                                            id: comment.user_id
+                                          }) && (
                                             <VerifiedBadge size="xs" />
                                           )}
                                         </span>
@@ -8316,10 +8323,12 @@ export default function StudentDashboard() {
                 <div className="w-full flex-1 min-w-0">
                   <div className="flex flex-col sm:flex-row items-center sm:items-start justify-center sm:justify-start gap-1 sm:gap-2">
                     <div className="flex items-center space-x-1.5 flex-wrap justify-center sm:justify-start">
-                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full">{currentUser?.full_name || 'Student'}</h2>
-                      {(currentUser?.is_verified || (currentUser?.full_name && currentUser.full_name.toLowerCase().includes('testimony jokotoye')) || currentUser?.email === 'testimonyjokotoye65@gmail.com') && (
-                        <VerifiedBadge size="md" title="Official Verified Campus Account" />
-                      )}
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-900 break-words max-w-full flex items-center gap-1.5">
+                        <span>{currentUser?.full_name || 'Student'}</span>
+                        {isAppCreator(currentUser) && (
+                          <VerifiedBadge size="md" title="Official Verified Creator · Testimony Jokotoye" />
+                        )}
+                      </h2>
                     </div>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 inline-flex items-center space-x-1 shrink-0">
                       <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
@@ -9131,10 +9140,12 @@ export default function StudentDashboard() {
 
                 {/* Name & Academic / Store info */}
                 <div className="flex items-center space-x-1.5 flex-wrap">
-                  <h3 className="text-xl font-black text-slate-900">{selectedProfile.full_name}</h3>
-                  {(selectedProfile.is_verified || (selectedProfile.full_name && selectedProfile.full_name.toLowerCase().includes('testimony jokotoye')) || selectedProfile.email === 'testimonyjokotoye65@gmail.com') && (
-                    <VerifiedBadge size="md" title="Official Verified Campus Member" />
-                  )}
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-1.5">
+                    <span>{selectedProfile.full_name}</span>
+                    {isAppCreator(selectedProfile) && (
+                      <VerifiedBadge size="md" title="Official Verified Creator · Testimony Jokotoye" />
+                    )}
+                  </h3>
                 </div>
                 <p className="text-xs text-slate-500 font-semibold mt-0.5 flex items-center space-x-1">
                   <Building2 className="w-3.5 h-3.5 text-slate-400" />
