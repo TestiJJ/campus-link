@@ -606,6 +606,11 @@ export default function StudentDashboard() {
   const [isSavingMemory, setIsSavingMemory] = useState(false);
   const [storeInfoToggled, setStoreInfoToggled] = useState(false);
   const [isAiTyping, setIsAiTyping] = useState(false);
+  const [aiAttachedImage, setAiAttachedImage] = useState(null); // { url, preview, name }
+  const [isUploadingAiImage, setIsUploadingAiImage] = useState(false);
+  const [aiImagePreviewModal, setAiImagePreviewModal] = useState(null);
+  const aiCameraInputRef = useRef(null);
+  const aiGalleryInputRef = useRef(null);
   
   // Campus Community Directory & Friends (SWR Instant Load - strictly excludes the logged-in user)
   const [communityUsers, setCommunityUsers] = useState(() => {
@@ -3250,14 +3255,59 @@ export default function StudentDashboard() {
     fetchAiMemories();
   };
 
+  const handleAiImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = '';
+    const localPreview = URL.createObjectURL(file);
+    setAiAttachedImage({
+      preview: localPreview,
+      name: file.name || 'note_snap.jpg',
+      url: null
+    });
+    setIsUploadingAiImage(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await API.post('/api/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const uploadedUrl = res.data?.url || res.data?.secure_url;
+      if (uploadedUrl) {
+        setAiAttachedImage(prev => prev ? { ...prev, url: uploadedUrl } : { url: uploadedUrl, preview: localPreview, name: file.name });
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAiAttachedImage(prev => prev ? { ...prev, url: reader.result } : { url: reader.result, preview: localPreview, name: file.name });
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      console.warn('AI image upload fallback to base64:', err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAiAttachedImage(prev => prev ? { ...prev, url: reader.result } : { url: reader.result, preview: localPreview, name: file.name });
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingAiImage(false);
+    }
+  };
+
   const handleSendAiMessage = async (customPrompt = null) => {
-    const textToSend = (typeof customPrompt === 'string' ? customPrompt : newMsgText).trim();
-    if (!textToSend || isAiTyping) return;
+    const rawText = (typeof customPrompt === 'string' ? customPrompt : newMsgText).trim();
+    const imageToSend = aiAttachedImage?.url;
+    if ((!rawText && !imageToSend) || isAiTyping || isUploadingAiImage) return;
+
+    const textToSend = rawText || (imageToSend ? "Please analyze this image of my academic notes or assignment. Read all handwriting, equations, diagrams, and questions carefully, and solve the problem step-by-step with clear explanations." : "");
 
     const userMessageObj = {
       id: 'temp-' + Date.now(),
       sender: 'user',
       content: textToSend,
+      media_url: imageToSend || null,
       created_at: new Date().toISOString()
     };
     
@@ -3268,6 +3318,7 @@ export default function StudentDashboard() {
       return updated;
     });
     setNewMsgText('');
+    setAiAttachedImage(null);
     setIsAiTyping(true);
 
     try {
@@ -3279,6 +3330,8 @@ export default function StudentDashboard() {
       const res = await API.post('/ai/chat', {
         message: textToSend,
         content: textToSend,
+        media_url: imageToSend || null,
+        image_url: imageToSend || null,
         history: formattedHistory,
         store_as_info: storeInfoToggled
       });
@@ -3290,6 +3343,7 @@ export default function StudentDashboard() {
         sender: 'ai',
         content: replyContent,
         reply: replyContent,
+        media_url: res.data?.media_url || null,
         is_memory_trigger: res.data?.is_memory_trigger,
         created_at: res.data?.created_at || new Date().toISOString()
       };
@@ -7158,6 +7212,23 @@ export default function StudentDashboard() {
                                         : 'bg-white border border-slate-200/80 text-slate-900 rounded-bl-xs shadow-xs'
                                     }`}
                                   >
+                                    {msg.media_url && (
+                                      <div
+                                        className="mb-2 relative rounded-xl overflow-hidden border border-black/10 bg-black/5 cursor-pointer group"
+                                        onClick={() => setAiImagePreviewModal(getMediaUrl(msg.media_url))}
+                                        title="Click to zoom image"
+                                      >
+                                        <SafeImage
+                                          src={getMediaUrl(msg.media_url)}
+                                          alt="Notes / Assignment Problem"
+                                          className="w-full max-h-60 object-contain rounded-xl hover:opacity-95 transition-opacity bg-black/10"
+                                        />
+                                        <div className="absolute top-2 right-2 bg-black/70 hover:bg-black/90 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1 backdrop-blur-xs transition-colors shadow-xs">
+                                          <Eye className="w-3 h-3" />
+                                          <span>Zoom</span>
+                                        </div>
+                                      </div>
+                                    )}
                                     {msg.sender === 'ai' ? (
                                       <MarkdownRenderer content={msg.content} />
                                     ) : (
@@ -7172,18 +7243,47 @@ export default function StudentDashboard() {
                                 </div>
                               ))
                             ) : (
-                              <div className="py-12 px-4 text-center max-w-lg mx-auto">
-                                <div className="w-16 h-16 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-4 shadow-lg">
+                              <div className="py-6 px-4 text-center max-w-lg mx-auto">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto mb-3 shadow-lg">
                                   <Bot className="w-8 h-8" />
                                 </div>
-                                <h3 className="text-base font-black text-slate-800">CampusLink AI Assistant</h3>
-                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                                  Ask me anything about academics, definitions, reply suggestions, CGPA, math, or campus life!
+                                <h3 className="text-base font-black text-slate-800">CampusLink AI Study Companion</h3>
+                                <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-md mx-auto">
+                                  Snap your handwritten notes, homework, or textbook sheets to get step-by-step solutions, explanations, and key formulas!
                                 </p>
 
-                                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                                {/* Snap Notes / Assignment Highlight Card */}
+                                <div className="mt-4 p-3.5 bg-gradient-to-br from-blue-50/90 via-sky-50/60 to-indigo-50/90 border border-blue-200/80 rounded-2xl text-left shadow-2xs">
+                                  <div className="flex items-center space-x-2 text-blue-700 font-bold text-xs">
+                                    <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                                    <span>AI Vision Assignment & Note Solver</span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                                    Take a photo of your notes, whiteboard, math calculations, or assignment sheet to receive an instant, detailed step-by-step breakdown.
+                                  </p>
+                                  <div className="mt-3 flex items-center space-x-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => aiCameraInputRef.current?.click()}
+                                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                                    >
+                                      <Camera className="w-3.5 h-3.5" />
+                                      <span>Snap Notes / Assignment</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => aiGalleryInputRef.current?.click()}
+                                      className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-[11px] font-semibold rounded-xl flex items-center space-x-1.5 cursor-pointer shadow-xs active:scale-95 transition-all"
+                                    >
+                                      <ImageIcon className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>Upload Image</span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
                                   {[
-                                    { text: "What is a noun?", icon: "📚" },
+                                    { text: "What is a noun and how is it used?", icon: "📚" },
                                     { text: "How do I reply to: 'Can you send me the lecture slides?'", icon: "💬" },
                                     { text: "How can I maintain a 5.0 first-class CGPA?", icon: "🎓" },
                                     { text: "What is 20% of ₦80,000?", icon: "🔢" }
@@ -7221,10 +7321,128 @@ export default function StudentDashboard() {
 
                           {/* AI Chat Input Bar */}
                           <div className="p-2 sm:p-2.5 bg-white border-t border-slate-200 shrink-0 sticky bottom-0 z-20 safe-chat-bottom pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-                            <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-2">
+                            {/* Hidden file inputs for Camera Snap & Gallery Selection */}
+                            <input
+                              ref={aiCameraInputRef}
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleAiImageSelect}
+                              className="hidden"
+                            />
+                            <input
+                              ref={aiGalleryInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handleAiImageSelect}
+                              className="hidden"
+                            />
+
+                            {/* Attached Image Preview Banner */}
+                            {aiAttachedImage && (
+                              <div className="mb-2 p-2 bg-blue-50/90 border border-blue-200 rounded-2xl flex items-center justify-between gap-2 shadow-2xs">
+                                <div className="flex items-center space-x-2 min-w-0">
+                                  <div
+                                    className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-slate-200 border border-blue-300 cursor-pointer"
+                                    onClick={() => setAiImagePreviewModal(aiAttachedImage.preview || getMediaUrl(aiAttachedImage.url))}
+                                    title="Click to view full preview"
+                                  >
+                                    <img
+                                      src={aiAttachedImage.preview || getMediaUrl(aiAttachedImage.url)}
+                                      alt="Attached assignment"
+                                      className="w-full h-full object-cover"
+                                    />
+                                    {isUploadingAiImage && (
+                                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                        <Loader2 className="w-4 h-4 text-white animate-spin" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="flex items-center space-x-1.5 text-[11px] font-bold text-blue-900 truncate">
+                                      <span>📸 Image Attached</span>
+                                      {isUploadingAiImage ? (
+                                        <span className="text-[10px] text-blue-600 font-normal animate-pulse">(Processing...)</span>
+                                      ) : (
+                                        <span className="text-[10px] text-emerald-600 font-semibold flex items-center">
+                                          <Check className="w-3 h-3 mr-0.5" /> Ready
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 truncate">
+                                      {aiAttachedImage.name || 'Notes / Assignment Photo'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    title="Remove photo"
+                                    onClick={() => setAiAttachedImage(null)}
+                                    className="w-7 h-7 rounded-full bg-slate-200 hover:bg-rose-100 hover:text-rose-600 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Quick Action Suggestion Chips When Image is Attached */}
+                            {aiAttachedImage && (
+                              <div className="mb-2 flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendAiMessage("Please solve this assignment problem step-by-step with all formulas, working, and final answer.")}
+                                  disabled={isAiTyping || isUploadingAiImage}
+                                  className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl text-[10px] font-semibold text-blue-700 shrink-0 flex items-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 active:scale-95 shadow-2xs"
+                                >
+                                  <span>📐 Solve Step-by-Step</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendAiMessage("Please read and transcribe these notes, explaining key concepts, formulas, and study takeaways.")}
+                                  disabled={isAiTyping || isUploadingAiImage}
+                                  className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl text-[10px] font-semibold text-blue-700 shrink-0 flex items-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 active:scale-95 shadow-2xs"
+                                >
+                                  <span>📝 Explain Notes</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendAiMessage("Please check my solution in this image and verify if my working and answer are correct.")}
+                                  disabled={isAiTyping || isUploadingAiImage}
+                                  className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-200 rounded-xl text-[10px] font-semibold text-blue-700 shrink-0 flex items-center space-x-1 cursor-pointer transition-colors disabled:opacity-50 active:scale-95 shadow-2xs"
+                                >
+                                  <span>🔍 Check My Solution</span>
+                                </button>
+                              </div>
+                            )}
+
+                            <form onSubmit={(e) => { e.preventDefault(); handleSendAiMessage(); }} className="flex items-center space-x-1.5">
+                              {/* Snap Camera Button */}
+                              <button
+                                type="button"
+                                onClick={() => aiCameraInputRef.current?.click()}
+                                disabled={isAiTyping || isUploadingAiImage}
+                                title="Snap photo of notes or assignment"
+                                className="p-2 sm:p-2.5 rounded-2xl bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 cursor-pointer transition-colors flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-50"
+                              >
+                                <Camera className="w-4 h-4" />
+                              </button>
+
+                              {/* Upload Image Button */}
+                              <button
+                                type="button"
+                                onClick={() => aiGalleryInputRef.current?.click()}
+                                disabled={isAiTyping || isUploadingAiImage}
+                                title="Upload image from gallery"
+                                className="p-2 sm:p-2.5 rounded-2xl bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 cursor-pointer transition-colors flex items-center justify-center shrink-0 active:scale-95 disabled:opacity-50"
+                              >
+                                <ImageIcon className="w-4 h-4" />
+                              </button>
+
                               <input
                                 type="text"
-                                placeholder="Ask CampusLink AI anything (academics, definitions, reply ideas, math)..."
+                                placeholder={aiAttachedImage ? "Add extra instructions (or tap Send to solve)..." : "Ask CampusLink AI or snap notes/assignment..."}
                                 value={newMsgText}
                                 onFocus={() => {
                                   if (typeof window !== 'undefined' && window.innerWidth < 768) {
@@ -7243,8 +7461,9 @@ export default function StudentDashboard() {
 
                               <button
                                 type="submit"
-                                disabled={isAiTyping || !newMsgText.trim()}
+                                disabled={isAiTyping || isUploadingAiImage || (!newMsgText.trim() && !aiAttachedImage)}
                                 className="p-2.5 min-tap-target-sm bg-blue-600 hover:bg-blue-700 text-white rounded-2xl cursor-pointer transition-all disabled:opacity-40 shadow-xs active:scale-95 flex items-center justify-center shrink-0"
+                                title="Send to CampusLink AI"
                               >
                                 <Send className="w-4 h-4" />
                               </button>
@@ -11664,6 +11883,47 @@ export default function StudentDashboard() {
         </div>
       </nav>
 
+      {/* Fullscreen AI Notes / Assignment Image Preview Modal */}
+      <AnimatePresence>
+        {aiImagePreviewModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-sm"
+            onClick={() => setAiImagePreviewModal(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative max-w-4xl max-h-[90vh] w-full flex flex-col items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="absolute -top-11 right-0 flex items-center space-x-2">
+                <a
+                  href={aiImagePreviewModal}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full text-xs font-semibold backdrop-blur-xs flex items-center space-x-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open Original</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setAiImagePreviewModal(null)}
+                  className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center cursor-pointer transition-colors backdrop-blur-xs"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <img
+                src={aiImagePreviewModal}
+                alt="Enlarged note / assignment"
+                className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

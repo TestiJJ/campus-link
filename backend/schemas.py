@@ -559,6 +559,8 @@ class NotificationOut(BaseModel):
 class AIChatRequest(BaseModel):
     message: Optional[str] = None
     content: Optional[str] = None
+    media_url: Optional[str] = None
+    image_url: Optional[str] = None
     history: Optional[List[Any]] = None
     api_key: Optional[str] = None
     role_context: Optional[str] = None
@@ -587,6 +589,7 @@ class AIMessageOut(BaseModel):
     id: int
     sender: str
     content: str
+    media_url: Optional[str] = None
     is_memory_trigger: Optional[bool] = False
     created_at: datetime
 

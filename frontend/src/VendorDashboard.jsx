@@ -10072,8 +10072,9 @@ export default function VendorDashboard() {
                     <ProfilePostsFeed
                       posts={profileUserReels}
                       loading={loadingProfileReels}
-                      currentUser={currentUser}
+                      currentUser={user}
                       profileUser={selectedProfile}
+                      showToast={showToast}
                       onPostUpdated={(postId, updates) => {
                         if (updates.has_liked !== undefined) {
                           setReels(prev =>

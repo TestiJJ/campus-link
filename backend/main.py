@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
-import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx, re
+import random, smtplib, ssl, os, shutil, uuid, urllib.parse, json, sys, asyncio, httpx, re, base64, mimetypes
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 load_dotenv()
@@ -51,7 +51,8 @@ def init_db_schema():
             "CREATE TABLE IF NOT EXISTS group_members (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, user_id VARCHAR(36) NOT NULL, role VARCHAR(20) DEFAULT 'member', joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, CONSTRAINT uq_group_member UNIQUE (group_id, user_id));",
             "CREATE TABLE IF NOT EXISTS group_messages (id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE, sender_id VARCHAR(36) NOT NULL, content TEXT NOT NULL, message_type VARCHAR(20) DEFAULT 'text', media_url VARCHAR(550), duration INTEGER, reply_to_id INTEGER, reply_to_sender VARCHAR(100), reply_to_text VARCHAR(255), reactions TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);",
             "ALTER TABLE group_messages ADD COLUMN IF NOT EXISTS mentions TEXT;",
-            "ALTER TABLE group_members ADD COLUMN IF NOT EXISTS last_read_message_id INTEGER DEFAULT 0;"
+            "ALTER TABLE group_members ADD COLUMN IF NOT EXISTS last_read_message_id INTEGER DEFAULT 0;",
+            "ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS media_url VARCHAR(550);"
         ]:
             try:
                 with database.engine.begin() as _conn:
@@ -95,6 +96,7 @@ def clean_legacy_image_urls():
             ("reels", "media_url"),
             ("campus_statuses", "media_url"),
             ("campus_notices", "image_url"),
+            ("ai_messages", "media_url"),
         ]:
             try:
                 with database.engine.begin() as conn:
@@ -6907,10 +6909,59 @@ import os
 import math
 import requests
 
-def call_llm_if_available(prompt: str, user: models.User, user_memories: list, custom_api_key: str = None, history: list = None) -> str | None:
+def extract_image_base64_and_mime(image_input: str) -> tuple:
     """
-    Calls high-speed production LLMs (Groq, OpenAI, or Google Gemini) if an API key is available.
-    Supports environment variables (GROQ_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GOOGLE_API_KEY)
+    Given a data URL, relative upload path, or remote URL, extracts raw base64 data and mime type.
+    """
+    if not image_input or not isinstance(image_input, str):
+        return None, None
+    image_input = image_input.strip()
+
+    # 1. Base64 Data URL (e.g. data:image/jpeg;base64,...)
+    if image_input.startswith("data:"):
+        try:
+            header, b64_part = image_input.split(",", 1)
+            mime_part = header.split(";")[0].replace("data:", "").strip()
+            return b64_part.strip(), mime_part or "image/jpeg"
+        except Exception as e:
+            print(f"[CampusLink AI] Error parsing data URL: {e}")
+            return None, None
+
+    # 2. Local uploads file path
+    if "/uploads/" in image_input or image_input.startswith("uploads/"):
+        try:
+            rel_path = image_input.split("/uploads/")[-1] if "/uploads/" in image_input else image_input.replace("uploads/", "")
+            clean_filename = rel_path.split("?")[0].strip()
+            disk_path = os.path.join(UPLOAD_DIR, clean_filename)
+            if os.path.exists(disk_path):
+                guessed_mime, _ = mimetypes.guess_type(disk_path)
+                mime_type = guessed_mime or "image/jpeg"
+                with open(disk_path, "rb") as f:
+                    b64_data = base64.b64encode(f.read()).decode("utf-8")
+                return b64_data, mime_type
+        except Exception as e:
+            print(f"[CampusLink AI] Error reading local image {image_input}: {e}")
+
+    # 3. Remote URL (Cloudinary, Supabase, web URL)
+    if image_input.startswith("http://") or image_input.startswith("https://"):
+        try:
+            res = requests.get(image_input, timeout=12)
+            if res.status_code == 200:
+                raw_bytes = res.content
+                content_type = res.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                b64_data = base64.b64encode(raw_bytes).decode("utf-8")
+                return b64_data, content_type
+        except Exception as e:
+            print(f"[CampusLink AI] Error downloading image from {image_input}: {e}")
+
+    return None, None
+
+
+def call_llm_if_available(prompt: str, user: models.User, user_memories: list, custom_api_key: str = None, history: list = None, image_url: str = None) -> str | None:
+    """
+    Calls high-speed production LLMs (Google Gemini Vision, Groq, or OpenAI) if an API key is available.
+    Supports multimodal inputs (assignment photos, notes snapshots, formulas) as well as text-only prompts.
+    Supports environment variables (GEMINI_API_KEY, GOOGLE_API_KEY, GROQ_API_KEY, OPENAI_API_KEY)
     as well as client-supplied custom API keys.
     """
     groq_key = os.getenv("GROQ_API_KEY")
@@ -6930,10 +6981,14 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
     if not (groq_key or openai_key or gemini_key):
         return None
 
-    is_vendor = (getattr(user, "role", None) == "vendor")
-    uni_obj = getattr(user, "university", None)
+    # Extract image if provided
+    img_b64, img_mime = extract_image_base64_and_mime(image_url) if image_url else (None, None)
+    has_image = bool(img_b64 and img_mime)
+
+    is_vendor = (getattr(user, "role", None) == "vendor") if user else False
+    uni_obj = getattr(user, "university", None) if user else None
     uni_name = uni_obj.name if uni_obj and hasattr(uni_obj, "name") else "Campus"
-    full_name = getattr(user, "full_name", None) or "User"
+    full_name = getattr(user, "full_name", None) or "Student"
     dept = getattr(user, "department", None) or ("Campus Commerce" if is_vendor else "General Studies")
     level = getattr(user, "level", None) or ("Merchant Partner" if is_vendor else "Undergraduate")
 
@@ -6943,13 +6998,24 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
         mem_context = "User's Saved Information Vault:\n" + "\n".join(mem_lines) + "\n\n"
 
     system_instruction = (
-        "You are CampusLink AI, an intelligent, helpful, and authentic assistant. "
-        "You can answer questions on academics, computer science, coding, campus life, writing, math, general knowledge, and casual conversation. "
-        "Provide clear, structured, and helpful responses.\n\n"
+        "You are CampusLink AI, an intelligent, helpful, and authentic academic and campus companion. "
+        "You assist students with coursework, homework, exam prep, math, physics, chemistry, computer science, coding, essay writing, and campus life.\n\n"
         f"User Details: {full_name} | Role: {'Vendor' if is_vendor else 'Student'} | Institution: {uni_name} | Dept: {dept} | Level: {level}\n\n"
         f"{mem_context}"
         "Format your responses using clean GitHub-flavored Markdown: clear headings (##, ###), bullet lists, bold text for key terms, and fenced code blocks with language specifiers (e.g. ```python) for code snippets."
     )
+
+    if has_image:
+        system_instruction += (
+            "\n\nACADEMIC ASSIGNMENT & NOTE SOLVER PROTOCOL:\n"
+            "The student has attached a photo or screenshot of their course notes, assignment sheet, handwritten problem, whiteboard, or textbook page.\n"
+            "1. Read all handwritten text, formulas, symbols, and printed questions accurately.\n"
+            "2. State the problem clearly under '### 📌 Problem Identified'.\n"
+            "3. State given data, constants, and applicable formulas under '### 📐 Given Data & Formulas'.\n"
+            "4. Provide the complete step-by-step working, derivations, and explanations under '### 📝 Step-by-Step Solution'. Explain why each step was taken so the student truly understands.\n"
+            "5. State the final conclusion / answer prominently in bold under '### 🎯 Final Answer'.\n"
+            "6. If the image is a page of notes, organize them into structured headings, key definitions, theorems, formulas, and study takeaways."
+        )
 
     # Normalize conversation history
     normalized_history = []
@@ -6964,14 +7030,83 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
             if c and c.strip():
                 normalized_history.append({"role": "user" if r == "user" else "assistant", "content": c.strip()})
 
-    # 1. Try Groq (Ultra-fast Llama 3.3 70B Versatile)
+    # Effective prompt if empty
+    effective_prompt = prompt.strip() if prompt and prompt.strip() else (
+        "Please analyze this image of my academic notes or assignment. Read the questions and handwriting carefully, and provide a full step-by-step solution." if has_image else "Hello!"
+    )
+
+    # 1. Try Google Gemini (World-class multimodal vision & reasoning)
+    if gemini_key:
+        gemini_contents = []
+        for item in normalized_history:
+            gemini_contents.append({
+                "role": "user" if item["role"] == "user" else "model",
+                "parts": [{"text": item["content"]}]
+            })
+        
+        user_parts = []
+        if has_image:
+            user_parts.append({
+                "inlineData": {
+                    "mimeType": img_mime,
+                    "data": img_b64
+                }
+            })
+        user_parts.append({"text": effective_prompt})
+        gemini_contents.append({"role": "user", "parts": user_parts})
+
+        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                body = {
+                    "systemInstruction": {"parts": [{"text": system_instruction}]},
+                    "contents": gemini_contents,
+                    "generationConfig": {
+                        "temperature": 0.4 if has_image else 0.7,
+                        "maxOutputTokens": 3000
+                    }
+                }
+                res = requests.post(url, json=body, timeout=20 if has_image else 12)
+                if res.status_code == 200:
+                    data = res.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and parts[0].get("text"):
+                            return parts[0]["text"].strip()
+                elif res.status_code == 400 and not has_image:
+                    alt_contents = [{"role": "user", "parts": [{"text": f"[System: {system_instruction}]\n\n{effective_prompt}"}]}]
+                    alt_res = requests.post(url, json={"contents": alt_contents}, timeout=12)
+                    if alt_res.status_code == 200:
+                        data = alt_res.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            if parts and parts[0].get("text"):
+                                return parts[0]["text"].strip()
+            except Exception as gem_err:
+                print(f"Gemini API attempt with {model_name} failed:", gem_err)
+
+    # 2. Try Groq (Llama 3.2 Vision or Llama 3.3 Versatile)
     if groq_key:
         try:
             groq_messages = [{"role": "system", "content": system_instruction}]
             groq_messages.extend(normalized_history)
-            groq_messages.append({"role": "user", "content": prompt.strip()})
 
-            for model_name in ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]:
+            if has_image:
+                groq_messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": effective_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{img_mime};base64,{img_b64}"}}
+                    ]
+                })
+                groq_models = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]
+            else:
+                groq_messages.append({"role": "user", "content": effective_prompt})
+                groq_models = ["llama-3.1-8b-instant", "llama3-8b-8192", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]
+
+            for model_name in groq_models:
                 try:
                     resp = requests.post(
                         "https://api.groq.com/openai/v1/chat/completions",
@@ -6982,10 +7117,10 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
                         json={
                             "model": model_name,
                             "messages": groq_messages,
-                            "temperature": 0.7,
-                            "max_tokens": 2048
+                            "temperature": 0.4 if has_image else 0.7,
+                            "max_tokens": 2500
                         },
-                        timeout=12
+                        timeout=20 if has_image else 12
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -6997,14 +7132,26 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
         except Exception as e:
             print("Groq execution failed:", e)
 
-    # 2. Try OpenAI (GPT-4o Mini)
+    # 3. Try OpenAI (GPT-4o / GPT-4o-mini Vision)
     if openai_key:
         try:
             oai_messages = [{"role": "system", "content": system_instruction}]
             oai_messages.extend(normalized_history)
-            oai_messages.append({"role": "user", "content": prompt.strip()})
 
-            for model_name in ["gpt-4o-mini", "gpt-3.5-turbo"]:
+            if has_image:
+                oai_messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": effective_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{img_mime};base64,{img_b64}"}}
+                    ]
+                })
+                oai_models = ["gpt-4o-mini", "gpt-4o"]
+            else:
+                oai_messages.append({"role": "user", "content": effective_prompt})
+                oai_models = ["gpt-4o-mini", "gpt-3.5-turbo"]
+
+            for model_name in oai_models:
                 try:
                     resp = requests.post(
                         "https://api.openai.com/v1/chat/completions",
@@ -7015,10 +7162,10 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
                         json={
                             "model": model_name,
                             "messages": oai_messages,
-                            "temperature": 0.7,
-                            "max_tokens": 2048
+                            "temperature": 0.4 if has_image else 0.7,
+                            "max_tokens": 2500
                         },
-                        timeout=12
+                        timeout=20 if has_image else 12
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -7029,48 +7176,6 @@ def call_llm_if_available(prompt: str, user: models.User, user_memories: list, c
                     print(f"OpenAI {model_name} error:", o_err)
         except Exception as e:
             print("OpenAI execution failed:", e)
-
-    # 3. Try Google Gemini (gemini-2.0-flash / gemini-1.5-flash)
-    if gemini_key:
-        gemini_contents = []
-        for item in normalized_history:
-            gemini_contents.append({
-                "role": "user" if item["role"] == "user" else "model",
-                "parts": [{"text": item["content"]}]
-            })
-        gemini_contents.append({"role": "user", "parts": [{"text": prompt.strip()}]})
-
-        for model_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
-                body = {
-                    "systemInstruction": {"parts": [{"text": system_instruction}]},
-                    "contents": gemini_contents,
-                    "generationConfig": {
-                        "temperature": 0.7,
-                        "maxOutputTokens": 2048
-                    }
-                }
-                res = requests.post(url, json=body, timeout=12)
-                if res.status_code == 200:
-                    data = res.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts and parts[0].get("text"):
-                            return parts[0]["text"].strip()
-                elif res.status_code == 400:
-                    alt_contents = [{"role": "user", "parts": [{"text": f"[System: {system_instruction}]\n\n{prompt}"}]}]
-                    alt_res = requests.post(url, json={"contents": alt_contents}, timeout=12)
-                    if alt_res.status_code == 200:
-                        data = alt_res.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            if parts and parts[0].get("text"):
-                                return parts[0]["text"].strip()
-            except Exception as gem_err:
-                print(f"Gemini API attempt with {model_name} failed:", gem_err)
 
     return None
 
@@ -7690,6 +7795,7 @@ def get_ai_messages(
             "sender": m.sender,
             "content": m.content,
             "reply": m.content,
+            "media_url": getattr(m, "media_url", None),
             "is_memory_trigger": m.is_memory_trigger,
             "is_memory_stored": m.is_memory_trigger,
             "created_at": m.created_at
@@ -7705,9 +7811,10 @@ async def chat_with_campus_ai(
     current_user: Optional[models.User] = Depends(get_current_user_optional),
     db: Session = Depends(database.get_db)
 ):
+    user_media_url = (request.media_url or request.image_url or "").strip() or None
     user_msg = (request.message or request.content or "").strip()
-    if not user_msg:
-        greeting = "Hello! 👋 I'm CampusLink AI, your personal campus companion. How can I assist you with your academics, coding, or campus life today?"
+    if not user_msg and not user_media_url:
+        greeting = "Hello! 👋 I'm CampusLink AI, your personal campus companion. How can I assist you with your academics, assignments, notes, or campus life today?"
         return {
             "reply": greeting,
             "content": greeting,
@@ -7716,6 +7823,9 @@ async def chat_with_campus_ai(
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
+    if not user_msg and user_media_url:
+        user_msg = "Please analyze this image of my academic notes/assignment. Read the handwriting, formulas, or printed questions carefully, and solve the problem step-by-step with clear explanations."
+
     # If authenticated, persist the user message strictly under their user_id
     if current_user:
         try:
@@ -7723,6 +7833,7 @@ async def chat_with_campus_ai(
                 user_id=current_user.user_id,
                 sender="user",
                 content=user_msg,
+                media_url=user_media_url,
                 is_memory_trigger=False
             )
             db.add(user_db_msg)
@@ -7731,98 +7842,92 @@ async def chat_with_campus_ai(
             print(f"Error saving user AI message: {e}")
             db.rollback()
 
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
     reply_text = None
 
-    if api_key and Groq:
+    # Load memories if authenticated
+    memories = []
+    if current_user:
         try:
-            client = Groq(api_key=api_key)
+            memories = db.query(models.AIMemory).filter(models.AIMemory.user_id == current_user.user_id).all()
+        except Exception:
+            pass
 
-            # Discover all valid active models dynamically from this Groq account
-            dynamic_models = []
+    # 1. Primary: High-intelligence Multimodal LLM (Gemini Vision, Groq Vision, OpenAI)
+    reply_text = call_llm_if_available(
+        prompt=user_msg,
+        user=current_user or {"full_name": "Student", "role": "student"},
+        user_memories=memories,
+        custom_api_key=request.api_key,
+        history=request.history,
+        image_url=user_media_url
+    )
+
+    # 2. If no image was provided and LLM didn't return, fallback to Groq text models
+    if not reply_text and not user_media_url:
+        api_key = os.getenv("GROQ_API_KEY", "").strip()
+        if api_key and Groq:
             try:
-                m_list = client.models.list()
-                for m in getattr(m_list, "data", []):
-                    mid = m.id.lower()
-                    if any(kw in mid for kw in ["llama", "qwen", "gemma", "mixtral", "deepseek", "gpt-oss"]):
-                        if not any(bad in mid for bad in ["whisper", "guard", "embed", "vision", "safeguard"]):
-                            dynamic_models.append(m.id)
-                if dynamic_models:
-                    print(f"Discovered active Groq models: {dynamic_models}")
-            except Exception as d_err:
-                print(f"Dynamic Groq list error: {d_err}")
-
-            # Combine dynamic models with known standard candidates
-            candidate_models = list(dynamic_models)
-            candidate_models.extend([
-                "llama-3.1-8b-instant",
-                "llama-3.3-70b-versatile",
-                "llama3-70b-8192",
-                "llama3-8b-8192",
-                "gemma2-9b-it",
-                "mixtral-8x7b-32768",
-                "qwen/qwen3.8-27b",
-                "qwen/qwen3.6-27b"
-            ])
-            models_to_try = list(dict.fromkeys([m for m in candidate_models if m]))
-
-            first_name = current_user.full_name.split()[0] if (current_user and current_user.full_name) else "Student"
-
-            system_prompt = {
-                "role": "system",
-                "content": (
-                    f"You are CampusLink AI, an intelligent, authentic, and versatile campus companion for {first_name}. "
-                    "You can assist students with coursework, coding, computer science, math, campus life, "
-                    "essay writing, and open-ended conversation. Provide structured, clear answers using Markdown."
-                )
-            }
-
-            messages = [system_prompt]
-            for item in (request.history or [])[-6:]:
-                if isinstance(item, dict) and "content" in item:
-                    role = item.get("role") if item.get("role") in ["user", "assistant"] else ("user" if item.get("sender") == "user" else "assistant")
-                    content = str(item.get("content") or item.get("message") or "").strip()
-                    if content:
-                        messages.append({"role": role, "content": content})
-                elif hasattr(item, "content"):
-                    role = "user" if getattr(item, "sender", "user") == "user" else "assistant"
-                    content = str(getattr(item, "content", "")).strip()
-                    if content:
-                        messages.append({"role": role, "content": content})
-
-            messages.append({"role": "user", "content": user_msg})
-
-            for model_name in models_to_try:
-                try:
-                    completion = client.chat.completions.create(
-                        model=model_name,
-                        messages=messages,
-                        temperature=0.7,
-                        max_tokens=1500,
+                client = Groq(api_key=api_key)
+                first_name = current_user.full_name.split()[0] if (current_user and current_user.full_name) else "Student"
+                system_prompt = {
+                    "role": "system",
+                    "content": (
+                        f"You are CampusLink AI, an intelligent, authentic, and versatile campus companion for {first_name}. "
+                        "You can assist students with coursework, coding, computer science, math, campus life, "
+                        "essay writing, and open-ended conversation. Provide structured, clear answers using Markdown."
                     )
-                    if completion.choices and completion.choices[0].message:
-                        candidate_text = completion.choices[0].message.content
-                        if candidate_text and candidate_text.strip():
-                            reply_text = candidate_text.strip()
-                            break
-                except Exception as model_err:
-                    print(f"Model {model_name} failed: {model_err}")
-                    continue
-        except Exception as groq_err:
-            print(f"Groq client init/run failed: {groq_err}")
+                }
+                messages = [system_prompt]
+                for item in (request.history or [])[-6:]:
+                    if isinstance(item, dict) and "content" in item:
+                        role = item.get("role") if item.get("role") in ["user", "assistant"] else ("user" if item.get("sender") == "user" else "assistant")
+                        content = str(item.get("content") or item.get("message") or "").strip()
+                        if content:
+                            messages.append({"role": role, "content": content})
+                    elif hasattr(item, "content"):
+                        role = "user" if getattr(item, "sender", "user") == "user" else "assistant"
+                        content = str(getattr(item, "content", "")).strip()
+                        if content:
+                            messages.append({"role": role, "content": content})
+                messages.append({"role": "user", "content": user_msg})
 
-    # Fallback to local intelligence reasoning engine so every prompt (greetings, questions, math) ALWAYS succeeds
+                for model_name in ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"]:
+                    try:
+                        completion = client.chat.completions.create(
+                            model=model_name,
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=1500,
+                        )
+                        if completion.choices and completion.choices[0].message:
+                            candidate_text = completion.choices[0].message.content
+                            if candidate_text and candidate_text.strip():
+                                reply_text = candidate_text.strip()
+                                break
+                    except Exception:
+                        continue
+            except Exception as groq_err:
+                print(f"Groq fallback run failed: {groq_err}")
+
+    # 3. Fallback to local intelligence reasoning engine
     if not reply_text:
-        fallback_user = {"full_name": current_user.full_name if current_user else "Student", "role": current_user.role if current_user else "student"}
-        fallback_res, _, _, _, _, _ = generate_campus_ai_reply(
-            user_msg,
-            fallback_user,
-            [],
-            custom_api_key=request.api_key,
-            history=request.history,
-            db=db
-        )
-        reply_text = fallback_res or f"Hello! 👋 I'm CampusLink AI, your personal campus companion. I'm ready to help you with course concepts, coding, assignments, formulas, or campus advice. What's on your mind today?"
+        if user_media_url:
+            reply_text = (
+                "📸 **Note & Assignment Image Received!**\n\n"
+                "I've received your image. To enable direct optical OCR and step-by-step automated solving via Gemini/Groq Vision, please ensure `GEMINI_API_KEY` or `GROQ_API_KEY` is configured in the backend environment, or pass an API key.\n\n"
+                "💡 **Instant Solver Tip**: You can also type or paste any problem text, numbers, or question here and I will solve it for you right now step-by-step!"
+            )
+        else:
+            fallback_user = {"full_name": current_user.full_name if current_user else "Student", "role": current_user.role if current_user else "student"}
+            fallback_res, _, _, _, _, _ = generate_campus_ai_reply(
+                user_msg,
+                fallback_user,
+                memories,
+                custom_api_key=request.api_key,
+                history=request.history,
+                db=db
+            )
+            reply_text = fallback_res or f"Hello! 👋 I'm CampusLink AI, your personal campus companion. I'm ready to help you with course concepts, coding, assignments, formulas, or campus advice. What's on your mind today?"
 
     msg_id = "ai-" + str(int(datetime.now(timezone.utc).timestamp() * 1000))
     created_at_str = datetime.now(timezone.utc).isoformat()
@@ -7850,6 +7955,7 @@ async def chat_with_campus_ai(
         "content": reply_text,
         "sender": "ai",
         "id": msg_id,
+        "media_url": user_media_url,
         "created_at": created_at_str
     }
 

@@ -463,6 +463,7 @@ class AIMessage(Base):
     user_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
     sender = Column(String(10), default="user")  # "user" | "ai"
     content = Column(Text, nullable=False)
+    media_url = Column(String(550), nullable=True)
     is_memory_trigger = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
