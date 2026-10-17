@@ -37,6 +37,8 @@ import CampusNewsCard from './components/CampusNewsCard';
 import CampusNewsModal from './components/CampusNewsModal';
 import ExpandablePostText from './components/ExpandablePostText';
 import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
+import ReportUserModal from './components/ReportUserModal';
+import CreatorSearchBar from './components/CreatorSearchBar';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
@@ -634,6 +636,9 @@ export default function StudentDashboard() {
   const [selectedProfile, setSelectedProfile] = useState(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [reportModalUser, setReportModalUser] = useState(null);
+  const [profileUserReels, setProfileUserReels] = useState([]);
+  const [loadingProfileReels, setLoadingProfileReels] = useState(false);
   const profileCacheRef = useRef({});
 
   // Orders & Item Details State (SWR Instant Load)
@@ -3847,6 +3852,20 @@ export default function StudentDashboard() {
     const uid = String(userId || '');
     if (!uid) return;
 
+    // Fetch user's posts / reels for the profile view
+    setLoadingProfileReels(true);
+    setProfileUserReels([]);
+    API.get(`/reels?user_id=${uid}`)
+      .then((res) => {
+        setProfileUserReels(res.data || []);
+      })
+      .catch((err) => {
+        console.warn('Could not load user reels:', err);
+      })
+      .finally(() => {
+        setLoadingProfileReels(false);
+      });
+
     if (isSelfUser({ user_id: uid, id: uid })) {
       const selfProfile = {
         user_id: uid,
@@ -5126,6 +5145,12 @@ export default function StudentDashboard() {
         {/* --- TAB 2: CAMPUS HOME & FEED (SWEET SOCIAL EXPERIENCE) --- */}
         {activeTab === 'reels' && (
           <div className="max-w-2xl mx-auto space-y-3.5 sm:space-y-4">
+            {/* Creator & Student Search Bar */}
+            <CreatorSearchBar
+              onSelectUser={(u) => handleViewProfile(u.user_id || u.id, u)}
+              placeholder="Search creators, students & vendors by name..."
+            />
+
             {/* Campus Drop Composer (Clean single bar) */}
             <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 p-2.5 sm:p-3 shadow-xs">
               <div className="flex items-center space-x-3">
@@ -9070,7 +9095,18 @@ export default function StudentDashboard() {
               </div>
 
               {/* Header Gradient */}
-              <div className="h-28 bg-gradient-to-r from-sky-400 to-blue-600 relative p-4 flex justify-end">
+              <div className="h-28 bg-gradient-to-r from-sky-400 to-blue-600 relative p-4 flex items-center justify-between">
+                {selectedProfile && !isSelfUser(selectedProfile) && selectedProfile?.friendship_status !== 'self' ? (
+                  <button
+                    type="button"
+                    onClick={() => setReportModalUser(selectedProfile)}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-black/30 hover:bg-rose-600 text-white text-xs font-bold rounded-full transition-all cursor-pointer backdrop-blur-xs border border-white/20 active:scale-95 shadow-xs"
+                    title="Report User"
+                  >
+                    <Flag className="w-3.5 h-3.5" />
+                    <span>Report User</span>
+                  </button>
+                ) : <div />}
                 <button
                   onClick={() => setProfileModalOpen(false)}
                   className="min-tap-target-sm bg-black/30 hover:bg-black/50 text-white rounded-full p-2 cursor-pointer transition-colors"
@@ -9096,7 +9132,7 @@ export default function StudentDashboard() {
                 </div>
               ) : (
                 /* Profile Card Body */
-                <div className="p-6 pt-0 relative">
+                <div className="p-6 pt-0 relative overflow-y-auto max-h-[calc(90vh-7rem)] flex-1">
                   {/* Avatar */}
                   <div className="-mt-12 mb-4 flex items-end justify-between">
                     {selectedProfile.profile_picture_url ? (
@@ -9327,12 +9363,104 @@ export default function StudentDashboard() {
                   </p>
                 )}
 
+                {/* Recent Posts & Drops by this User */}
+                <div className="mt-6 pt-5 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center space-x-1.5">
+                      <Film className="w-4 h-4 text-sky-500" />
+                      <span>Posts & Drops ({profileUserReels.length})</span>
+                    </h4>
+                    <span className="text-[10px] font-bold text-slate-400">Campus Activity</span>
+                  </div>
+
+                  {loadingProfileReels ? (
+                    <div className="py-6 text-center space-y-2">
+                      <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
+                      <p className="text-xs text-slate-400">Loading posts...</p>
+                    </div>
+                  ) : profileUserReels.length === 0 ? (
+                    <div className="py-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      <Film className="w-6 h-6 text-slate-300 mx-auto mb-1.5" />
+                      <p className="text-xs font-bold text-slate-600">No posts yet</p>
+                      <p className="text-[11px] text-slate-400">This member hasn't posted any campus drops yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {profileUserReels.map((reel) => (
+                        <div
+                          key={reel.id}
+                          className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 transition-all space-y-2"
+                        >
+                          {/* Post Date & Time */}
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                            <span className="flex items-center space-x-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              <span>{reel.created_at ? safeTime(reel.created_at) : 'Recent drop'}</span>
+                            </span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600">
+                              {reel.media_url ? (reel.media_type === 'video' ? 'Video' : 'Photo') : 'Update'}
+                            </span>
+                          </div>
+
+                          {/* Media thumbnail preview if any */}
+                          {reel.media_url && (
+                            <div className="rounded-xl overflow-hidden bg-slate-900 max-h-48 flex items-center justify-center relative">
+                              {reel.media_type === 'video' ? (
+                                <video
+                                  src={getMediaUrl(reel.media_url)}
+                                  className="w-full max-h-48 object-cover"
+                                  controls
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <SafeImage
+                                  src={getMediaUrl(reel.media_url)}
+                                  alt="Post"
+                                  fallbackType="post"
+                                  className="w-full max-h-48 object-cover"
+                                />
+                              )}
+                            </div>
+                          )}
+
+                          {/* Caption */}
+                          {reel.caption && (
+                            <p className="text-xs text-slate-800 leading-relaxed break-words whitespace-pre-wrap">
+                              {reel.caption}
+                            </p>
+                          )}
+
+                          {/* Post Metrics Row */}
+                          <div className="flex items-center space-x-3 pt-1 text-[11px] text-slate-500 font-bold border-t border-slate-100">
+                            <span className="flex items-center space-x-1 text-rose-500">
+                              <Heart className="w-3 h-3 fill-rose-500" />
+                              <span>{reel.likes_count || 0}</span>
+                            </span>
+                            <span className="flex items-center space-x-1 text-sky-600">
+                              <MessageSquare className="w-3 h-3" />
+                              <span>{reel.comments_count || reel.comments?.length || 0}</span>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
               </div>
               )}
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Report User Modal */}
+      <ReportUserModal
+        isOpen={Boolean(reportModalUser)}
+        onClose={() => setReportModalUser(null)}
+        targetUser={reportModalUser}
+        onSuccessToast={(msg) => setToast({ text: msg, type: 'success' })}
+      />
 
       {/* --- MARKETPLACE PRODUCT DETAIL MODAL (Screenshot 3 / Facebook Lite Style) --- */}
       <AnimatePresence>

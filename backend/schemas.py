@@ -438,8 +438,38 @@ class CategoryOut(BaseModel):
 
 # --- Report & Favorite ---
 class ReportCreate(BaseModel):
-    reported_vendor_id: int
+    reported_vendor_id: Optional[int] = None
+    reported_user_id: Optional[str] = None
     reason: str
+    notes: Optional[str] = None
+
+class ReportOut(BaseModel):
+    id: int
+    reporter_id: str
+    reporter_name: Optional[str] = None
+    reporter_email: Optional[str] = None
+    reporter_role: Optional[str] = None
+    reporter_avatar: Optional[str] = None
+    reported_user_id: Optional[str] = None
+    reported_user_name: Optional[str] = None
+    reported_user_email: Optional[str] = None
+    reported_user_role: Optional[str] = None
+    reported_user_avatar: Optional[str] = None
+    reported_user_is_active: Optional[bool] = True
+    reported_vendor_id: Optional[int] = None
+    reported_vendor_name: Optional[str] = None
+    reason: str
+    notes: Optional[str] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ReportStatusUpdate(BaseModel):
+    status: str  # pending | investigating | resolved | dismissed
+    action: Optional[str] = None  # none | ban_user | unban_user | dismiss
+
 
 class FavoriteCreate(BaseModel):
     vendor_id: Optional[int] = None

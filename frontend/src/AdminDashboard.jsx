@@ -12,16 +12,17 @@ import {
   ExternalLink, Layers, UserX, UserCheck, Ban,
   Settings, Megaphone, ShieldAlert,
   ToggleLeft, ToggleRight, Radio, Server, RefreshCw,
-  Loader2, Send, Zap, Wifi, Copy
+  Loader2, Send, Zap, Wifi, Copy, Flag
 } from 'lucide-react';
 import API, { getMediaUrl } from './api';
 import SafeImage from './components/SafeImage';
 import InstallAppButton from './components/InstallAppButton';
+import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('vendors'); // 'vendors' | 'products' | 'services' | 'reels' | 'students' | 'stats' | 'settings'
+  const [activeTab, setActiveTab] = useState('vendors'); // 'vendors' | 'products' | 'services' | 'reels' | 'students' | 'reports' | 'stats' | 'settings'
   
   // Data States
   const [stats, setStats] = useState(null);
@@ -30,6 +31,9 @@ export default function AdminDashboard() {
   const [services, setServices] = useState([]);
   const [reels, setReels] = useState([]);
   const [users, setUsers] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [reportFilter, setReportFilter] = useState('all'); // 'all' | 'pending' | 'investigating' | 'resolved' | 'dismissed'
+  const [reportSearch, setReportSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState({ type: '', text: '' });
@@ -108,7 +112,8 @@ export default function AdminDashboard() {
         API.get('/products?limit=2000'),
         API.get('/services?limit=2000'),
         API.get('/reels'),
-        API.get('/admin/users')
+        API.get('/admin/users'),
+        API.get('/admin/reports')
       ]);
 
       if (results[0].status === 'fulfilled') setStats(results[0].value.data);
@@ -117,6 +122,7 @@ export default function AdminDashboard() {
       if (results[3].status === 'fulfilled') setServices(results[3].value.data);
       if (results[4].status === 'fulfilled') setReels(results[4].value.data);
       if (results[5].status === 'fulfilled') setUsers(results[5].value.data);
+      if (results[6].status === 'fulfilled') setReports(results[6].value.data || []);
     } catch (err) {
       console.error('Error loading admin data:', err);
     } finally {
@@ -430,6 +436,45 @@ export default function AdminDashboard() {
     );
   }, [users, userSearch, userStatusFilter]);
 
+  const pendingReportsCount = useMemo(() => {
+    return reports.filter((r) => r.status === 'pending').length;
+  }, [reports]);
+
+  const filteredReports = useMemo(() => {
+    let list = reports;
+    if (reportFilter !== 'all') {
+      list = list.filter((r) => (r.status || 'pending').toLowerCase() === reportFilter.toLowerCase());
+    }
+    const q = reportSearch.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter((r) =>
+      (r.reported_user_name || '').toLowerCase().includes(q) ||
+      (r.reported_user_email || '').toLowerCase().includes(q) ||
+      (r.reporter_name || '').toLowerCase().includes(q) ||
+      (r.reason || '').toLowerCase().includes(q) ||
+      (r.notes || '').toLowerCase().includes(q)
+    );
+  }, [reports, reportFilter, reportSearch]);
+
+  const handleUpdateReportStatus = async (reportId, nextStatus, action = null) => {
+    setActionLoading(true);
+    try {
+      await API.put(`/admin/reports/${reportId}`, {
+        status: nextStatus,
+        action: action
+      });
+      setToastMessage({
+        type: 'success',
+        text: `Report #${reportId} updated to ${nextStatus}${action ? ` (${action})` : ''}.`
+      });
+      await loadAdminData();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to update report status.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // List of emails matching current broadcast audience filter
   const audienceEmails = useMemo(() => {
     const list = [];
@@ -616,6 +661,23 @@ export default function AdminDashboard() {
             </button>
 
             <button
+              onClick={() => setActiveTab('reports')}
+              className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
+                activeTab === 'reports' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Flag className="w-4 h-4" />
+              <span>Reported Users</span>
+              {pendingReportsCount > 0 && (
+                <span className={`ml-auto text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                  activeTab === 'reports' ? 'bg-white text-rose-700' : 'bg-rose-100 text-rose-800 animate-pulse'
+                }`}>
+                  {pendingReportsCount}
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => setActiveTab('stats')}
               className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
                 activeTab === 'stats' ? 'bg-sky-500 text-white shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -741,6 +803,28 @@ export default function AdminDashboard() {
           )}
         </button>
 
+        {/* Reports */}
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`flex-1 min-tap-target flex flex-col items-center justify-center py-1 px-1 rounded-2xl transition-all active:scale-90 cursor-pointer relative ${
+            activeTab === 'reports' ? 'text-rose-600 font-extrabold' : 'text-slate-500 hover:text-slate-900 font-medium'
+          }`}
+          aria-label="Reported Users"
+        >
+          <div className="relative flex items-center justify-center">
+            <Flag className={`w-5 h-5 transition-transform ${activeTab === 'reports' ? 'stroke-[2.5] scale-110' : 'stroke-2'}`} />
+            {pendingReportsCount > 0 && (
+              <span className="absolute -top-1 -right-2 bg-rose-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center animate-bounce shadow-xs">
+                {pendingReportsCount > 9 ? '9+' : pendingReportsCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight mt-0.5">Reports</span>
+          {activeTab === 'reports' && (
+            <span className="absolute top-0 w-8 h-1 bg-rose-500 rounded-full shadow-xs shadow-rose-500/50" />
+          )}
+        </button>
+
         {/* Settings */}
         <button
           onClick={() => setActiveTab('settings')}
@@ -771,6 +855,7 @@ export default function AdminDashboard() {
               { id: 'services', icon: Wrench, label: 'Services', badge: services.length },
               { id: 'reels', icon: Video, label: 'Reels', badge: reels.length },
               { id: 'students', icon: GraduationCap, label: 'Users & Roles', badge: users.length },
+              { id: 'reports', icon: Flag, label: 'Reported Users', badge: pendingReportsCount, badgeColor: 'bg-rose-500' },
               { id: 'stats', icon: Activity, label: 'Ecosystem Analytics' },
               { id: 'settings', icon: Settings, label: 'Admin Settings', isLive: true }
             ].map((tab) => {
@@ -1927,6 +2012,303 @@ export default function AdminDashboard() {
                 <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 p-6">
                   <GraduationCap className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                   <span className="text-xs text-slate-400 font-medium block">No users found matching your filter or search.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* --- TAB: REPORTED USERS & MODERATION --- */}
+        {activeTab === 'reports' && (
+          <div>
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-200">
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center space-x-2.5">
+                  <Flag className="w-6 h-6 sm:w-8 sm:h-8 text-rose-500" />
+                  <span>Reported Users & Campus Safety</span>
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  Investigate community reports, review violation reasons, take disciplinary action, or clear accounts.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadAdminData}
+                disabled={loading || actionLoading}
+                className="self-start sm:self-auto px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs flex items-center space-x-2 transition-all cursor-pointer shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Refresh Reports</span>
+              </button>
+            </div>
+
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+              <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Reports</span>
+                <span className="text-2xl font-black text-slate-900 mt-1 block">{reports.length}</span>
+                <span className="text-[10px] text-slate-500 mt-0.5 block">All recorded submissions</span>
+              </div>
+
+              <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200 shadow-2xs">
+                <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">Pending Review</span>
+                <span className="text-2xl font-black text-amber-900 mt-1 block">{pendingReportsCount}</span>
+                <span className="text-[10px] text-amber-600 mt-0.5 block">Awaiting admin action</span>
+              </div>
+
+              <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 shadow-2xs">
+                <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider block">Resolved Cases</span>
+                <span className="text-2xl font-black text-emerald-900 mt-1 block">
+                  {reports.filter((r) => r.status === 'resolved').length}
+                </span>
+                <span className="text-[10px] text-emerald-600 mt-0.5 block">Sanctioned or resolved</span>
+              </div>
+
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 shadow-2xs">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Dismissed</span>
+                <span className="text-2xl font-black text-slate-700 mt-1 block">
+                  {reports.filter((r) => r.status === 'dismissed').length}
+                </span>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">No violation found</span>
+              </div>
+            </div>
+
+            {/* Controls Bar: Search & Status Filter Pills */}
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs mb-6 space-y-3">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                {/* Search Bar */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={reportSearch}
+                    onChange={(e) => setReportSearch(e.target.value)}
+                    placeholder="Search by reported user, reporter, reason, or notes..."
+                    className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 outline-hidden font-medium text-slate-800 placeholder:text-slate-400"
+                  />
+                  {reportSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setReportSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
+                  {[
+                    { id: 'all', label: 'All', count: reports.length },
+                    { id: 'pending', label: 'Pending', count: pendingReportsCount },
+                    { id: 'investigating', label: 'Investigating', count: reports.filter((r) => r.status === 'investigating').length },
+                    { id: 'resolved', label: 'Resolved', count: reports.filter((r) => r.status === 'resolved').length },
+                    { id: 'dismissed', label: 'Dismissed', count: reports.filter((r) => r.status === 'dismissed').length }
+                  ].map((filter) => {
+                    const isActive = reportFilter === filter.id;
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => setReportFilter(filter.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center space-x-1.5 ${
+                          isActive
+                            ? 'bg-slate-900 text-white shadow-xs'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        <span>{filter.label}</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isActive ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}>
+                          {filter.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Reports List */}
+            <div className="space-y-4">
+              {filteredReports.map((report) => {
+                const isReportedActive = report.reported_user_is_active;
+                const status = (report.status || 'pending').toLowerCase();
+
+                let statusBadgeClass = 'bg-amber-100 text-amber-900 border-amber-300';
+                if (status === 'investigating') statusBadgeClass = 'bg-sky-100 text-sky-800 border-sky-300';
+                if (status === 'resolved') statusBadgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                if (status === 'dismissed') statusBadgeClass = 'bg-slate-100 text-slate-600 border-slate-300';
+
+                return (
+                  <div
+                    key={report.id}
+                    className="p-4 sm:p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs hover:shadow-xs transition-shadow space-y-4"
+                  >
+                    {/* Header Row: ID, Timestamp, Status */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono text-xs font-bold text-slate-500">
+                          #RPT-{report.id}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wide ${statusBadgeClass}`}>
+                          {status}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-1 text-xs text-slate-400 font-medium">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{report.created_at ? safeTime(report.created_at) : 'Recently reported'}</span>
+                      </div>
+                    </div>
+
+                    {/* Main Report Details Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                      {/* Left: Reported User Info (5 cols) */}
+                      <div className="md:col-span-5 p-3.5 bg-rose-50/40 rounded-xl border border-rose-100 space-y-2.5">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-rose-700 block">
+                          Reported User
+                        </span>
+                        <div className="flex items-center space-x-3">
+                          <div className="w-11 h-11 rounded-full bg-slate-200 overflow-hidden shrink-0 flex items-center justify-center font-black text-slate-600 border border-slate-200">
+                            {report.reported_user_avatar ? (
+                              <SafeImage
+                                src={report.reported_user_avatar}
+                                alt={report.reported_user_name}
+                                fallbackType="avatar"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              (report.reported_user_name || 'U').charAt(0)
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-black text-sm text-slate-900 truncate flex items-center space-x-1">
+                              <span>{report.reported_user_name}</span>
+                              {isAppCreator({ name: report.reported_user_name, email: report.reported_user_email, id: report.reported_user_id }) && (
+                                <VerifiedBadge size="xs" />
+                              )}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">{report.reported_user_email || 'No email'}</p>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-white border border-slate-200 text-slate-700">
+                                {report.reported_user_role}
+                              </span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md border ${
+                                isReportedActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-800 border-rose-200'
+                              }`}>
+                                {isReportedActive ? 'Account Active' : 'Account Banned'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle: Reporter & Reason Details (4 cols) */}
+                      <div className="md:col-span-4 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-slate-500 block">
+                          Report Reason & Details
+                        </span>
+                        <div>
+                          <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-600 text-white font-extrabold text-xs shadow-2xs">
+                            {report.reason}
+                          </span>
+                        </div>
+                        {report.notes && (
+                          <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-xs text-slate-700 italic leading-relaxed">
+                            "{report.notes}"
+                          </div>
+                        )}
+                        <p className="text-[10px] text-slate-400">
+                          Filed by: <strong className="text-slate-700">{report.reporter_name}</strong> ({report.reporter_role})
+                        </p>
+                      </div>
+
+                      {/* Right: Moderation Actions (3 cols) */}
+                      <div className="md:col-span-3 flex flex-col space-y-2 justify-center">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-0.5">
+                          Admin Action
+                        </span>
+
+                        {status !== 'resolved' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateReportStatus(report.id, 'resolved')}
+                            disabled={actionLoading}
+                            className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-2xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Mark Resolved</span>
+                          </button>
+                        )}
+
+                        {status !== 'investigating' && status !== 'resolved' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateReportStatus(report.id, 'investigating')}
+                            disabled={actionLoading}
+                            className="w-full py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-xl font-bold text-xs border border-sky-200 flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                            <span>Investigate</span>
+                          </button>
+                        )}
+
+                        {status !== 'dismissed' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateReportStatus(report.id, 'dismissed')}
+                            disabled={actionLoading}
+                            className="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                          >
+                            Dismiss Report
+                          </button>
+                        )}
+
+                        {report.reported_user_id && isReportedActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Are you sure you want to ban ${report.reported_user_name}? This will block their login and access immediately.`)) {
+                                handleUpdateReportStatus(report.id, 'resolved', 'ban_user');
+                              }
+                            }}
+                            disabled={actionLoading}
+                            className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                          >
+                            <Ban className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Ban Reported User</span>
+                          </button>
+                        )}
+
+                        {report.reported_user_id && !isReportedActive && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateReportStatus(report.id, 'investigating', 'unban_user')}
+                            disabled={actionLoading}
+                            className="w-full py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center justify-center space-x-1.5"
+                          >
+                            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Unban User</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredReports.length === 0 && (
+                <div className="py-12 text-center bg-white rounded-2xl border border-slate-200 p-6 space-y-2">
+                  <ShieldCheck className="w-10 h-10 text-emerald-500 mx-auto" />
+                  <p className="text-sm font-extrabold text-slate-800">No Reports Found</p>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    {reportSearch || reportFilter !== 'all'
+                      ? 'No reports match your selected search query or filter.'
+                      : 'All quiet! There are currently no active user reports on CampusLink.'}
+                  </p>
                 </div>
               )}
             </div>

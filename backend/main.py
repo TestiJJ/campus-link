@@ -2871,6 +2871,169 @@ async def broadcast_announcement_admin(
     }
 
 
+# ==========================================
+# USER & VENDOR REPORTING & MODERATION
+# ==========================================
+
+@app.post("/api/reports")
+def submit_user_report(
+    payload: schemas.ReportCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(database.get_db)
+):
+    if not payload.reported_user_id and not payload.reported_vendor_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Must specify a user or vendor to report."
+        )
+
+    if payload.reported_user_id and str(payload.reported_user_id) == str(current_user.user_id):
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot report your own profile."
+        )
+
+    target_user = None
+    if payload.reported_user_id:
+        target_user = db.query(models.User).filter(models.User.user_id == str(payload.reported_user_id)).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Reported user not found.")
+
+    report = models.Report(
+        reporter_id=str(current_user.user_id),
+        reported_user_id=str(payload.reported_user_id) if payload.reported_user_id else None,
+        reported_vendor_id=payload.reported_vendor_id,
+        reason=payload.reason.strip(),
+        notes=payload.notes.strip() if payload.notes else None,
+        status="pending",
+        created_at=datetime.utcnow()
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+
+    # Deliver notification to administrators
+    try:
+        reporter_display = current_user.full_name or "A user"
+        reported_display = target_user.full_name if target_user else "a vendor"
+        admins = db.query(models.User).filter(models.User.role == "admin").all()
+        for admin in admins:
+            db.add(models.Notification(
+                user_id=str(admin.user_id),
+                title="New User Report",
+                message=f"{reporter_display} reported {reported_display} for: {payload.reason}",
+                type="report",
+                created_at=datetime.utcnow()
+            ))
+        db.commit()
+    except Exception as e:
+        print(f"[Report] Admin notification error: {e}")
+
+    return {
+        "status": "success",
+        "message": "Report submitted successfully. Our safety team has been notified.",
+        "report_id": report.id
+    }
+
+
+@app.get("/api/admin/reports", response_model=List[schemas.ReportOut])
+def get_all_reports_admin(
+    status_filter: Optional[str] = None,
+    current_user: models.User = Depends(require_role(["admin"])),
+    db: Session = Depends(database.get_db)
+):
+    query = (
+        db.query(models.Report)
+        .options(
+            joinedload(models.Report.reporter),
+            joinedload(models.Report.reported_user),
+            joinedload(models.Report.reported_vendor)
+        )
+    )
+    if status_filter and status_filter != "all":
+        query = query.filter(models.Report.status == status_filter.strip().lower())
+
+    reports = query.order_by(models.Report.created_at.desc()).all()
+    results = []
+    for r in reports:
+        reporter = r.reporter
+        rep_user = r.reported_user
+        rep_vendor = r.reported_vendor
+
+        rep_name = "Unknown Member"
+        rep_email = None
+        rep_role = "Student"
+        rep_avatar = None
+        rep_active = True
+
+        if rep_user:
+            rep_name = rep_user.full_name or "User"
+            rep_email = rep_user.email
+            rep_role = rep_user.role or "Student"
+            rep_avatar = rep_user.profile_picture_url
+            rep_active = getattr(rep_user, "status", "active") != "banned"
+        elif rep_vendor:
+            rep_name = rep_vendor.business_name or "Vendor Store"
+            rep_role = "Vendor"
+            rep_avatar = rep_vendor.logo_url
+
+        results.append({
+            "id": r.id,
+            "reporter_id": r.reporter_id,
+            "reporter_name": reporter.full_name if reporter else "Anonymous User",
+            "reporter_email": reporter.email if reporter else None,
+            "reporter_role": reporter.role if reporter else "Student",
+            "reporter_avatar": reporter.profile_picture_url if reporter else None,
+            "reported_user_id": r.reported_user_id,
+            "reported_user_name": rep_name,
+            "reported_user_email": rep_email,
+            "reported_user_role": rep_role,
+            "reported_user_avatar": rep_avatar,
+            "reported_user_is_active": rep_active,
+            "reported_vendor_id": r.reported_vendor_id,
+            "reported_vendor_name": rep_vendor.business_name if rep_vendor else None,
+            "reason": r.reason,
+            "notes": r.notes,
+            "status": r.status or "pending",
+            "created_at": r.created_at
+        })
+    return results
+
+
+@app.put("/api/admin/reports/{report_id}")
+def update_report_status_admin(
+    report_id: int,
+    payload: schemas.ReportStatusUpdate,
+    current_user: models.User = Depends(require_role(["admin"])),
+    db: Session = Depends(database.get_db)
+):
+    report = db.query(models.Report).filter(models.Report.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report record not found.")
+
+    new_status = (payload.status or "pending").strip().lower()
+    report.status = new_status
+
+    action = (payload.action or "none").strip().lower()
+    if action == "ban_user" and report.reported_user_id:
+        u = db.query(models.User).filter(models.User.user_id == report.reported_user_id).first()
+        if u and u.role != "admin":
+            u.status = "banned"
+            report.status = "resolved"
+    elif action == "unban_user" and report.reported_user_id:
+        u = db.query(models.User).filter(models.User.user_id == report.reported_user_id).first()
+        if u:
+            u.status = "active"
+
+    db.commit()
+    return {
+        "status": "success",
+        "message": f"Report #{report_id} updated to '{report.status}'.",
+        "report_id": report.id,
+        "new_status": report.status
+    }
+
+
 
 # --- VENDOR PROFILE & VERIFICATION SUBMISSION ---
 

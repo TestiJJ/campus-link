@@ -65,7 +65,7 @@ class User(Base):
     favorites = relationship("Favorite", back_populates="user")
     orders = relationship("Order", back_populates="user")
     rides = relationship("RideBooking", back_populates="user")
-    reports = relationship("Report", back_populates="reporter")
+    reports = relationship("Report", foreign_keys="[Report.reporter_id]", back_populates="reporter")
 
     @property
     def verification_status(self):
@@ -303,12 +303,16 @@ class Report(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     reporter_id = Column(String(36), ForeignKey("users.user_id"), nullable=False)
-    reported_vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False)
+    reported_vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
+    reported_user_id = Column(String(36), ForeignKey("users.user_id"), nullable=True)
     reason = Column(Text, nullable=False)
-    status = Column(String(20), default="pending")  # pending | investigating | resolved
+    notes = Column(Text, nullable=True)
+    status = Column(String(20), default="pending")  # pending | investigating | resolved | dismissed
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    reporter = relationship("User", back_populates="reports")
+    reporter = relationship("User", foreign_keys=[reporter_id], back_populates="reports")
+    reported_user = relationship("User", foreign_keys=[reported_user_id])
+    reported_vendor = relationship("Vendor", foreign_keys=[reported_vendor_id])
 
 
 class Friendship(Base):
