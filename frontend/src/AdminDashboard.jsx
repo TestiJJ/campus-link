@@ -19,6 +19,35 @@ import SafeImage from './components/SafeImage';
 import InstallAppButton from './components/InstallAppButton';
 import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
 
+// Safe Date and Time Formatters (Prevents RangeError on iOS Safari / WebKit and ensures accurate UTC handling)
+export function safeTime(dateStr, fallback = 'Recently') {
+  if (!dateStr) return fallback;
+  try {
+    let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
+    if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return fallback;
+  }
+}
+
+export function safeDate(dateStr, fallback = 'Recent') {
+  if (!dateStr) return fallback;
+  try {
+    let cleanStr = typeof dateStr === 'string' ? dateStr.trim() : dateStr;
+    if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+') && !cleanStr.includes('-', 10)) {
+      cleanStr += 'Z';
+    }
+    const d = new Date(typeof cleanStr === 'string' && cleanStr.includes(' ') ? cleanStr.replace(' ', 'T') : cleanStr);
+    return isNaN(d.getTime()) ? fallback : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return fallback;
+  }
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);

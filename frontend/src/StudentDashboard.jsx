@@ -39,6 +39,7 @@ import ExpandablePostText from './components/ExpandablePostText';
 import VerifiedBadge, { isAppCreator } from './components/VerifiedBadge';
 import ReportUserModal from './components/ReportUserModal';
 import CreatorSearchBar from './components/CreatorSearchBar';
+import ProfilePostsFeed from './components/ProfilePostsFeed';
 // import VoiceCallModal from './components/VoiceCallModal';
 // import { useWebRtcVoiceCall } from './utils/useWebRtcVoiceCall';
 import {
@@ -9363,88 +9364,47 @@ export default function StudentDashboard() {
                   </p>
                 )}
 
-                {/* Recent Posts & Drops by this User */}
-                <div className="mt-6 pt-5 border-t border-slate-200">
-                  <div className="flex items-center justify-between mb-3">
+                {/* Recent Posts & Drops by this User (Facebook-style Timeline Feed) */}
+                <div className="mt-6 pt-5 border-t border-slate-200 text-left">
+                  <div className="flex items-center justify-between mb-3 px-1">
                     <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center space-x-1.5">
                       <Film className="w-4 h-4 text-sky-500" />
-                      <span>Posts & Drops ({profileUserReels.length})</span>
+                      <span>Timeline Posts ({profileUserReels.length})</span>
                     </h4>
                     <span className="text-[10px] font-bold text-slate-400">Campus Activity</span>
                   </div>
 
-                  {loadingProfileReels ? (
-                    <div className="py-6 text-center space-y-2">
-                      <Loader2 className="w-5 h-5 text-sky-500 animate-spin mx-auto" />
-                      <p className="text-xs text-slate-400">Loading posts...</p>
-                    </div>
-                  ) : profileUserReels.length === 0 ? (
-                    <div className="py-6 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                      <Film className="w-6 h-6 text-slate-300 mx-auto mb-1.5" />
-                      <p className="text-xs font-bold text-slate-600">No posts yet</p>
-                      <p className="text-[11px] text-slate-400">This member hasn't posted any campus drops yet.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {profileUserReels.map((reel) => (
-                        <div
-                          key={reel.id}
-                          className="p-3 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-100 transition-all space-y-2"
-                        >
-                          {/* Post Date & Time */}
-                          <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                            <span className="flex items-center space-x-1">
-                              <Clock className="w-3 h-3 text-slate-400" />
-                              <span>{reel.created_at ? safeTime(reel.created_at) : 'Recent drop'}</span>
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600">
-                              {reel.media_url ? (reel.media_type === 'video' ? 'Video' : 'Photo') : 'Update'}
-                            </span>
-                          </div>
-
-                          {/* Media thumbnail preview if any */}
-                          {reel.media_url && (
-                            <div className="rounded-xl overflow-hidden bg-slate-900 max-h-48 flex items-center justify-center relative">
-                              {reel.media_type === 'video' ? (
-                                <video
-                                  src={getMediaUrl(reel.media_url)}
-                                  className="w-full max-h-48 object-cover"
-                                  controls
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <SafeImage
-                                  src={getMediaUrl(reel.media_url)}
-                                  alt="Post"
-                                  fallbackType="post"
-                                  className="w-full max-h-48 object-cover"
-                                />
-                              )}
-                            </div>
-                          )}
-
-                          {/* Caption */}
-                          {reel.caption && (
-                            <p className="text-xs text-slate-800 leading-relaxed break-words whitespace-pre-wrap">
-                              {reel.caption}
-                            </p>
-                          )}
-
-                          {/* Post Metrics Row */}
-                          <div className="flex items-center space-x-3 pt-1 text-[11px] text-slate-500 font-bold border-t border-slate-100">
-                            <span className="flex items-center space-x-1 text-rose-500">
-                              <Heart className="w-3 h-3 fill-rose-500" />
-                              <span>{reel.likes_count || 0}</span>
-                            </span>
-                            <span className="flex items-center space-x-1 text-sky-600">
-                              <MessageSquare className="w-3 h-3" />
-                              <span>{reel.comments_count || reel.comments?.length || 0}</span>
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <ProfilePostsFeed
+                    posts={profileUserReels}
+                    loading={loadingProfileReels}
+                    currentUser={currentUser}
+                    profileUser={selectedProfile}
+                    onPostUpdated={(postId, updates) => {
+                      if (updates.has_liked !== undefined) {
+                        setReels(prev =>
+                          prev.map(r =>
+                            r.id === postId
+                              ? { ...r, has_liked: updates.has_liked, likes_count: updates.likes_count }
+                              : r
+                          )
+                        );
+                      }
+                      if (updates.newComment) {
+                        setReels(prev =>
+                          prev.map(r =>
+                            r.id === postId
+                              ? {
+                                  ...r,
+                                  comments: [...(r.comments || []), updates.newComment],
+                                  comments_count: (r.comments_count || (r.comments ? r.comments.length : 0)) + 1
+                                }
+                              : r
+                          )
+                        );
+                      }
+                    }}
+                    showToast={(text, type) => setToast({ text, type })}
+                  />
                 </div>
 
               </div>
